@@ -1,0 +1,57 @@
+.rbc-timeslot-group {
+    min-height: 20px;
+  }
+  .rbc-allday-cell {
+    display: none !important;
+  }
+
+  .rbc-time-gutter {
+  background-color: #f0f0f0; /* Fondo gris claro */
+  
+  color: #333;               /* Color texto */
+  font-weight: bold;
+  border-right: 1px solid #ddd; /* Línea separadora */
+}
+.rbc-time-gutter .rbc-label {
+  height: 60px; /* Duplicar altura para combinar 2 medias horas */
+  line-height: 60px;
+  border-bottom: 2px solid #ccc;
+}
+.rbc-time-header{
+  background-color: #f0f0f0; /* Fondo gris claro */
+  color: #333;               /* Color texto */
+  font-weight: bold;
+  font-size: 20px; /* Tamaño de fuente */
+  border-bottom: 1px solid #ddd; /* Línea separadora */
+}
+
+
+
+/* RESET en vista "day" para que ocupe todo el ancho */
+.rbc-time-view-day .rbc-day-slot,
+.rbc-time-view-day .rbc-time-content .rbc-day-slot {
+  width: 100% !important;
+  display: block !important;
+}
+/* Solo cuando hay 7 días (vista semana completa) */
+.rbc-time-view:not(.rbc-time-view-day):not(.rbc-time-view-agenda) 
+  .rbc-time-header .rbc-header:nth-child(7),
+.rbc-time-view:not(.rbc-time-view-day):not(.rbc-time-view-agenda)
+  .rbc-time-content .rbc-day-slot:nth-child(7) {
+  display: none !important;
+}
+
+/* Recalcula el ancho de los otros días (ahora 6 días visibles) */
+.rbc-time-header .rbc-header,
+.rbc-time-view .rbc-day-slot,
+.rbc-allday-cell,
+.rbc-time-content .rbc-day-slot {
+  width: calc(100% / 6);
+}
+.rbc-time-slot,
+.rbc-day-slot {
+  cursor: pointer;
+}
+.rbc-event {
+  transition: top 0.15s ease, height 0.15s ease;
+}

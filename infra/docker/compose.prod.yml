@@ -1,0 +1,48 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: mongo_prod
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+      
+
+  api:
+    image: ghcr.io/pgaisse/appointments-platform/api:latest
+    container_name: api_prod
+    restart: unless-stopped
+    env_file:
+      - ../../.env.prod
+    depends_on:
+      - mongo
+
+  web:
+    image: ghcr.io/pgaisse/appointments-platform/web:latest
+    container_name: web_prod
+    restart: unless-stopped
+    env_file:
+      - ../../.env.prod
+    depends_on:
+      - api
+
+  nginx:
+    build: ../nginx  # <- usa Dockerfile con envsubst
+    container_name: nginx_prod
+    restart: unless-stopped
+    env_file:
+      - ../../.env.prod  # <- aquí vive SERVER_NAME
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    depends_on:
+      - web
+      - api
+
+volumes:
+  mongo_data:
+  certs:
+  certbot-www:

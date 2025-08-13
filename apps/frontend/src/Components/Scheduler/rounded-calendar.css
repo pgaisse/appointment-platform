@@ -1,0 +1,240 @@
+/* === BASE === */
+.rbc-calendar {
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica;
+}
+
+/* === TOOLBAR === */
+.rbc-toolbar {
+  padding: 1rem;
+  font-weight: 500;
+  background-color: #f7fafc;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 16px;
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* === TIME GUTTER (Primera columna: horarios) === */
+.rbc-time-gutter {
+  width: 60px !important;
+  min-width: 60px !important;
+  max-width: 60px !important;
+  background-color: #f9fafb;
+  padding-right: 0;
+  margin-right: 0;
+  border: none;
+}
+
+.rbc-time-gutter .rbc-label {
+  text-align: right;
+  padding-right: 6px;
+  font-size: 13px;
+  color: #4a5568;
+}
+
+.rbc-time-gutter .rbc-timeslot-group {
+  text-align: right;
+  font-weight: 500;
+  font-size: 14px;
+  color: #4a5568;
+  padding-right: 8px;
+  border: none;
+}
+
+/* === GRILLA Y HORAS === */
+.rbc-time-view,
+.rbc-time-content,
+.rbc-day-slot,
+.rbc-time-header,
+.rbc-row,
+.rbc-row-segment {
+  border: none !important;
+}
+
+.rbc-time-content {
+  display: flex;
+  gap: 8px;
+  border-top: none !important;
+  border-left: none !important;
+}
+
+.rbc-timeslot-group {
+  height: 45px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0;
+  margin: 0;
+  border-bottom: none !important;
+}
+
+.rbc-time-slot {
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1 !important;
+  display: flex;
+  align-items: center;
+  border-top: none !important;
+}
+
+/* === COLUMNAS DEL CUERPO === */
+.rbc-day-slot {
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: #ffffff;
+  margin: 0 4px;
+  box-shadow: 0px 1px 6px rgba(0, 0, 0, 0.05);
+  transition: background-color 0.3s ease;
+}
+
+.rbc-day-slot:hover {
+  background-color: #f1f5f9;
+}
+
+/* === CABECERAS DE DÍA === */
+.rbc-time-header-content {
+  display: flex;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.rbc-time-header-content > .rbc-header {
+  flex: 1 1 0;
+  border-radius: 18px;
+  background-color: #ffffff;
+  margin: 0;
+  padding: 12px 0;
+  text-align: center;
+  font-weight: 600;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
+}
+
+.rbc-header + .rbc-header {
+  border-left: none !important;
+}
+
+.rbc-header:hover {
+  background-color: #f1f5f9;
+  transition: background-color 0.3s ease;
+}
+
+/* Alineación exacta entre cabecera y columnas */
+.rbc-time-header-content,
+.rbc-time-content > .rbc-day-slot {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+}
+
+/* === EVENTOS === */
+.rbc-event {
+  background-color: #3182ce;
+  color: white;
+  border-radius: 12px;
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
+.rbc-today {
+  background-color: #ebf8ff !important;
+}
+
+
+/* Asegura que las cabeceras de día se vean como parte de la misma tarjeta */
+.rbc-time-header-content {
+  display: flex;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+/* Estilo visual de cada cabecera */
+.rbc-time-header-content > .rbc-header {
+  flex: 1 1 0;
+  background-color: #ffffff;
+  text-align: center;
+  font-weight: 600;
+  border-radius: 18px 18px 0 0; /* SOLO bordes superiores */
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
+  margin-bottom: -1px; /* Ajusta este valor si hay separación */
+  z-index: 1;
+  position: relative;
+}
+
+/* Estilo de las columnas (ya lo tienes, pero asegúrate de esto) */
+.rbc-day-slot {
+  border-radius: 0 0 18px 18px; /* SOLO bordes inferiores */
+  margin: 0 4px;
+  background-color: #fff;
+  box-shadow: 0px 1px 6px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+/* === Altura uniforme para TODAS las celdas del calendario === */
+
+/* Fuerza altura fija en todos los grupos de tiempo (cada fila) */
+.rbc-time-content .rbc-timeslot-group,
+.rbc-time-gutter .rbc-timeslot-group {
+  height: 50px; /* ajusta este valor según prefieras */
+  display: flex;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  box-sizing: border-box;
+}
+
+/* Asegura que cada celda (slot individual) también tenga altura igual */
+.rbc-time-slot {
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+/* Evita que se autoajuste al contenido de eventos */
+.rbc-day-slot,
+.rbc-time-gutter {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fuerza igual altura entre gutter y celdas de eventos */
+.rbc-time-slot, .rbc-day-slot .rbc-time-slot {
+  height: 8px !important; /* Ajusta el valor a tu gusto */
+  min-height: 5px !important;
+  max-height: 80px !important;
+  box-sizing: border-box;
+}
+
+/* Esto aplica a la columna gutter */
+.rbc-time-gutter .rbc-time-slot {
+  height: 5px !important;
+}
+
+/* Esto aplica a la columna de eventos */
+.rbc-day-slot .rbc-time-slot {
+  height: 5px !important;
+}
+.rbc-time-gutter,
+.rbc-time-content {
+  border-top: none;
+}
+
+.rbc-time-gutter .rbc-timeslot-group:first-child {
+
+}
+.rbc-day-slot .rbc-timeslot-group:first-child {
+
+}
+.rbc-time-header-gutter {
+  height: 40px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

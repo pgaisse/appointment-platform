@@ -1,0 +1,13 @@
+# Archivos sensibles
+.env
+.env.*
+*.json
+*.pem
+*.key
+*.p12
+secret.txt
+
+# Node.js
+node_modules/
+dist/
+build/

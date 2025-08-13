@@ -1,0 +1,43 @@
+# infra/docker/compose.dev.yml
+services:
+  mongo:
+    image: mongo:7
+    ports: ["27018:27017"]
+    volumes: ["mongo_dev:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: node:20-alpine
+    working_dir: /repo/apps/backend
+    command: sh -lc "npm install --no-audit --no-fund && npm run dev"
+    env_file: ["../../.env.dev"]
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    ports: ["3003:3003"]
+    volumes:
+      - ../..:/repo
+      - /repo/apps/backend/node_modules
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /repo/apps/frontend
+    command: sh -lc "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3004"
+    env_file: ["../../.env.front.dev"]
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    ports: ["3004:3004"]
+    volumes:
+      - ../..:/repo
+      - /repo/apps/frontend/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  mongo_dev:

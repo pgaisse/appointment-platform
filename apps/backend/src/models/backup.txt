@@ -1,0 +1,471 @@
+db.appointments.insertMany([
+    {
+      nameInput: "John Doe",
+      emailInput: "john.doe@gmail.com",
+      phoneInput: "0423345678",
+      lastNameInput: "Smith",
+      textAreaInput: "braces",
+      datetimeInput: new Date("2024-11-10T14:30:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Jane Smith",
+      emailInput: "jane.smith@yahoo.com",
+      phoneInput: "0498765432",
+      lastNameInput: "Williams",
+      textAreaInput: "implants",
+      datetimeInput: new Date("2025-02-17T11:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Robert Johnson",
+      emailInput: "robert.johnson@outlook.com",
+      phoneInput: "0476543210",
+      lastNameInput: "Taylor",
+      textAreaInput: "whitening",
+      datetimeInput: new Date("2024-12-05T09:45:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Emily Davis",
+      emailInput: "emily.davis@gmail.com",
+      phoneInput: "0432123456",
+      lastNameInput: "Brown",
+      textAreaInput: "pain",
+      datetimeInput: new Date("2025-03-01T15:30:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Michael Wilson",
+      emailInput: "michael.wilson@hotmail.com",
+      phoneInput: "0489765432",
+      lastNameInput: "Miller",
+      textAreaInput: "consult240",
+      datetimeInput: new Date("2025-01-20T10:15:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Sarah Moore",
+      emailInput: "sarah.moore@gmail.com",
+      phoneInput: "0423456789",
+      lastNameInput: "Martinez",
+      textAreaInput: "venners",
+      datetimeInput: new Date("2025-04-15T13:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "David Lee",
+      emailInput: "david.lee@aol.com",
+      phoneInput: "0498765432",
+      lastNameInput: "Harris",
+      textAreaInput: "braces",
+      datetimeInput: new Date("2025-04-02T16:20:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Sophia Clark",
+      emailInput: "sophia.clark@gmail.com",
+      phoneInput: "0434567890",
+      lastNameInput: "Walker",
+      textAreaInput: "implants",
+      datetimeInput: new Date("2024-11-25T17:10:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Daniel Lewis",
+      emailInput: "daniel.lewis@hotmail.com",
+      phoneInput: "0412345678",
+      lastNameInput: "Allen",
+      textAreaInput: "pain",
+      datetimeInput: new Date("2025-03-14T18:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Olivia Walker",
+      emailInput: "olivia.walker@gmail.com",
+      phoneInput: "0445678901",
+      lastNameInput: "Young",
+      textAreaInput: "whitening",
+      datetimeInput: new Date("2025-02-11T12:50:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "James Harris",
+      emailInput: "james.harris@gmail.com",
+      phoneInput: "0476543210",
+      lastNameInput: "King",
+      textAreaInput: "invisalign",
+      datetimeInput: new Date("2025-04-09T10:25:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Mia Robinson",
+      emailInput: "mia.robinson@outlook.com",
+      phoneInput: "0498765432",
+      lastNameInput: "Scott",
+      textAreaInput: "venners",
+      datetimeInput: new Date("2024-11-19T14:10:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Benjamin Clark",
+      emailInput: "benjamin.clark@hotmail.com",
+      phoneInput: "0423456789",
+      lastNameInput: "Lewis",
+      textAreaInput: "braces",
+      datetimeInput: new Date("2025-04-03T13:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Amelia White",
+      emailInput: "amelia.white@gmail.com",
+      phoneInput: "0478912345",
+      lastNameInput: "Allen",
+      textAreaInput: "implants",
+      datetimeInput: new Date("2025-02-20T12:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "William Jackson",
+      emailInput: "william.jackson@aol.com",
+      phoneInput: "0423456789",
+      lastNameInput: "Lopez",
+      textAreaInput: "consult240",
+      datetimeInput: new Date("2024-12-15T16:30:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Isabella Martinez",
+      emailInput: "isabella.martinez@gmail.com",
+      phoneInput: "0476123456",
+      lastNameInput: "Gonzalez",
+      textAreaInput: "pain",
+      datetimeInput: new Date("2025-01-05T15:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Henry Brown",
+      emailInput: "henry.brown@gmail.com",
+      phoneInput: "0493234567",
+      lastNameInput: "Morris",
+      textAreaInput: "invisalign",
+      datetimeInput: new Date("2024-12-22T14:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Lily Davis",
+      emailInput: "lily.davis@hotmail.com",
+      phoneInput: "0432781234",
+      lastNameInput: "Parker",
+      textAreaInput: "whitening",
+      datetimeInput: new Date("2025-04-07T13:30:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Lucas Thomas",
+      emailInput: "lucas.thomas@gmail.com",
+      phoneInput: "0425432109",
+      lastNameInput: "Allen",
+      textAreaInput: "venners",
+      datetimeInput: new Date("2025-02-18T17:45:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Charlotte Wilson",
+      emailInput: "charlotte.wilson@outlook.com",
+      phoneInput: "0416789234",
+      lastNameInput: "White",
+      textAreaInput: "implants",
+      datetimeInput: new Date("2025-03-11T14:30:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Daniel Moore",
+      emailInput: "daniel.moore@yahoo.com",
+      phoneInput: "0486543210",
+      lastNameInput: "Harris",
+      textAreaInput: "pain",
+      datetimeInput: new Date("2025-04-01T11:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Ava Thompson",
+      emailInput: "ava.thompson@gmail.com",
+      phoneInput: "0491234567",
+      lastNameInput: "Young",
+      textAreaInput: "whitening",
+      datetimeInput: new Date("2025-03-25T16:45:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Ethan Williams",
+      emailInput: "ethan.williams@aol.com",
+      phoneInput: "0412345678",
+      lastNameInput: "King",
+      textAreaInput: "invisalign",
+      datetimeInput: new Date("2025-01-28T10:20:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Zoe Harris",
+      emailInput: "zoe.harris@hotmail.com",
+      phoneInput: "0498765432",
+      lastNameInput: "Davis",
+      textAreaInput: "implants",
+      datetimeInput: new Date("2025-04-14T09:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Liam Moore",
+      emailInput: "liam.moore@gmail.com",
+      phoneInput: "0487654321",
+      lastNameInput: "Roberts",
+      textAreaInput: "pain",
+      datetimeInput: new Date("2025-03-30T14:10:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Sophia Robinson",
+      emailInput: "sophia.robinson@outlook.com",
+      phoneInput: "0412345678",
+      lastNameInput: "Jones",
+      textAreaInput: "whitening",
+      datetimeInput: new Date("2024-12-02T13:00:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Matthew Miller",
+      emailInput: "matthew.miller@yahoo.com",
+      phoneInput: "0434543210",
+      lastNameInput: "Davis",
+      textAreaInput: "venners",
+      datetimeInput: new Date("2025-02-09T12:30:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Ella Garcia",
+      emailInput: "ella.garcia@aol.com",
+      phoneInput: "0421234567",
+      lastNameInput: "Rodriguez",
+      textAreaInput: "braces",
+      datetimeInput: new Date("2025-04-04T11:40:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Lucas Scott",
+      emailInput: "lucas.scott@gmail.com",
+      phoneInput: "0412356789",
+      lastNameInput: "Martinez",
+      textAreaInput: "consult240",
+      datetimeInput: new Date("2025-03-12T15:10:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Mason Thompson",
+      emailInput: "mason.thompson@outlook.com",
+      phoneInput: "0487654321",
+      lastNameInput: "Moore",
+      textAreaInput: "pain",
+      datetimeInput: new Date("2025-01-25T14:20:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Evelyn Harris",
+      emailInput: "evelyn.harris@gmail.com",
+      phoneInput: "0423456789",
+      lastNameInput: "Gonzalez",
+      textAreaInput: "implants",
+      datetimeInput: new Date("2025-03-22T16:15:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Matthew Allen",
+      emailInput: "matthew.allen@aol.com",
+      phoneInput: "0498765432",
+      lastNameInput: "Taylor",
+      textAreaInput: "braces",
+      datetimeInput: new Date("2024-11-12T10:10:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Isla Lee",
+      emailInput: "isla.lee@gmail.com",
+      phoneInput: "0487654321",
+      lastNameInput: "Walker",
+      textAreaInput: "pain",
+      datetimeInput: new Date("2025-03-02T15:40:00.000Z"),
+      __v: 0
+    },
+    {
+      nameInput: "Henry Walker",
+      emailInput: "henry.walker@gmail.com",
+      phoneInput: "0412345678",
+      lastNameInput: "Roberts",
+      textAreaInput: "invisalign",
+      datetimeInput: new Date("2025-01-11T10:30:00.000Z"),
+      __v: 0
+    }
+  ])
+  
+  db.appointments.insertMany([
+  {
+    nameInput: "ANDREW",
+    emailInput: "andrew.lopez@example.com",
+    phoneInput: "0411223344",
+    lastNameInput: "LOPEZ SMITH",
+    textAreaInput: "invisalign",
+    datetimeInput: ISODate("2025-04-22T09:00:00Z")
+  },
+  {
+    nameInput: "CAMILA",
+    emailInput: "camila.moraga@example.com",
+    phoneInput: "0411223345",
+    lastNameInput: "MORAGA JOHNSON",
+    textAreaInput: "braces",
+    datetimeInput: ISODate("2025-04-22T09:30:00Z")
+  },
+  {
+    nameInput: "BENJAMIN",
+    emailInput: "benjamin.vidal@example.com",
+    phoneInput: "0411223346",
+    lastNameInput: "VIDAL WILLIAMS",
+    textAreaInput: "implants",
+    datetimeInput: ISODate("2025-04-22T10:00:00Z")
+  },
+  {
+    nameInput: "VALERIE",
+    emailInput: "valerie.carrasco@example.com",
+    phoneInput: "0411223347",
+    lastNameInput: "CARRASCO MARTIN",
+    textAreaInput: "whitening",
+    datetimeInput: ISODate("2025-04-22T10:30:00Z")
+  },
+  {
+    nameInput: "DIEGO",
+    emailInput: "diego.fuentes@example.com",
+    phoneInput: "0411223348",
+    lastNameInput: "FUENTES DAVIS",
+    textAreaInput: "venners",
+    datetimeInput: ISODate("2025-04-22T11:00:00Z")
+  },
+  {
+    nameInput: "ANTONIA",
+    emailInput: "antonia.morales@example.com",
+    phoneInput: "0411223349",
+    lastNameInput: "MORALES BROWN",
+    textAreaInput: "consult240",
+    datetimeInput: ISODate("2025-04-22T11:30:00Z")
+  },
+  {
+    nameInput: "THOMAS",
+    emailInput: "thomas.araya@example.com",
+    phoneInput: "0411223350",
+    lastNameInput: "ARAYA MILLER",
+    textAreaInput: "pain",
+    datetimeInput: ISODate("2025-04-22T12:00:00Z")
+  },
+  {
+    nameInput: "SOPHIA",
+    emailInput: "sophia.munoz@example.com",
+    phoneInput: "0411223351",
+    lastNameInput: "MUNOZ MARTINEZ",
+    textAreaInput: "implants",
+    datetimeInput: ISODate("2025-04-22T12:30:00Z")
+  },
+  {
+    nameInput: "MARTIN",
+    emailInput: "martin.vera@example.com",
+    phoneInput: "0411223352",
+    lastNameInput: "VERA GARCIA",
+    textAreaInput: "braces",
+    datetimeInput: ISODate("2025-04-22T13:00:00Z")
+  },
+  {
+    nameInput: "ISABELLE",
+    emailInput: "isabelle.soto@example.com",
+    phoneInput: "0411223353",
+    lastNameInput: "SOTO MOORE",
+    textAreaInput: "whitening",
+    datetimeInput: ISODate("2025-04-22T13:30:00Z")
+  },
+  {
+    nameInput: "LUKE",
+    emailInput: "luke.pena@example.com",
+    phoneInput: "0411223354",
+    lastNameInput: "PENA MARTIN",
+    textAreaInput: "invisalign",
+    datetimeInput: ISODate("2025-04-22T14:00:00Z")
+  },
+  {
+    nameInput: "FLORENCE",
+    emailInput: "florence.mora@example.com",
+    phoneInput: "0411223355",
+    lastNameInput: "MORA PERRY",
+    textAreaInput: "pain",
+    datetimeInput: ISODate("2025-04-22T14:30:00Z")
+  },
+  {
+    nameInput: "JOHN",
+    emailInput: "john.rojas@example.com",
+    phoneInput: "0411223356",
+    lastNameInput: "ROJAS TAYLOR",
+    textAreaInput: "venners",
+    datetimeInput: ISODate("2025-04-22T15:00:00Z")
+  },
+  {
+    nameInput: "EMILY",
+    emailInput: "emily.sanhueza@example.com",
+    phoneInput: "0411223357",
+    lastNameInput: "SANHUEZA SCOTT",
+    textAreaInput: "consult240",
+    datetimeInput: ISODate("2025-04-22T15:30:00Z")
+  },
+  {
+    nameInput: "GABRIEL",
+    emailInput: "gabriel.bustos@example.com",
+    phoneInput: "0411223358",
+    lastNameInput: "BUSTOS MARTIN",
+    textAreaInput: "implants",
+    datetimeInput: ISODate("2025-04-22T16:00:00Z")
+  },
+  {
+    nameInput: "JOSEPHINE",
+    emailInput: "josephine.mella@example.com",
+    phoneInput: "0411223359",
+    lastNameInput: "MELLA WHITE",
+    textAreaInput: "braces",
+    datetimeInput: ISODate("2025-04-22T16:30:00Z")
+  },
+  {
+    nameInput: "CHRISTIAN",
+    emailInput: "christian.fernandez@example.com",
+    phoneInput: "0411223360",
+    lastNameInput: "FERNANDEZ LEE",
+    textAreaInput: "invisalign",
+    datetimeInput: ISODate("2025-04-22T17:00:00Z")
+  },
+  {
+    nameInput: "AGUSTA",
+    emailInput: "agusta.catalan@example.com",
+    phoneInput: "0411223361",
+    lastNameInput: "CATALAN KING",
+    textAreaInput: "whitening",
+    datetimeInput: ISODate("2025-04-22T17:15:00Z")
+  },
+  {
+    nameInput: "RAPHAEL",
+    emailInput: "raphael.navarro@example.com",
+    phoneInput: "0411223362",
+    lastNameInput: "NAVARRO ROBERTS",
+    textAreaInput: "venners",
+    datetimeInput: ISODate("2025-04-22T17:30:00Z")
+  },
+  {
+    nameInput: "DOMINIQUE",
+    emailInput: "dominique.silva@example.com",
+    phoneInput: "0411223363",
+    lastNameInput: "SILVA HARRIS",
+    textAreaInput: "pain",
+    datetimeInput: ISODate("2025-04-22T17:45:00Z")
+  }
+])

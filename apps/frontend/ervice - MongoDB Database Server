@@ -1,0 +1,16 @@
+[0;1;31m×[0m mongod.service - MongoDB Database Server
+     Loaded: loaded (]8;;file://srv531342/usr/lib/systemd/system/mongod.service/usr/lib/systemd/system/mongod.service]8;;; [0;1;38;5;185mdisabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;31mfailed[0m (Result: exit-code) since Sat 2025-07-19 12:50:42 UTC; 7s ago
+   Duration: 62ms
+       Docs: ]8;;https://docs.mongodb.org/manualhttps://docs.mongodb.org/manual]8;;
+    Process: 832748 ExecStart=/usr/bin/mongod --config /etc/mongod.conf [0;1;31m(code=exited, status=2)[0m
+   Main PID: 832748 (code=exited, status=2)
+        CPU: 52ms
+
+Jul 19 12:50:42 srv531342 systemd[1]: Started mongod.service - MongoDB Database Server.
+Jul 19 12:50:42 srv531342 mongod[832748]: {"t":{"$date":"2025-07-19T12:50:42.704Z"},"s":"I",  "c":"CONTROL",  "id":5760901, "ctx":"main","msg":"Applied --setParameter options","attr":{"serverParameters":{"enableLocalhostAuthBypass":{"default":true,"value":false}}}}
+Jul 19 12:50:42 srv531342 mongod[832748]: {"t":{"$date":"2025-07-19T12:50:42.704Z"},"s":"I",  "c":"CONTROL",  "id":7484500, "ctx":"main","msg":"Environment variable MONGODB_CONFIG_OVERRIDE_NOFORK == 1, overriding \"processManagement.fork\" to false"}
+Jul 19 12:50:42 srv531342 mongod[832748]: BadValue: security.keyFile is required when authorization is enabled with replica sets
+Jul 19 12:50:42 srv531342 mongod[832748]: try '/usr/bin/mongod --help' for more information
+Jul 19 12:50:42 srv531342 systemd[1]: [0;1;39m[0;1;31m[0;1;39mmongod.service: Main process exited, code=exited, status=2/INVALIDARGUMENT[0m
+Jul 19 12:50:42 srv531342 systemd[1]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185mmongod.service: Failed with result 'exit-code'.[0m

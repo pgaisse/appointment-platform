@@ -1,0 +1,5 @@
+ls .env*
+ls apps/backend/secret/*.json
+ls *.pem
+ls *.key
+ls *.p12
