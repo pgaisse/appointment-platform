@@ -23,6 +23,12 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.frontend
+    environment:
+      AUTH0_DOMAIN: dev-w2lewd1si042sauk.us.auth0.com
+      AUTH0_CLIENT_ID: LATv8f4mWoSJeWttinR5tp1hFq1glxeL
+      AUTH0_AUDIENCE: https://api.appointments-platform
+      BASE_URL: https://letsmarter.com
+
     container_name: nginx_prod
     restart: unless-stopped
     env_file:

@@ -1,20 +1,18 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
-import tsconfigPaths from "vite-tsconfig-paths"
-import fs from 'fs'
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), tsconfigPaths()],
-  server: {
-    
-    port: 3004, // aquí defines el puerto que quieres usar
-  },
+import tsconfigPaths from 'vite-tsconfig-paths'
 
-})
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => {
+  // Carga todas las variables (sin filtrar por VITE_ para debug)
+  const env = loadEnv(mode, process.cwd(), '')
 
-/*https: {
-      key: fs.readFileSync('/etc/letsencrypt/live/letsmarter.com/privkey.pem'),
-      cert: fs.readFileSync('/etc/letsencrypt/live/letsmarter.com/fullchain.pem')
+  console.log('🔍 Variables cargadas en build:', env)
+
+  return {
+    plugins: [react(), tsconfigPaths()],
+    server: {
+      port: 3004,
     },
-    allowedHosts: ['letsmarter.com',""],
-    host: '0.0.0.0',*/
+  }
+})
