@@ -1,13 +1,20 @@
-# infra/docker/Dockerfile.backend
 FROM node:20-alpine AS deps
 WORKDIR /app
+
+# Copiamos solo los package*.json para instalar dependencias (caché eficiente)
 COPY apps/backend/package*.json ./
+
 RUN npm ci --omit=dev
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Copiamos node_modules desde la etapa deps
 COPY --from=deps /app/node_modules ./node_modules
+
+# Copiamos el resto del backend
 COPY apps/backend ./
+
 EXPOSE 3003
 CMD ["node", "src/index.js"]

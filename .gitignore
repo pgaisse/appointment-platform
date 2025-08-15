@@ -2,12 +2,15 @@
 .env
 .env.*
 *.json
+!package.json
+!package-look.json
+
+
 *.pem
 *.key
 *.p12
 secret.txt
 
 # Node.js
-node_modules/
 dist/
 build/

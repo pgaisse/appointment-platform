@@ -6,10 +6,7 @@ const axios = require('axios');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 // 🧾 Leer clave privada
-const privateKey = fs.readFileSync(
-    path.resolve(__dirname, '../../', process.env.PRIVATE_KEY_PATH),
-    'utf8'
-);
+
 
 // 📦 Cliente S3
 const s3 = new S3Client({
@@ -100,7 +97,6 @@ async function getSignedUrl(key) {
     const signedUrl = await getCloudFrontSignedUrl({
         url,
         keyPairId: process.env.CLOUDFRONT_KEY_PAIR_ID,
-        privateKey,
         dateLessThan: expires,
     });
 

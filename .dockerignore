@@ -1,5 +1,40 @@
-node_modules
-npm-debug.log
-Dockerfile*
-docker-compose*.yml
-.env*
+# ==========================================
+# Carpetas y archivos a ignorar
+# ==========================================
+
+# Node modules y builds
+**/node_modules
+**/dist
+**/build
+
+# Control de versiones
+.git
+.gitignore
+.github
+
+# Logs y temporales
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+
+# Cachés y temporales
+.cache
+.tmp
+*.swp
+
+# ==========================================
+# EXCEPCIONES: mantener estos archivos
+# ==========================================
+
+# Package.json y package-lock.json
+!apps/backend/package.json
+!apps/backend/package-lock.json
+!apps/frontend/package.json
+!apps/frontend/package-lock.json
+
+# Archivos de entorno de producción
+!.env.prod
+!.env.frontend.prod
