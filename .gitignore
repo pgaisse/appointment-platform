@@ -5,6 +5,7 @@
 !package.json
 !package-look.json
 
+node_modules/
 
 *.pem
 *.key
