@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tsconfigPaths()],
+    base: "/",   // 👈 muy importante, asegura rutas absolutas en producción
     server: {
       port: 3004,
     },
