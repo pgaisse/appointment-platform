@@ -3,9 +3,17 @@ services:
     image: mongo:7
     container_name: mongo_prod
     restart: unless-stopped
+    env_file:
+      - ../../.env.prod
     volumes:
       - mongo_data:/data/db
-      - ../mongo/init-user.js:/docker-entrypoint-initdb.d/init-user.js:ro
+      - ../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+      MONGO_INITDB_DATABASE: productionDB
+      APP_MONGO_USER: pgaisse
+      APP_MONGO_PASSWORD: Patoch-2202
     networks:
       - app_network
 
@@ -15,6 +23,12 @@ services:
       dockerfile: infra/docker/Dockerfile.backend
     container_name: api_prod
     restart: unless-stopped
+    environment:
+      - MONGO_HOST=mongo
+      - MONGO_PORT=27017
+      - MONGO_DB=productionDB
+      - MONGO_USER=pgaisse
+      - MONGO_PASS=Patoch-2202
     expose:
       - "3003"            # 👈 visible solo dentro de la red Docker
     env_file:
