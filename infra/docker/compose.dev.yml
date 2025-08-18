@@ -3,7 +3,11 @@ services:
   mongo:
     image: mongo:7
     ports: ["27018:27017"]
-    volumes: ["mongo_dev:/data/db"]
+    env_file: ["../../.env.dev"]
+    volumes:
+      - mongo_dev:/data/db
+      - ./../mongo/dev-init:/docker-entrypoint-initdb.d:ro
+      - ./../mongo-backup/dev:/data/import   # opcional, si tienes dumps/seed
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 5s
@@ -29,7 +33,7 @@ services:
     image: node:20-alpine
     working_dir: /repo/apps/frontend
     command: sh -lc "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3004"
-    env_file: ["../../.env.front.dev"]
+    env_file: ["../../.env.frontend.dev"]
     environment:
       - CHOKIDAR_USEPOLLING=true
     ports: ["3004:3004"]

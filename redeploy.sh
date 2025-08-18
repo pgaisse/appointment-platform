@@ -11,7 +11,7 @@ if [ "$MODE" = "http" ]; then
   export NGINX_CONF_FILE="nginx.http.conf"
   echo "🌐 Modo HTTP activado"
 else
-  export NGINX_CONF_FILE="nginx.https.conf"
+  export NGINX_CONF_FILE="nginx.conf"
   echo "🔒 Modo HTTPS activado"
 fi
 
