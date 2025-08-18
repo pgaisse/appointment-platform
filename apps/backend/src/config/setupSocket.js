@@ -35,7 +35,7 @@ function setupSocket(server) {
 
   const io = socketIo(server, {
     cors: {
-      origin: 'https://letsmarter.com:3004', // Cambia esto si tu frontend está en otro origen
+      origin: 'https://letsmarter.com', // Cambia esto si tu frontend está en otro origen
       methods: ['GET', 'POST'],
       credentials: true,
     },

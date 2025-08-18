@@ -2,6 +2,7 @@
 import { useMutation, UseMutationResult } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 type SendChatMessageInput = {
   to: string;                 // E.164
@@ -28,7 +29,7 @@ export function useSendChatMessage(): UseMutationResult<
   return useMutation<SendChatMessageResponse, unknown, SendChatMessageInput>({
     mutationFn: async ({ to, appId, body, files, onProgress }) => {
       const token = await getAccessTokenSilently({
-        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+        authorizationParams: { audience: env.AUTH0_AUDIENCE },
       });
 
       // Armamos siempre FormData. Si no hay archivos, igual funciona (backend trata como texto-only).
@@ -40,7 +41,7 @@ export function useSendChatMessage(): UseMutationResult<
         for (const f of files) fd.append("files", f, f.name);
       }
 
-      const url = `${import.meta.env.VITE_APP_SERVER}/send-message`;
+      const url = `${env.VITE_APP_SERVER}/send-message`;
 
       const res = await axios.post<SendChatMessageResponse>(url, fd, {
         headers: {

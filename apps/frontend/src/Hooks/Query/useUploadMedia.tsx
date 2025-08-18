@@ -2,6 +2,7 @@
 import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 type UploadedItem = {
   field: string; originalname: string; size: number;
@@ -22,7 +23,7 @@ export const useUploadMedia = () => {
       if (!isAuthenticated) throw new Error("No authenticated user");
 
       const token = await getAccessTokenSilently({
-        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+        authorizationParams: { audience: env.AUTH0_AUDIENCE },
       });
 
       const form = new FormData();
@@ -39,7 +40,7 @@ export const useUploadMedia = () => {
       if (params.category)   form.append('category', params.category);
 
       const { data } = await axios.post<UploadResponse>(
-        `${import.meta.env.VITE_APP_SERVER}/upload-file`,
+        `${env.VITE_APP_SERVER}/upload-file`,
         form,
         {
           headers: {

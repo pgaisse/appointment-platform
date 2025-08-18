@@ -4,6 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useState } from "react";
 import { DateRange } from "../Handles/useSlotSelection";
 import { DataEvents } from "@/Components/CustomTemplates/CustomCardPatient";
+import { env } from "@/types";
 
 
 
@@ -19,7 +20,7 @@ const fetchAppointments = async (
   currentDate?: DateRange
 ) => {
   const res = await axios.get(
-    `${import.meta.env.VITE_APP_SERVER}/appointments`,
+    `${env.VITE_APP_SERVER}/appointments`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -49,7 +50,7 @@ export const useAppointments = (
       if (isAuthenticated) {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            audience: env.AUTH0_AUDIENCE,
           },
         });
         setToken(token);

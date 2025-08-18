@@ -1,13 +1,20 @@
 #!/bin/bash
 set -e
 
-echo "Creating application user in Mongo..."
+mongo <<EOF
+use ${MONGO_DB}
 
-cat <<EOF > /docker-entrypoint-initdb.d/init-user.js
-db = db.getSiblingDB("${MONGO_INITDB_DATABASE}");
-db.createUser({
-  user: "${APP_MONGO_USER}",
-  pwd: "${APP_MONGO_PASSWORD}",
-  roles: [{ role: "readWrite", db: "${MONGO_INITDB_DATABASE}" }]
-});
+// Verificar si ya existe el usuario
+if (!db.getUser("${MONGO_USER}")) {
+  db.createUser({
+    user: "${MONGO_USER}",
+    pwd: "${MONGO_PASS}",
+    roles: [
+      { role: "readWrite", db: "${MONGO_DB}" }
+    ]
+  });
+  print("✅ Usuario '${MONGO_USER}' creado en '${MONGO_DB}'");
+} else {
+  print("ℹ️ Usuario '${MONGO_USER}' ya existe en '${MONGO_DB}', no se recrea");
+}
 EOF

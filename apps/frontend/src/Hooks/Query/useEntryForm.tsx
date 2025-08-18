@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 function useEntryForm<T>(modelName: string) {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
@@ -11,14 +12,14 @@ function useEntryForm<T>(modelName: string) {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          audience: env.AUTH0_AUDIENCE,
         },
       });
 
       // Incluye el modelName en el body para que el backend lo reciba
       const body = { ...formData, model: modelName };
 
-      const response = await axios.post(`${import.meta.env.VITE_APP_SERVER}`, body, {
+      const response = await axios.post(`${env.VITE_APP_SERVER}`, body, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

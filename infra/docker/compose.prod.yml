@@ -9,11 +9,14 @@ services:
       - mongo_data:/data/db
       - ../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
-      MONGO_INITDB_DATABASE: productionDB
-      APP_MONGO_USER: pgaisse
-      APP_MONGO_PASSWORD: Patoch-2202
+      - MONGO_USER=pgaisse
+      - MONGO_PASS=Patoch-2202
+      - MONGO_DB=productionDB
+      - MONGO_INITDB_ROOT_USERNAME=pgaisse
+      - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
+      - MONGO_INITDB_DATABASE=productionDB
+      - APP_MONGO_USER=pgaisse
+      - APP_MONGO_PASSWORD=Patoch-2202
     networks:
       - app_network
 
@@ -30,7 +33,7 @@ services:
       - MONGO_USER=pgaisse
       - MONGO_PASS=Patoch-2202
     expose:
-      - "3003"            # 👈 visible solo dentro de la red Docker
+      - "3304"            # 👈 visible solo dentro de la red Docker
     env_file:
       - ../../.env.prod
     depends_on:
@@ -46,7 +49,7 @@ services:
       AUTH0_DOMAIN: dev-w2lewd1si042sauk.us.auth0.com
       AUTH0_CLIENT_ID: LATv8f4mWoSJeWttinR5tp1hFq1glxeL
       AUTH0_AUDIENCE: https://api.dev.iconicsmiles
-      BASE_URL: https://letsmarter.com
+      BASE_URL: https://letsmarter.com/api
 
     container_name: nginx_prod
     restart: unless-stopped
@@ -63,6 +66,7 @@ services:
       - api
     networks:
       - app_network
+      
   certbot:
     image: certbot/certbot
     container_name: certbot
@@ -73,7 +77,7 @@ services:
     entrypoint: >
       sh -c "certbot certonly --webroot -w /var/www/certbot
       -d letsmarter.com -d www.letsmarter.com
-      --email tu-email@dominio.com --agree-tos --non-interactive --force-renewal"
+      --email p.gaisse@gmail.com--agree-tos --non-interactive --force-renewal"
 
 volumes:
   mongo_data:

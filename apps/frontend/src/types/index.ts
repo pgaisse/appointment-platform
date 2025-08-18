@@ -21,6 +21,34 @@ export interface BackendEvent {
   otherData?: BackendEvent[];
 }
 
+interface EnvConfig {
+  AUTH0_DOMAIN: string;
+  AUTH0_CLIENT_ID: string;
+  AUTH0_AUDIENCE: string;
+  BASE_URL: string;
+  SERVER_NAME: string;
+  VITE_APP_SERVER: string;
+  VITE_BASE_URL: string;
+  VITE_AUTH0_AUDIENCE: string;
+  VITE_AUTH0_CLIENT_ID: string;
+  VITE_AUTH0_DOMAIN: string;
+  VITE_AUTH0_REDIRECT_URI: string;
+  VITE_AUTH0_LOGOUT_REDIRECT_URI: string;
+  VITE_AUTH0_SCOPE: string;
+  VITE_AUTH0_CACHE_LOCATION: string;
+  VITE_AUTH0_USE_REFRESH_TOKENS: boolean;
+  VITE_AUTH0_USE_REFRESH_TOKENS_FALLBACK: boolean;
+  VITE_AUTH0_ORGANIZATION: string;
+  VITE_AUTH0_ORGANIZATION_NAME: string;
+  VITE_AUTH0_ORGANIZATION_LOGO: string;
+  VITE_AUTH0_ORGANIZATION_ENABLED: boolean;
+  VITE_AUTH0_ORGANIZATION_DEFAULT: string;
+  VITE_AUTH0_ORGANIZATION_DEFAULT_NAME: string;
+  VITE_AUTH0_ORGANIZATION_DEFAULT_LOGO: string;
+}
+
+export const env: EnvConfig = (window as any).__ENV__;
+
 export type FormMode = "CREATION" | "EDITION"
 
 export type Event = {

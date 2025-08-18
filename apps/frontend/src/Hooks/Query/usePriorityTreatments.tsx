@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useState } from "react";
-import { AppointmentGroup } from "@/types";
+import { AppointmentGroup, env } from "@/types";
 
 const fetchTreatments = async (token: string, startDate: Date, endDate: Date, category: string, reschedule: boolean = false) => {
-  const res = await axios.get(`${import.meta.env.VITE_APP_SERVER}/sorting`, {
+  const res = await axios.get(`${env.VITE_APP_SERVER}/sorting`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -38,7 +38,7 @@ export const usePriorityTreatments = (
       if (isAuthenticated) {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            audience: env.AUTH0_AUDIENCE,
           },
         });
         //console.log("Token obtenido (priority):", token);

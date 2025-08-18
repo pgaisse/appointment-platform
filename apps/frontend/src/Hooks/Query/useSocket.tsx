@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
+import { env } from '@/types';
 
 export const useSocket = () => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
@@ -13,11 +14,11 @@ export const useSocket = () => {
         try {
           const token = await getAccessTokenSilently({
             authorizationParams: {
-              audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+              audience: env.AUTH0_AUDIENCE,
             },
           });
 
-          const newSocket = io(import.meta.env.VITE_APP_SERVER, {
+          const newSocket = io(env.VITE_APP_SERVER, {
             transports: ['websocket'],
             auth: {
               token: `Bearer ${token}`,

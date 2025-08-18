@@ -15,8 +15,9 @@ if (DISABLE_AUTH) {
 
 // Vars necesarias
 const audience = process.env.AUTH0_AUDIENCE;
+console.log('🔐 Usando AUTH0_AUDIENCE:', audience);
 let issuerBaseURL = process.env.AUTH0_ISSUER_BASE_URL; // Debe ser algo como: https://dev-xxxxx.us.auth0.com/
-
+console.log('🔐 Usando AUTH0_ISSUER_BASE_URL:', issuerBaseURL);
 // Asegura que termine con '/'
 if (issuerBaseURL && !issuerBaseURL.endsWith('/')) issuerBaseURL += '/';
 

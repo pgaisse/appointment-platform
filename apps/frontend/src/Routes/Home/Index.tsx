@@ -1,13 +1,40 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { Alert, AlertDescription, AlertIcon, AlertTitle, Box, Spinner, Center } from '@chakra-ui/react';
-import CustomHero from '@/Components/CustomTemplates/CustomHero';
 import PremiumDentalLanding from "@/Components/CustomTemplates/PremiumDentalLanding";
 import { CustomUser } from "@/types";
+import React from "react";
 
 const Index = () => {
-  const { user, error, isLoading, isAuthenticated } = useAuth0();
+  const { user, error, isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
   const typedUser = user as CustomUser;
+  const [token, setToken] = React.useState<string | null>(null);
+
   const imageUrl = `${window.location.origin}/img/logo.png`;
+
+  // 🚀 Pedir el access_token automáticamente al autenticar
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (isAuthenticated) {
+        try {
+          const t = await getAccessTokenSilently({
+            authorizationParams: {
+              audience: "https://api.dev.iconicsmiles", // 👈 tu Audience de Auth0
+            },
+          });
+          if (!cancelled) {
+            setToken(t);
+            console.log("✅ Access Token:", t);
+          }
+        } catch (e) {
+          console.error("❌ Error getting access token", e);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, getAccessTokenSilently]);
 
   if (isLoading) {
     return (
@@ -20,7 +47,7 @@ const Index = () => {
   if (error) {
     return (
       <Box p={10}>
-        <Alert status='error'>
+        <Alert status="error">
           <AlertIcon />
           <AlertTitle>Something is wrong:</AlertTitle>
           <AlertDescription>{error.message}</AlertDescription>
@@ -32,7 +59,7 @@ const Index = () => {
   if (!isAuthenticated) {
     return (
       <Box p={10}>
-        <Alert status='warning'>
+        <Alert status="warning">
           <AlertIcon />
           <AlertTitle>Not authenticated</AlertTitle>
           <AlertDescription>Please sign in to continue.</AlertDescription>
@@ -44,10 +71,11 @@ const Index = () => {
   return (
     <>
       <Box p={10}>
-        {/* Aquí puedes mostrar información del usuario si lo deseas */}
+        {/* 👇 Aquí puedes mostrar el token, o usarlo para fetch */}
+        <div>Logged in as: {typedUser?.email}</div>
+        <div>Access Token: {token ? token.slice(0, 25) + "..." : "Loading..."}</div>
       </Box>
       <PremiumDentalLanding />
-      {/* <CustomHero /> */}
     </>
   );
 };

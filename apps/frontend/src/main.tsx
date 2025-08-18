@@ -6,8 +6,9 @@ import { RouterProvider } from "react-router-dom";
 import { Auth0Provider } from "@auth0/auth0-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import theme from "./Components/Constants/Constants";
+import { env } from "./types";
 
-const env = (window as any).__ENV__;
+
 const queryClient = new QueryClient();
 
 createRoot(document.getElementById("root")!).render(
@@ -20,11 +21,9 @@ createRoot(document.getElementById("root")!).render(
           authorizationParams={{
             redirect_uri: window.location.origin,
             audience: env.AUTH0_AUDIENCE,
-            scope: "openid profile email offline_access",
           }}
           cacheLocation="localstorage"
           useRefreshTokens={true}
-          useRefreshTokensFallback={true}
         >
           <RouterProvider router={router} />
         </Auth0Provider>

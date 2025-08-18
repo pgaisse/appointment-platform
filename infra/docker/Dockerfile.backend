@@ -10,6 +10,11 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# --- Agregado: instalar tzdata y setear zona horaria ---
+RUN apk add --no-cache tzdata
+ENV TZ=Australia/Sydney
+# -------------------------------------------------------
+
 # Copiamos node_modules desde la etapa deps
 COPY --from=deps /app/node_modules ./node_modules
 

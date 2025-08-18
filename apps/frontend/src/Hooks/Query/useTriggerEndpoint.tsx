@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 /**
  * Hook para hacer POST a un endpoint dinámico autenticado, sin esperar respuesta.
@@ -17,13 +18,13 @@ export const useTriggerEndpoint = (endpoint: string) => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          audience: env.AUTH0_AUDIENCE,
         },
       });
 
       // POST sin body, sin retorno de datos
       await axios.post(
-        `${import.meta.env.VITE_APP_SERVER}${endpoint}`,
+        `${env.VITE_APP_SERVER}${endpoint}`,
         {},
         {
           headers: {

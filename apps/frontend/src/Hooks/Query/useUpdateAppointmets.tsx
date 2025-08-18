@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 
 // Función para enviar todo el array en una sola solicitud PUT
@@ -18,7 +19,7 @@ const editItems = async ({
   token: string;
 }) => {
   const res = await axios.put(
-    `${import.meta.env.VITE_APP_SERVER}/appointmentsid`,
+    `${env.VITE_APP_SERVER}/appointmentsid`,
     updates,
     {
       headers: {
@@ -53,7 +54,7 @@ export const useUpdateAppointments = ({ refetch }: Props) => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          audience: env.AUTH0_AUDIENCE,
         },
       });
 

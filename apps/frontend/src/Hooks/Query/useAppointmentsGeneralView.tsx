@@ -3,9 +3,10 @@ import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useState } from "react";
 import { DateRange } from "../Handles/useSlotSelection";
+import { env } from "@/types";
 
 const fetchAppointments = async (token: string, reschedule: boolean = false, currentDate?: DateRange) => {
-  const res = await axios.get(`${import.meta.env.VITE_APP_SERVER}/appointmentsgeneralview`, {
+  const res = await axios.get(`${env.VITE_APP_SERVER}/appointmentsgeneralview`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -30,7 +31,7 @@ export const useAppointmentsGeneralView = (reschedule: boolean = false) => {
       if (isAuthenticated) {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            audience: import.meta.env.AUTH0_AUDIENCE,
           },
         });
         //console.log("Token obtenido:", token);

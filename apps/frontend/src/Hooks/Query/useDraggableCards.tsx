@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
-import { GroupedAppointment } from "@/types";
+import { env, GroupedAppointment } from "@/types";
 
 export const useDraggableCards = () => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
@@ -13,12 +13,12 @@ export const useDraggableCards = () => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          audience: env.AUTH0_AUDIENCE,
         },
       });
 
       const res = await axios.get(
-        `${import.meta.env.VITE_APP_SERVER}/DraggableCards`,
+        `${env.VITE_APP_SERVER}/DraggableCards`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

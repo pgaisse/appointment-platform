@@ -18,16 +18,16 @@ const {
 
 
 async function findMatchingAppointments(start, end) {
-  //console.log("🔍 Ejecutando findMatchingAppointments...");
+  console.log("🔍 Ejecutando findMatchingAppointments...");
 
   const startDate = new Date(start ?? "2025-07-16T15:30:00");
   const endDate = new Date(end ?? "2025-07-16T16:30:00");
 
-  //console.log("📅 Rango de fecha ingresado:", startDate.toISOString(), "→", endDate.toISOString());
+  console.log("📅 Rango recibido:", startDate.toISOString(), "→", endDate.toISOString());
 
   const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const dateDayName = daysOfWeek[startDate.getDay()];
-  //console.log("📆 Día de la semana buscado:", dateDayName);
+  console.log("📆 Día de la semana buscado:", dateDayName);
 
   function timeStringToMinutes(time) {
     const [h, m] = time.split(":").map(Number);
@@ -41,11 +41,13 @@ async function findMatchingAppointments(start, end) {
   const startMinutes = dateToMinutes(startDate);
   const endMinutes = dateToMinutes(endDate);
   const requestDuration = endMinutes - startMinutes;
+  console.log(`⏱️ Ventana solicitada: ${requestDuration} minutos (${startMinutes} → ${endMinutes})`);
 
+  // ---------------- AGGREGATION ----------------
   const appointments = await models.Appointment.aggregate([
     {
       $match: {
-        reschedule: false, 
+        reschedule: false,
         "selectedDates.startDate": { $lte: endDate },
         $or: [
           { "selectedDates.endDate": { $gte: startDate } },
@@ -76,18 +78,8 @@ async function findMatchingAppointments(start, end) {
         as: "priority",
       },
     },
-    {
-      $unwind: {
-        path: "$priority",
-        preserveNullAndEmptyArrays: true,
-      },
-    },
-    {
-      $unwind: {
-        path: "$selectedDates.days",
-        preserveNullAndEmptyArrays: true,
-      },
-    },
+    { $unwind: { path: "$priority", preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$selectedDates.days", preserveNullAndEmptyArrays: true } },
     {
       $lookup: {
         from: "timeblocks",
@@ -103,32 +95,43 @@ async function findMatchingAppointments(start, end) {
         days: { $push: "$selectedDates.days" },
       },
     },
-    {
-      $addFields: {
-        "doc.selectedDates.days": "$days",
-      },
-    },
-    {
-      $replaceRoot: {
-        newRoot: "$doc",
-      },
-    },
+    { $addFields: { "doc.selectedDates.days": "$days" } },
+    { $replaceRoot: { newRoot: "$doc" } },
   ]);
 
-  //console.log(`📥 Appointments encontrados: ${appointments.length}`);
+  console.log(`📥 Appointments encontrados: ${appointments.length}`);
+  if (appointments.length > 0) {
+    console.log("📄 Ejemplo Appointment:", JSON.stringify(appointments[0], null, 2).substring(0, 500));
+  }
 
+  // ---------------- PRIORITIES ----------------
   const prioritylists = await models.PriorityList.find({});
-  //console.log(`📦 Prioridades cargadas: ${prioritylists.length}`);
+  console.log(`📥 Prioridades encontradas en BD: ${prioritylists.length}`);
+  if (prioritylists.length > 0) {
+    console.log("📌 Ejemplo Priority:", JSON.stringify(prioritylists[0], null, 2));
+  }
 
   const appointmentsByPriority = new Map();
 
   for (const priority of prioritylists) {
     const priorityId = priority._id.toString();
+    console.log(`➡️ Analizando prioridad: ${priority.name} (${priorityId})`);
 
     const matchedAppointments = appointments.reduce((acc, appointment) => {
-      if (!appointment.priority || appointment.priority._id.toString() !== priorityId) return acc;
+      if (!appointment.priority) {
+        console.log(`   ⚠️ Appointment ${appointment._id} sin priority`);
+        return acc;
+      }
+
+      const apptPriorityId = appointment.priority._id?.toString();
+      console.log(`   🔗 Appointment ${appointment._id} priority=${apptPriorityId}, comparando con ${priorityId}`);
+
+      if (apptPriorityId !== priorityId) {
+        return acc;
+      }
 
       const blocks = (appointment.selectedDates?.days || []).flatMap((d) => d.timeBlocksData || []);
+      console.log(`   🧱 Appointment ${appointment._id} → ${blocks.length} bloques de tiempo`);
 
       let totalOverlapMinutes = 0;
       const matchingBlocks = blocks.filter((block) => {
@@ -140,6 +143,7 @@ async function findMatchingAppointments(start, end) {
 
         if (overlap > 0) {
           totalOverlapMinutes += overlap;
+          console.log(`      ⏲️ Overlap en bloque ${block.from}-${block.to}: ${overlap} min`);
           return true;
         }
         return false;
@@ -150,35 +154,35 @@ async function findMatchingAppointments(start, end) {
         appointment.totalOverlapMinutes = totalOverlapMinutes;
 
         const matchPercentage = (totalOverlapMinutes / requestDuration) * 100;
+        appointment.matchLevel =
+          matchPercentage >= 95
+            ? "Perfect Match"
+            : matchPercentage >= 70
+            ? "High Match"
+            : matchPercentage >= 40
+            ? "Medium Match"
+            : "Low Match";
 
-        if (matchPercentage >= 95) {
-          appointment.matchLevel = "Perfect Match";
-        } else if (matchPercentage >= 70) {
-          appointment.matchLevel = "High Match";
-        } else if (matchPercentage >= 40) {
-          appointment.matchLevel = "Medium Match";
-        } else {
-          appointment.matchLevel = "Low Match";
-        }
-
-        //console.log(`🧩 Appointment ${appointment.nameInput || appointment._id} → ${appointment.matchLevel} (${matchPercentage.toFixed(1)}%)`);
+        console.log(
+          `   ✅ Appointment ${appointment._id} → ${appointment.matchLevel} (${matchPercentage.toFixed(
+            1
+          )}%)`
+        );
         acc.push(appointment);
+      } else {
+        console.log(`   ⛔️ Appointment ${appointment._id} no tiene bloques válidos`);
       }
 
       return acc;
     }, []);
 
-    // Ordenar por mayor porcentaje de coincidencia
     matchedAppointments.sort((a, b) => b.totalOverlapMinutes - a.totalOverlapMinutes);
 
     if (matchedAppointments.length > 0) {
-      //console.log(`✅ Prioridad: ${priority.name} → ${matchedAppointments.length} appointments`);
-      appointmentsByPriority.set(priorityId, {
-        priority,
-        appointments: matchedAppointments,
-      });
+      console.log(`📌 Prioridad ${priority.name} → ${matchedAppointments.length} citas válidas`);
+      appointmentsByPriority.set(priorityId, { priority, appointments: matchedAppointments });
     } else {
-      //console.log(`⛔️ Prioridad: ${priority.name} → sin citas en rango`);
+      console.log(`⛔️ Prioridad ${priority.name} → sin citas en rango`);
     }
   }
 
@@ -189,9 +193,9 @@ async function findMatchingAppointments(start, end) {
     priorities: groupedPriorities,
   };
 
+  console.log(`📊 Resultados agrupados por prioridad: ${groupedPriorities.length}`);
   return result;
 }
-
 
 
 

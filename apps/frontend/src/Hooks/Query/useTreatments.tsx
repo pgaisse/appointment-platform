@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useState } from "react";
-import { Priority } from "@/types";
+import { env, Priority } from "@/types";
 
 const fetchTreatments = async (token: string) => {
-  const res = await axios.get(`${import.meta.env.VITE_APP_SERVER}/treatments`, {
+  const res = await axios.get(`${env.VITE_APP_SERVER}/treatments`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -22,7 +22,7 @@ export const useTreatments = () => {
       if (isAuthenticated) {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            audience: env.AUTH0_AUDIENCE,
           },
         });
        // console.log("Token obtenido (treatments):", token);

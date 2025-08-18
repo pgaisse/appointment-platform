@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 const editItem = async ({
   id,
@@ -19,7 +20,7 @@ const editItem = async ({
   model: string;
 }) => {
   const res = await axios.put(
-    `${import.meta.env.VITE_APP_SERVER}/edit/${id}`,
+    `${env.VITE_APP_SERVER}/edit/${id}`,
     data,
     {
       headers: {
@@ -54,7 +55,7 @@ export const useEditItem = ({ model, refetch }: Props) => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          audience: env.AUTH0_AUDIENCE,
         },
       });
 

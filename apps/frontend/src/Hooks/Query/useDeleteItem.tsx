@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 /**
  * Función que elimina un documento genérico en base al ID y modelo
@@ -16,7 +17,7 @@ const deleteItem = async (
   token: string
 ): Promise<{ message: string; deletedId: string }> => {
   const response = await axios.delete(
-    `${import.meta.env.VITE_APP_SERVER}/${id}`,
+    `${env.VITE_APP_SERVER}/${id}`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -52,7 +53,7 @@ export const useDeleteItem = ({ modelName, refetch }: Props) => {
       if (!isAuthenticated) throw new Error("Usuario no autenticado");
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          audience: env.AUTH0_AUDIENCE,
         },
       });
       return await deleteItem(id, modelName, token);

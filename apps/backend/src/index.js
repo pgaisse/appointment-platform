@@ -16,7 +16,7 @@ const setupSocket = require('./config/setupSocket');
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3003;
+const port = process.env.PORT || 3303;
 const useHttps = String(process.env.USE_HTTPS || '').toLowerCase() === 'true';
 
 // -------- Middlewares base --------
@@ -36,15 +36,15 @@ app.get('/api/health', (_req, res) => {
 });
 
 // -------- Rutas --------
-app.use(SMS);
-app.use(Routes);
+app.use("/api",SMS);
+app.use("/api",Routes);
 
 // -------- Server + Socket.IO --------
 let server;
 
 if (useHttps) {
-  const keyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem';
-  const certPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem';
+  const keyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/letsmarter.com/privkey.pem';
+  const certPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/letsmarter.com/fullchain.pem';
 
   if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
     const creds = { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };

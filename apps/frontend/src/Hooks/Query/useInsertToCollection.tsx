@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useState } from "react";
+import { env } from "@/types";
 
 // Función genérica para insertar datos en cualquier colección
 const insertToCollection = async function<T>(
@@ -10,7 +11,7 @@ const insertToCollection = async function<T>(
   data: Record<string, any>
 ): Promise<T> {
   const res = await axios.post(
-    `${import.meta.env.VITE_APP_SERVER}/add`,
+    `${env.VITE_APP_SERVER}/add`,
     {
       modelName: collection,
       data,
@@ -34,7 +35,7 @@ export const useInsertToCollection = <T = unknown>(collection: string) => {
       if (isAuthenticated) {
         const newToken = await getAccessTokenSilently({
           authorizationParams: {
-            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            audience: env.AUTH0_AUDIENCE,
           },
         });
         setToken(newToken);

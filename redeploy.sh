@@ -18,7 +18,7 @@ fi
 echo "=============================="
 echo " 🛑 1. Deteniendo servicios..."
 echo "=============================="
-docker compose -f $COMPOSE_FILE down -v --remove-orphans
+docker compose -f $COMPOSE_FILE down --remove-orphans   # <-- aquí ya no hay -v
 
 echo "=============================="
 echo " 🔨 2. Rebuild desde cero..."

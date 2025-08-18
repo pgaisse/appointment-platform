@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
+import { env } from "@/types";
 
 type SendSMSPayload = {
   to: string; // E.g. "+61411710260"
@@ -23,12 +24,12 @@ export const useSendSMS = () => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          audience: env.AUTH0_AUDIENCE,
         },
       });
 
       const res = await axios.post(
-        `${import.meta.env.VITE_APP_SERVER}/send-sms`,
+        `${env.VITE_APP_SERVER}/send-sms`,
         payload,
         {
           headers: {

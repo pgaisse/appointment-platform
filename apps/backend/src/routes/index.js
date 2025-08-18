@@ -163,6 +163,7 @@ router.get('/treatments', jwtCheck, async (req, res) => {
 
 router.get('/query/:collection', jwtCheck, async (req, res) => {
   try {
+    console.log("📩 Request recibida en /query/:collection", req.params, req.query);
     const { collection } = req.params;
     const Model = models[collection];
     //console.log("models", models)
@@ -459,7 +460,7 @@ router.post('/add', jwtCheck, async (req, res) => {
     }
 
     const { modelName, data } = req.body;
-    console.log("data",data)
+    console.log("data", data)
     let sid;
     // ✅ Validaciones básicas
     if (!modelName || typeof modelName !== 'string') {
@@ -576,22 +577,31 @@ router.delete("/:id", jwtCheck, async (req, res) => {
 router.get('/sorting', jwtCheck, async (req, res) => {
   try {
     const { org_id } = await helpers.getTokenInfo(req.headers.authorization)
+
     let { startDate, endDate, category } = req.query
     startDate = new Date(startDate);
     endDate = new Date(endDate);
-    console.log("startDate", startDate, endDate)
-    const result = await findMatchingAppointments(startDate, endDate)
-    // const bestPatient = await helpers.getBestPatient(appointmentsList, priorityList, startDate, endDate, daysLaterEndOfDay, twoWeeksAfter);
+
+    // 🔎 Ver qué viene en el request
+    console.log("📩 Query params:", req.query);
+    console.log("📌 org_id:", org_id);
+    console.log("📅 startDate:", startDate, " endDate:", endDate);
+    console.log("📂 category:", category);
+
+    // Ejecutar lógica
+    const result = await findMatchingAppointments(startDate, endDate);
+
+    // 🔎 Ver qué devuelve tu función
+    console.log("✅ Resultado de findMatchingAppointments:", JSON.stringify(result, null, 2));
 
     res.json([result]);
-
-
   }
   catch (err) {
-    console.log(err)
-
+    console.error("❌ Error en /sorting:", err);
+    res.status(500).json({ error: err.message || "Error interno" });
   }
 });
+
 
 router.put('/edit/:id', jwtCheck, async (req, res) => {
   const { id } = req.params;
