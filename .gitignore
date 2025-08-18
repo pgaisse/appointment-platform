@@ -5,13 +5,14 @@
 !package.json
 !package-look.json
 
-!.env.dev
-!.env.prod
-!.env.frontend.prod
-!.env.frontend.dev
 
-!.env.frontend.example
-.env.example.prod
+!.env.dev.example
+!.env.prod.example
+!.env.dev.example
+!.env.prod.example
+!.env.frontend.prod.example
+!.env.frontend.dev.example
+
 
 node_modules/
 
