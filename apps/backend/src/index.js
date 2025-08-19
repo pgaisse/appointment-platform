@@ -16,7 +16,7 @@ const setupSocket = require('./config/setupSocket');
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3303;
+const port = process.env.PORT || 3003;
 const useHttps = String(process.env.USE_HTTPS || '').toLowerCase() === 'true';
 
 // -------- Middlewares base --------

@@ -1,47 +1,100 @@
-# infra/docker/compose.dev.yml
+version: "3.9"
+name: dev
 services:
   mongo:
     image: mongo:7
-    ports: ["27018:27017"]
-    env_file: ["../../.env.dev"]
+    container_name: mongo_dev
+    ports:
+      - "27019:27017"
+    env_file:
+      - ../../.env.dev
+    environment:
+    - MONGO_INITDB_ROOT_USERNAME=pgaisse
+    - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
+    - MONGO_INITDB_DATABASE=productionDB
+      
     volumes:
       - mongo_dev:/data/db
       - ./../mongo/dev-init:/docker-entrypoint-initdb.d:ro
-      - ./../mongo-backup/dev:/data/import   # opcional, si tienes dumps/seed
+      - ../../mongo-backup/production:/data/import
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - app_network_dev
 
   backend:
     image: node:20-alpine
+    container_name: backend_dev
     working_dir: /repo/apps/backend
     command: sh -lc "npm install --no-audit --no-fund && npm run dev"
-    env_file: ["../../.env.dev"]
+    env_file:
+      - ../../.env.dev
     environment:
       - CHOKIDAR_USEPOLLING=true
-    ports: ["3003:3003"]
+    expose:
+      - "3003"
     volumes:
       - ../..:/repo
       - /repo/apps/backend/node_modules
     depends_on:
       mongo:
         condition: service_healthy
+    networks:
+      - app_network_dev
 
   frontend:
     image: node:20-alpine
+    container_name: frontend_dev
     working_dir: /repo/apps/frontend
-    command: sh -lc "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3004"
-    env_file: ["../../.env.frontend.dev"]
+    command: sh -lc "./env-config-dev.sh && npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3004"
+    env_file:
+      - ../../.env.frontend.dev
     environment:
-      - CHOKIDAR_USEPOLLING=true
-    ports: ["3004:3004"]
+      CHOKIDAR_USEPOLLING: "true"
+      AUTH0_DOMAIN: dev-w2lewd1si042sauk.us.auth0.com
+      AUTH0_CLIENT_ID: LATv8f4mWoSJeWttinR5tp1hFq1glxeL
+      AUTH0_AUDIENCE: https://api.dev.iconicsmiles
+      BASE_URL: https://letsmarter.com/api
+    ports:
+      - "5173:3004"
     volumes:
       - ../..:/repo
       - /repo/apps/frontend/node_modules
     depends_on:
       - backend
+    networks:
+      - app_network_dev
+
+  nginx:
+    container_name: nginx_dev
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ../nginx/nginx.dev.conf:/etc/nginx/conf.d/nginx.dev.conf:ro
+      - /dev/null:/etc/nginx/conf.d/default.conf
+      - /etc/letsencrypt:/etc/letsencrypt
+    networks:
+      - app_network_dev
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot_dev
+    volumes:
+      - appointment_dev_certbot_www:/var/www/certbot
+      - /etc/letsencrypt:/etc/letsencrypt
+    networks:
+      - app_network_dev
 
 volumes:
   mongo_dev:
+  appointment_dev_certbot_www:
+  letsencrypt_dev:
+
+networks:
+  app_network_dev:
+    driver: bridge

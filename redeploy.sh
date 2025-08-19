@@ -4,16 +4,23 @@ set -e
 COMPOSE_FILE="infra/docker/compose.prod.yml"
 BUILD_TIME=$(date +%s)
 
-# Si no se pasa parámetro → usa http
-MODE=${1:-http}
+BRANCH="main"
+COMPOSE_FILE="infra/docker/compose.prod.yml"
+BUILD_TIME=$(date +%s)
 
-if [ "$MODE" = "http" ]; then
-  export NGINX_CONF_FILE="nginx.http.conf"
-  echo "🌐 Modo HTTP activado"
-else
-  export NGINX_CONF_FILE="nginx.conf"
-  echo "🔒 Modo HTTPS activado"
-fi
+echo "=============================="
+echo " 🔄 1. Cambiando a rama $BRANCH..."
+echo "=============================="
+git fetch origin $BRANCH
+git checkout $BRANCH
+git pull origin $BRANCH
+
+echo "=============================="
+echo " 🔒 2. Verificando certificados SSL..."
+echo "=============================="
+
+
+export NGINX_CONF_FILE="nginx.conf"
 
 echo "=============================="
 echo " 🛑 1. Deteniendo servicios..."

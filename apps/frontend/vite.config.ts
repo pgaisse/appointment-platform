@@ -13,7 +13,15 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tsconfigPaths()],
     base: "/",   // 👈 muy importante, asegura rutas absolutas en producción
     server: {
+      host: "0.0.0.0",
       port: 3004,
-    },
+      strictPort: true,
+      hmr: {
+        protocol: "wss",
+        host: "dev.letsmarter.com",
+        clientPort: 443
+      }
+    }
+
   }
 })

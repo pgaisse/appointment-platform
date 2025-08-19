@@ -1,13 +1,11 @@
 #!/bin/bash
 set -e
 
-echo "📌 Creando usuario $MONGO_APP_USER en $MONGO_INITDB_DATABASE ..."
-
 mongosh <<EOF
-use $MONGO_INITDB_DATABASE
+use $MONGO_DB
 db.createUser({
-  user: "$MONGO_APP_USER",
-  pwd: "$MONGO_APP_PASS",
-  roles: [ { role: "readWrite", db: "$MONGO_INITDB_DATABASE" } ]
+  user: "${MONGO_USER:-appuser}",
+  pwd: "${MONGO_PASS:-apppass}",
+  roles: [ { role: "readWrite", db: "${MONGO_DB:-appointment}" } ]
 })
 EOF

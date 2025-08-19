@@ -3,7 +3,14 @@ set -e
 
 BRANCH="dev"
 COMPOSE_FILE="infra/docker/compose.dev.yml"
+PROJECT_NAME="appointment-dev"
 BUILD_TIME=$(date +%s)
+
+# Limpieza de contenedor huérfano de certbot_dev
+if docker ps -a --format '{{.Names}}' | grep -Eq '^certbot_dev$'; then
+  echo "🗑️ Eliminando contenedor viejo certbot_dev..."
+  docker rm -f certbot_dev || true
+fi
 
 echo "=============================="
 echo " 🔄 1. Cambiando a rama $BRANCH..."
@@ -15,44 +22,42 @@ git pull origin $BRANCH
 echo "=============================="
 echo " 🔒 2. Verificando certificados SSL..."
 echo "=============================="
+export NGINX_CONF_FILE="nginx.dev.conf"
 
-# Certificados requeridos
-DOMAINS=("dev.letsmarter.com" "api.dev.letsmarter.com")
+DOMAIN="dev.letsmarter.com"
 
-for DOMAIN in "${DOMAINS[@]}"; do
-  if [ ! -d "/etc/letsencrypt/live/$DOMAIN" ]; then
-    echo "🚨 No existe certificado para $DOMAIN, generando..."
-    docker compose -f $COMPOSE_FILE run --rm certbot_dev certonly --webroot \
-      --webroot-path=/var/www/certbot \
-      -d $DOMAIN \
-      --email tu-correo@dominio.com --agree-tos --no-eff-email
-  else
-    echo "✅ Certificado para $DOMAIN ya existe, intentando renovar..."
-    docker compose -f $COMPOSE_FILE run --rm certbot_dev renew
-  fi
-done
+if [ ! -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+  echo "🚨 No existe certificado para $DOMAIN, generando..."
+  docker compose -f $COMPOSE_FILE -p $PROJECT_NAME run --rm certbot_dev certonly --webroot \
+    --webroot-path=/var/www/certbot \
+    -d $DOMAIN \
+    --email p.gaisse@gmail.com --agree-tos --no-eff-email
+else
+  echo "✅ Certificado para $DOMAIN ya existe, intentando renovar..."
+  docker compose -f $COMPOSE_FILE -p $PROJECT_NAME run --rm certbot_dev renew
+fi
 
 echo "=============================="
-echo " 🛑 3. Deteniendo servicios..."
+echo " 🛑 3. Deteniendo servicios (y limpiando huérfanos)..."
 echo "=============================="
-docker compose -f $COMPOSE_FILE down --remove-orphans
+docker compose -f $COMPOSE_FILE -p $PROJECT_NAME down --remove-orphans || true
 
 echo "=============================="
 echo " 🔨 4. Rebuild desde cero..."
 echo "=============================="
-docker compose -f $COMPOSE_FILE build --no-cache --build-arg BUILD_TIME=$BUILD_TIME
+docker compose -f $COMPOSE_FILE -p $PROJECT_NAME build --no-cache --build-arg BUILD_TIME=$BUILD_TIME
 
 echo "=============================="
 echo " 🚀 5. Levantando entorno DEV en HTTPS..."
 echo "=============================="
-docker compose -f $COMPOSE_FILE up -d
+docker compose -f $COMPOSE_FILE -p $PROJECT_NAME up -d
 
 echo "=============================="
 echo " 🔄 6. Reiniciando Nginx para cargar certificados..."
 echo "=============================="
-docker compose -f $COMPOSE_FILE restart nginx_dev
+docker compose -f $COMPOSE_FILE -p $PROJECT_NAME restart nginx || true
 
 echo "=============================="
 echo " 📜 7. Logs en vivo..."
 echo "=============================="
-docker compose -f $COMPOSE_FILE logs -f
+docker compose -f $COMPOSE_FILE -p $PROJECT_NAME logs -f
