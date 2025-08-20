@@ -21,7 +21,7 @@ const updateItems = async ({
   token: string;
 }) => {
   const res = await axios.patch(
-    `${env.VITE_APP_SERVER}/update-items`,
+    `${env.BASE_URL}/update-items`,
     payload,
     {
       headers: {

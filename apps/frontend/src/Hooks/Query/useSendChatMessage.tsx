@@ -41,7 +41,7 @@ export function useSendChatMessage(): UseMutationResult<
         for (const f of files) fd.append("files", f, f.name);
       }
 
-      const url = `${env.VITE_APP_SERVER}/send-message`;
+      const url = `${env.BASE_URL}/send-message`;
 
       const res = await axios.post<SendChatMessageResponse>(url, fd, {
         headers: {

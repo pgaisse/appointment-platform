@@ -18,7 +18,7 @@ const editItems = async ({
   token: string;
 }) => {
   const res = await axios.put(
-    `${env.VITE_APP_SERVER}/categoriesid`,
+    `${env.BASE_URL}/categoriesid`,
     updates,
     {
       headers: {

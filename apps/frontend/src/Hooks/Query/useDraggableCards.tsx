@@ -18,7 +18,7 @@ export const useDraggableCards = () => {
       });
 
       const res = await axios.get(
-        `${env.VITE_APP_SERVER}/DraggableCards`,
+        `${env.BASE_URL}/DraggableCards`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

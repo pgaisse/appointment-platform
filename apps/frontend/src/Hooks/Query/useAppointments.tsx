@@ -20,7 +20,7 @@ const fetchAppointments = async (
   currentDate?: DateRange
 ) => {
   const res = await axios.get(
-    `${env.VITE_APP_SERVER}/appointments`,
+    `${env.BASE_URL}/appointments`,
     {
       headers: {
         Authorization: `Bearer ${token}`,

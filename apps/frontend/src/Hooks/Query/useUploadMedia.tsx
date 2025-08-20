@@ -40,7 +40,7 @@ export const useUploadMedia = () => {
       if (params.category)   form.append('category', params.category);
 
       const { data } = await axios.post<UploadResponse>(
-        `${env.VITE_APP_SERVER}/upload-file`,
+        `${env.BASE_URL}/upload-file`,
         form,
         {
           headers: {

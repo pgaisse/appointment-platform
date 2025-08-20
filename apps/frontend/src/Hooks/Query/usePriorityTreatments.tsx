@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { AppointmentGroup, env } from "@/types";
 
 const fetchTreatments = async (token: string, startDate: Date, endDate: Date, category: string, reschedule: boolean = false) => {
-  const res = await axios.get(`${env.VITE_APP_SERVER}/sorting`, {
+  const res = await axios.get(`${env.BASE_URL}/sorting`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

@@ -32,7 +32,7 @@ export function useWebhookData<T = unknown>(props?: UseWebhookDataProps<T>) {
   }, [getAccessTokenSilently, isAuthenticated]);
 
   const fetchWebhookData = async (): Promise<T> => {
-    const res = await axios.get<T>(`${env.VITE_APP_SERVER}/getchats`, {
+    const res = await axios.get<T>(`${env.BASE_URL}/getchats`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },

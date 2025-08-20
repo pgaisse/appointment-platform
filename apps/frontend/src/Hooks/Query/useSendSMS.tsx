@@ -29,7 +29,7 @@ export const useSendSMS = () => {
       });
 
       const res = await axios.post(
-        `${env.VITE_APP_SERVER}/send-sms`,
+        `${env.BASE_URL}/send-sms`,
         payload,
         {
           headers: {

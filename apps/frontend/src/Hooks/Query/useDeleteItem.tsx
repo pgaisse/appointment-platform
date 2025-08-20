@@ -17,7 +17,7 @@ const deleteItem = async (
   token: string
 ): Promise<{ message: string; deletedId: string }> => {
   const response = await axios.delete(
-    `${env.VITE_APP_SERVER}/${id}`,
+    `${env.BASE_URL}/${id}`,
     {
       headers: {
         Authorization: `Bearer ${token}`,

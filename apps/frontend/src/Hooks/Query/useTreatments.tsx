@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { env, Priority } from "@/types";
 
 const fetchTreatments = async (token: string) => {
-  const res = await axios.get(`${env.VITE_APP_SERVER}/treatments`, {
+  const res = await axios.get(`${env.BASE_URL}/treatments`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

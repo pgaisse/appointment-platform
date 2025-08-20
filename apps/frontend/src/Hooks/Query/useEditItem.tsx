@@ -20,7 +20,7 @@ const editItem = async ({
   model: string;
 }) => {
   const res = await axios.put(
-    `${env.VITE_APP_SERVER}/edit/${id}`,
+    `${env.BASE_URL}/edit/${id}`,
     data,
     {
       headers: {

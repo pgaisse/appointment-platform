@@ -24,7 +24,7 @@ export const useTriggerEndpoint = (endpoint: string) => {
 
       // POST sin body, sin retorno de datos
       await axios.post(
-        `${env.VITE_APP_SERVER}${endpoint}`,
+        `${env.BASE_URL}${endpoint}`,
         {},
         {
           headers: {

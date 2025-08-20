@@ -7,17 +7,16 @@ services:
     env_file:
       - ../../.env.prod
     volumes:
-      - mongo_data:/data/db
-      - ../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
+      - prod_mongo_data:/data/db
+      - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
+      - /home/appointment-platform/mongo-backup:/backup:ro   # 👈 monta tu carpeta real
+      - ./../mongo/prod-init/01-init-restore.sh:/docker-entrypoint-initdb.d/init-restore.sh:ro
     environment:
-      - MONGO_USER=pgaisse
-      - MONGO_PASS=Patoch-2202
-      - MONGO_DB=productionDB
+
       - MONGO_INITDB_ROOT_USERNAME=pgaisse
       - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
       - MONGO_INITDB_DATABASE=productionDB
-      - APP_MONGO_USER=pgaisse
-      - APP_MONGO_PASSWORD=Patoch-2202
+      
     networks:
       - app_network
 
@@ -51,6 +50,7 @@ services:
       AUTH0_CLIENT_ID: LATv8f4mWoSJeWttinR5tp1hFq1glxeL
       AUTH0_AUDIENCE: https://api.dev.iconicsmiles
       BASE_URL: https://letsmarter.com/api
+      APP_SERVER: https://letsmarter.com/api   
 
     container_name: nginx_prod
     restart: unless-stopped
@@ -60,7 +60,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ../nginx/${NGINX_CONF_FILE}:/etc/nginx/conf.d/default.conf:ro
+      - ../nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
     depends_on:
@@ -81,7 +81,7 @@ services:
       --email p.gaisse@gmail.com--agree-tos --non-interactive --force-renewal"
 
 volumes:
-  mongo_data:
+  prod_mongo_data:
   certs:
     driver: local
     driver_opts:

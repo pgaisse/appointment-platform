@@ -38,7 +38,7 @@ const fetchCollection = async function <T>(
   }
 
 
-  const url = `${env.VITE_APP_SERVER}/query/${collection}`;
+  const url = `${env.BASE_URL}/query/${collection}`;
   console.log("📡 useGetCollection → fetching:", {
     url,
     headers: { Authorization: `Bearer ${token?.slice(0, 20)}...` },

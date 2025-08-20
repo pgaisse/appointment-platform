@@ -18,7 +18,7 @@ export const useSocket = () => {
             },
           });
 
-          const newSocket = io(env.VITE_APP_SERVER, {
+          const newSocket = io(env.BASE_URL, {
             transports: ['websocket'],
             auth: {
               token: `Bearer ${token}`,

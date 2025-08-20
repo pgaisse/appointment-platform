@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { env } from "@/types";
 
 const fetchCategories = async (token: string) => {
-  const res = await axios.get(`${env.VITE_APP_SERVER}/categories`, {
+  const res = await axios.get(`${env.BASE_URL}/categories`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

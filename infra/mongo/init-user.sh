@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-mongo <<EOF
+mongosh <<EOF
 use ${MONGO_DB}
 
 // Verificar si ya existe el usuario

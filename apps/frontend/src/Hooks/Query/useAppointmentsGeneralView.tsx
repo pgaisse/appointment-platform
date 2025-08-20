@@ -6,7 +6,7 @@ import { DateRange } from "../Handles/useSlotSelection";
 import { env } from "@/types";
 
 const fetchAppointments = async (token: string, reschedule: boolean = false, currentDate?: DateRange) => {
-  const res = await axios.get(`${env.VITE_APP_SERVER}/appointmentsgeneralview`, {
+  const res = await axios.get(`${env.BASE_URL}/appointmentsgeneralview`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

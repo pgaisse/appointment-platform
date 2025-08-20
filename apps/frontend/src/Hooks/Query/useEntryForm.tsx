@@ -19,7 +19,7 @@ function useEntryForm<T>(modelName: string) {
       // Incluye el modelName en el body para que el backend lo reciba
       const body = { ...formData, model: modelName };
 
-      const response = await axios.post(`${env.VITE_APP_SERVER}`, body, {
+      const response = await axios.post(`${env.BASE_URL}`, body, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

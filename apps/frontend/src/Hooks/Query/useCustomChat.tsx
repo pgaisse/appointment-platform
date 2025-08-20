@@ -27,7 +27,7 @@ export const useCustomChat = () => {
         },
       });
 
-      newSocket = io(env.VITE_APP_SERVER as string, {
+      newSocket = io(env.BASE_URL as string, {
         transports: ['websocket'],
         auth: {
           token: `Bearer ${token}`,

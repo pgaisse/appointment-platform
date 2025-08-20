@@ -11,7 +11,7 @@ const insertToCollection = async function<T>(
   data: Record<string, any>
 ): Promise<T> {
   const res = await axios.post(
-    `${env.VITE_APP_SERVER}/add`,
+    `${env.BASE_URL}/add`,
     {
       modelName: collection,
       data,
