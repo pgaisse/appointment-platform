@@ -26,6 +26,7 @@ app.use(bodyParser.json());
 
 // Query params complejos (evita petar si _parsedUrl no existe)
 app.use((req, _res, next) => {
+  console.log("➡️ Request entrante:", req.method, req.originalUrl);
   try { req.query = qs.parse(req._parsedUrl?.query || ''); } catch {}
   next();
 });
