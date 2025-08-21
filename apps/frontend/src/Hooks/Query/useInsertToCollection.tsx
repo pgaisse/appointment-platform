@@ -11,7 +11,7 @@ const insertToCollection = async function<T>(
   data: Record<string, any>
 ): Promise<T> {
   const res = await axios.post(
-    `${env.BASE_URL}/add`,
+    `${import.meta.env.VITE_BASE_URL}/add`,
     {
       modelName: collection,
       data,
@@ -35,7 +35,7 @@ export const useInsertToCollection = <T = unknown>(collection: string) => {
       if (isAuthenticated) {
         const newToken = await getAccessTokenSilently({
           authorizationParams: {
-            audience: env.AUTH0_AUDIENCE,
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           },
         });
         setToken(newToken);

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { AppointmentGroup, env } from "@/types";
 
 const fetchTreatments = async (token: string, startDate: Date, endDate: Date, category: string, reschedule: boolean = false) => {
-  const res = await axios.get(`${env.BASE_URL}/sorting`, {
+  const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/sorting`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -38,7 +38,7 @@ export const usePriorityTreatments = (
       if (isAuthenticated) {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: env.AUTH0_AUDIENCE,
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           },
         });
         //console.log("Token obtenido (priority):", token);

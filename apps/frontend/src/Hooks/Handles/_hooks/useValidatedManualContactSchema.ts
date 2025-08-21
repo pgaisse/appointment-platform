@@ -2,6 +2,7 @@ import { manualContactSchema } from "@/schemas/ContactsSchema";
 import { z } from "zod";
 import { useAuth0 } from "@auth0/auth0-react";
 import { validatePhoneNotInAppointments } from "@/Helpers/validatePhoneNotInAppointments";
+import { env } from "@/types";
 
 export const useValidatedManualContactSchema = () => {
   const { getAccessTokenSilently } = useAuth0(); // ✅ hook correcto

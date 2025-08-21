@@ -18,7 +18,7 @@ const editItems = async ({
   token: string;
 }) => {
   const res = await axios.put(
-    `${env.BASE_URL}/categoriesid`,
+    `${import.meta.env.VITE_BASE_URL}/categoriesid`,
     updates,
     {
       headers: {
@@ -47,7 +47,7 @@ export const useUpdateCategories = ({ refetch }: Props) => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
 

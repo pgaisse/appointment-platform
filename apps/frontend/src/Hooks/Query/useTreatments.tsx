@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { env, Priority } from "@/types";
 
 const fetchTreatments = async (token: string) => {
-  const res = await axios.get(`${env.BASE_URL}/treatments`, {
+  const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/treatments`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -22,7 +22,7 @@ export const useTreatments = () => {
       if (isAuthenticated) {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: env.AUTH0_AUDIENCE,
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           },
         });
        // console.log("Token obtenido (treatments):", token);

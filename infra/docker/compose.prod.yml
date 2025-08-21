@@ -5,7 +5,7 @@ services:
     container_name: mongo_prod
     restart: unless-stopped
     env_file:
-      - ../../.env.prod
+      - ../../apps/backend/.env.backend.prod
     volumes:
       - prod_mongo_data:/data/db
       - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
@@ -26,16 +26,10 @@ services:
       dockerfile: infra/docker/Dockerfile.backend
     container_name: api_prod
     restart: unless-stopped
-    environment:
-      - MONGO_HOST=mongo
-      - MONGO_PORT=27017
-      - MONGO_DB=productionDB
-      - MONGO_USER=pgaisse
-      - MONGO_PASS=Patoch-2202
     expose:
       - "3304"            # 👈 visible solo dentro de la red Docker
     env_file:
-      - ../../.env.prod
+      - ../../apps/backend/.env.backend.prod
     depends_on:
       - mongo
     networks:
@@ -45,17 +39,10 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.frontend
-    environment:
-      AUTH0_DOMAIN: dev-w2lewd1si042sauk.us.auth0.com
-      AUTH0_CLIENT_ID: LATv8f4mWoSJeWttinR5tp1hFq1glxeL
-      AUTH0_AUDIENCE: https://api.dev.iconicsmiles
-      BASE_URL: https://letsmarter.com/api
-      APP_SERVER: https://letsmarter.com/api   
-
     container_name: nginx_prod
     restart: unless-stopped
     env_file:
-      - ../../.env.prod
+      - ../../apps/frontend/.env.frontend.prod
     ports:
       - "80:80"
       - "443:443"

@@ -1,4 +1,3 @@
-version: "3.9"
 name: dev
 services:
   mongo:
@@ -7,7 +6,12 @@ services:
     ports:
       - "27019:27017"
     env_file:
-      - ../../.env.dev
+      - ../../apps/backend/.env.backend.dev
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     environment:
     - MONGO_INITDB_ROOT_USERNAME=pgaisse
     - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
@@ -30,9 +34,12 @@ services:
     working_dir: /repo/apps/backend
     command: sh -lc "npm install --no-audit --no-fund && npm run dev"
     env_file:
-      - ../../.env.dev
-    environment:
-      - CHOKIDAR_USEPOLLING=true
+      - ../../apps/backend/.env.backend.dev
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     expose:
       - "3003"
     volumes:
@@ -48,17 +55,16 @@ services:
     image: node:20-alpine
     container_name: frontend_dev
     working_dir: /repo/apps/frontend
-    command: sh -lc "./env-config-dev.sh && npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3004"
+    command: sh -lc "CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3004"
     env_file:
-      - ../../.env.frontend.dev
-    environment:
-      CHOKIDAR_USEPOLLING: "true"
-      AUTH0_DOMAIN: dev-w2lewd1si042sauk.us.auth0.com
-      AUTH0_CLIENT_ID: zGcWA1lY54l0lPdmEdJL0UsvOI2cL6zP
-      AUTH0_AUDIENCE: https://api.dev.iconicsmiles
-      BASE_URL: https://dev.letsmarter.com:8443/api
-    ports:
-      - "5173:3004"
+      - ../../apps/frontend/.env.frontend.dev
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
+    expose:
+      - "3004"
     volumes:
       - ../..:/repo
       - /repo/apps/frontend/node_modules
@@ -74,6 +80,13 @@ services:
     ports:
       - "8080:80"
       - "8443:443"
+    env_file:
+      - ../../apps/backend/.env.backend.dev
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/conf.d/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt
@@ -86,6 +99,11 @@ services:
   certbot:
     image: certbot/certbot
     container_name: certbot_dev
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     volumes:
       - appointment_dev_certbot_www:/var/www/certbot
       - /etc/letsencrypt:/etc/letsencrypt

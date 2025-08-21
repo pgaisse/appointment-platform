@@ -24,12 +24,12 @@ export const useSendSMS = () => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
 
       const res = await axios.post(
-        `${env.BASE_URL}/send-sms`,
+        `${import.meta.env.VITE_BASE_URL}/send-sms`,
         payload,
         {
           headers: {

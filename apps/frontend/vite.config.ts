@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
       hmr: {
         protocol: "wss",
         host: "dev.letsmarter.com",
-        clientPort: 443
+        clientPort: 8443
       }
     }
 

@@ -41,24 +41,8 @@ app.use("/api",SMS);
 app.use("/api",Routes);
 
 // -------- Server + Socket.IO --------
-let server;
 
-if (useHttps) {
-  const keyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/letsmarter.com/privkey.pem';
-  const certPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/letsmarter.com/fullchain.pem';
-
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    const creds = { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
-    server = https.createServer(creds, app);
-    console.log('HTTPS: certificados encontrados, iniciando servidor TLS…');
-  } else {
-    console.warn('HTTPS habilitado pero certificados no encontrados. Cambiando a HTTP.');
-    server = http.createServer(app);
-  }
-} else {
-  // Desarrollo: HTTP simple
-  server = http.createServer(app);
-}
+const server = http.createServer(app);
 
 // Inyectar io en req
 const io = setupSocket(server);

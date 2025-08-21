@@ -18,13 +18,13 @@ export const useTriggerEndpoint = (endpoint: string) => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
 
       // POST sin body, sin retorno de datos
       await axios.post(
-        `${env.BASE_URL}${endpoint}`,
+        `${import.meta.env.VITE_BASE_URL}${endpoint}`,
         {},
         {
           headers: {

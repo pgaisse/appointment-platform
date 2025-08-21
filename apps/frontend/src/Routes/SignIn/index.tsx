@@ -26,7 +26,7 @@ const Index = () => {
   useEffect(() => {
     if (!hasLoggedOut) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      logout({ returnTo: window.location.origin + "/error" } as any);
+      logout({ returnTo: import.meta.env.VITE_APP_SERVER + "/error" } as any);
       setHasLoggedOut(true);
     }
   }, [logout, hasLoggedOut]);

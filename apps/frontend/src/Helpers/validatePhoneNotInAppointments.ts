@@ -1,4 +1,5 @@
 // ✅ Este archivo ya NO usa useAuth0
+
 import axios from "axios";
 
 export const validatePhoneNotInAppointments = async (phone: string, token: string): Promise<boolean> => {

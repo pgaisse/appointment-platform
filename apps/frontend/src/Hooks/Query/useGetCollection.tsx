@@ -38,7 +38,7 @@ const fetchCollection = async function <T>(
   }
 
 
-  const url = `${env.BASE_URL}/query/${collection}`;
+  const url = `${import.meta.env.VITE_BASE_URL}/query/${collection}`;
   console.log("📡 useGetCollection → fetching:", {
     url,
     headers: { Authorization: `Bearer ${token?.slice(0, 20)}...` },
@@ -66,7 +66,7 @@ export const useGetCollection = <T = unknown>(
       if (isAuthenticated) {
         const newToken = await getAccessTokenSilently({
           authorizationParams: {
-            audience: env.AUTH0_AUDIENCE,
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           },
         });
         setToken(newToken);

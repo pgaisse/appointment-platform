@@ -22,7 +22,7 @@ export function useWebhookData<T = unknown>(props?: UseWebhookDataProps<T>) {
       if (isAuthenticated) {
         const newToken = await getAccessTokenSilently({
           authorizationParams: {
-            audience: env.AUTH0_AUDIENCE,
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           },
         });
         setToken(newToken);
@@ -32,7 +32,7 @@ export function useWebhookData<T = unknown>(props?: UseWebhookDataProps<T>) {
   }, [getAccessTokenSilently, isAuthenticated]);
 
   const fetchWebhookData = async (): Promise<T> => {
-    const res = await axios.get<T>(`${env.BASE_URL}/getchats`, {
+    const res = await axios.get<T>(`${import.meta.env.VITE_BASE_URL}/getchats`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },

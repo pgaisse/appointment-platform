@@ -29,7 +29,7 @@ export function useSendChatMessage(): UseMutationResult<
   return useMutation<SendChatMessageResponse, unknown, SendChatMessageInput>({
     mutationFn: async ({ to, appId, body, files, onProgress }) => {
       const token = await getAccessTokenSilently({
-        authorizationParams: { audience: env.AUTH0_AUDIENCE },
+        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
 
       // Armamos siempre FormData. Si no hay archivos, igual funciona (backend trata como texto-only).
@@ -41,7 +41,7 @@ export function useSendChatMessage(): UseMutationResult<
         for (const f of files) fd.append("files", f, f.name);
       }
 
-      const url = `${env.BASE_URL}/send-message`;
+      const url = `${import.meta.env.VITE_BASE_URL}/send-message`;
 
       const res = await axios.post<SendChatMessageResponse>(url, fd, {
         headers: {

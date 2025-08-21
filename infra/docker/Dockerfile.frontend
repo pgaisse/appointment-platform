@@ -1,6 +1,9 @@
 FROM node:20-alpine as build
 WORKDIR /app
 
+# Eliminar posibles archivos de configuración antiguos
+RUN rm -f /usr/share/nginx/html/env-config.js
+
 # Instalar dependencias
 COPY apps/frontend/package*.json ./
 RUN npm install
@@ -9,17 +12,16 @@ RUN npm install
 COPY apps/frontend ./
 RUN npm run build
 
+
 # Imagen de producción con Nginx
 FROM nginx:1.28-alpine
 
 # Copiar build del frontend
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Inyectar script de variables dinámicas
-RUN sed -i 's|<script type="module"|<script src="/env-config.js"></script>\n    <script type="module"|' /usr/share/nginx/html/index.html
-
 # Copiar script de configuración dinámica
-COPY apps/frontend/env-config.sh /docker-entrypoint.d/env-config.sh
-RUN chmod +x /docker-entrypoint.d/env-config.sh
+
+# Inyectar script de variables dinámicas
+
 
 EXPOSE 80 443

@@ -6,7 +6,7 @@ import { DateRange } from "../Handles/useSlotSelection";
 import { env } from "@/types";
 
 const fetchAppointments = async (token: string, reschedule: boolean = false, currentDate?: DateRange) => {
-  const res = await axios.get(`${env.BASE_URL}/appointmentsgeneralview`, {
+  const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/appointmentsgeneralview`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -31,7 +31,7 @@ export const useAppointmentsGeneralView = (reschedule: boolean = false) => {
       if (isAuthenticated) {
         const token = await getAccessTokenSilently({
           authorizationParams: {
-            audience: import.meta.env.AUTH0_AUDIENCE,
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           },
         });
         //console.log("Token obtenido:", token);

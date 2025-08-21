@@ -17,7 +17,7 @@ const deleteItem = async (
   token: string
 ): Promise<{ message: string; deletedId: string }> => {
   const response = await axios.delete(
-    `${env.BASE_URL}/${id}`,
+    `${import.meta.env.VITE_BASE_URL}/${id}`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -53,7 +53,7 @@ export const useDeleteItem = ({ modelName, refetch }: Props) => {
       if (!isAuthenticated) throw new Error("Usuario no autenticado");
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
       return await deleteItem(id, modelName, token);

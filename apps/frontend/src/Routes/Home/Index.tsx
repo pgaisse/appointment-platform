@@ -9,7 +9,6 @@ const Index = () => {
   const typedUser = user as CustomUser;
   const [token, setToken] = React.useState<string | null>(null);
 
-  const imageUrl = `${window.location.origin}/img/logo.png`;
 
   // 🚀 Pedir el access_token automáticamente al autenticar
   React.useEffect(() => {
@@ -61,7 +60,7 @@ const Index = () => {
       <Box p={10}>
         <Alert status="warning">
           <AlertIcon />
-          <AlertTitle>Not authenticated</AlertTitle>
+          <AlertTitle>Not authenticated cm</AlertTitle>
           <AlertDescription>Please sign in to continue.</AlertDescription>
         </Alert>
       </Box>
@@ -72,7 +71,7 @@ const Index = () => {
     <>
       <Box p={10}>
         {/* 👇 Aquí puedes mostrar el token, o usarlo para fetch */}
-        <div>Logged in as: {typedUser?.email}</div>
+        <div>Logged in as:caja2</div>
         <div>Access Token: {token ? token.slice(0, 25) + "..." : "Loading..."}</div>
       </Box>
       <PremiumDentalLanding />

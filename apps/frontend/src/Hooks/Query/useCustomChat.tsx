@@ -23,11 +23,11 @@ export const useCustomChat = () => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience:env.AUTH0_AUDIENCE as string,
+          audience:import.meta.env.VITE_AUTH0_AUDIENCE as string,
         },
       });
 
-      newSocket = io(env.BASE_URL as string, {
+      newSocket = io(import.meta.env.VITE_BASE_URL as string, {
         transports: ['websocket'],
         auth: {
           token: `Bearer ${token}`,

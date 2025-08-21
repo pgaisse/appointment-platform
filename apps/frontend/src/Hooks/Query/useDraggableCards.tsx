@@ -13,12 +13,12 @@ export const useDraggableCards = () => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
 
       const res = await axios.get(
-        `${env.BASE_URL}/DraggableCards`,
+        `${import.meta.env.VITE_BASE_URL}/DraggableCards`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

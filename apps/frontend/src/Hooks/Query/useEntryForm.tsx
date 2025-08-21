@@ -12,14 +12,14 @@ function useEntryForm<T>(modelName: string) {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
 
       // Incluye el modelName en el body para que el backend lo reciba
       const body = { ...formData, model: modelName };
 
-      const response = await axios.post(`${env.BASE_URL}`, body, {
+      const response = await axios.post(`${import.meta.env.VITE_BASE_URL}`, body, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

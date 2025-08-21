@@ -25,7 +25,7 @@ export const useSendAppointmentSMS = () => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
 
@@ -36,7 +36,7 @@ export const useSendAppointmentSMS = () => {
       };
 
       const res = await axios.post(
-        `${env.BASE_URL}/webhook2`,
+        `${import.meta.env.VITE_BASE_URL}/webhook2`,
         bodyWithSource,
         {
           headers: {

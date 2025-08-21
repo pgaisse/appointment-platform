@@ -21,7 +21,7 @@ const updateItems = async ({
   token: string;
 }) => {
   const res = await axios.patch(
-    `${env.BASE_URL}/update-items`,
+    `${import.meta.env.VITE_BASE_URL}/update-items`,
     payload,
     {
       headers: {
@@ -42,7 +42,7 @@ export const useUpdateItems = () => {
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
-          audience: env.AUTH0_AUDIENCE,
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         },
       });
 

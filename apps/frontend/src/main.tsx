@@ -16,11 +16,12 @@ createRoot(document.getElementById("root")!).render(
     <ChakraProvider theme={theme}>
       <QueryClientProvider client={queryClient}>
         <Auth0Provider
-          domain={env.AUTH0_DOMAIN}
-          clientId={env.AUTH0_CLIENT_ID}
+          domain={import.meta.env.VITE_AUTH0_DOMAIN}
+          clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
           authorizationParams={{
-            redirect_uri: window.location.origin,
-            audience: env.AUTH0_AUDIENCE,
+            redirect_uri: `${import.meta.env.VITE_REDIRECT_URI}`,
+
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
           }}
           cacheLocation="localstorage"
           useRefreshTokens={true}

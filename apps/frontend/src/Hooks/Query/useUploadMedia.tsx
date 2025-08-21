@@ -23,7 +23,7 @@ export const useUploadMedia = () => {
       if (!isAuthenticated) throw new Error("No authenticated user");
 
       const token = await getAccessTokenSilently({
-        authorizationParams: { audience: env.AUTH0_AUDIENCE },
+        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
 
       const form = new FormData();
@@ -40,7 +40,7 @@ export const useUploadMedia = () => {
       if (params.category)   form.append('category', params.category);
 
       const { data } = await axios.post<UploadResponse>(
-        `${env.BASE_URL}/upload-file`,
+        `${import.meta.env.VITE_BASE_URL}/upload-file`,
         form,
         {
           headers: {

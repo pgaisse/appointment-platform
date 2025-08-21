@@ -14,16 +14,17 @@ export const useSocket = () => {
         try {
           const token = await getAccessTokenSilently({
             authorizationParams: {
-              audience: env.AUTH0_AUDIENCE,
+              audience: import.meta.env.VITE_AUTH0_AUDIENCE,
             },
           });
-
-          const newSocket = io(env.BASE_URL, {
+console.log("algo",import.meta.env.VITE_APP_SERVER_SOCKET)
+          const newSocket = io(import.meta.env.VITE_APP_SERVER_SOCKET, {
             transports: ['websocket'],
             auth: {
               token: `Bearer ${token}`,
             },
           });
+          
 
           newSocket.on('connect', () => {
             setConnected(true);
