@@ -60,7 +60,7 @@ const Index = () => {
       <Box p={10}>
         <Alert status="warning">
           <AlertIcon />
-          <AlertTitle>Not authenticated cm</AlertTitle>
+          <AlertTitle>Not authenticated</AlertTitle>
           <AlertDescription>Please sign in to continue.</AlertDescription>
         </Alert>
       </Box>
@@ -69,11 +69,7 @@ const Index = () => {
 
   return (
     <>
-      <Box p={10}>
-        {/* 👇 Aquí puedes mostrar el token, o usarlo para fetch */}
-        <div>Logged in as:caja2</div>
-        <div>Access Token: {token ? token.slice(0, 25) + "..." : "Loading..."}</div>
-      </Box>
+
       <PremiumDentalLanding />
     </>
   );
