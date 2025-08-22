@@ -1,5 +1,4 @@
 import {
-  Button,
   Flex,
   Modal,
   ModalOverlay,
@@ -7,14 +6,14 @@ import {
   ModalBody,
   ModalCloseButton,
   useDisclosure,
+  IconButton,
 } from "@chakra-ui/react";
-import { AddIcon } from "@chakra-ui/icons";
 import { motion } from "framer-motion";
+import { AiOutlineUserAdd } from "react-icons/ai";
 import CustomEntryForm from "../CustomTemplates/CustomEntryForm";
 import { Priority } from "@/types";
-import { IoMdPersonAdd } from "react-icons/io";
 
-const MotionButton = motion(Button);
+const MotionIconButton = motion(IconButton);
 
 type Props = {
   priority?: Priority;
@@ -30,23 +29,20 @@ export default function AddPatientButton({ priority }: Props) {
 
   return (
     <>
-      <Flex justify="right"
-        alignContent={"end"} >
-        <MotionButton
-
-          size="xs"
-          leftIcon={<IoMdPersonAdd />}
+      <Flex justify="right" width="fit-content" alignContent="end" mx={2}>
+        <MotionIconButton
+          aria-label="Add patient"
+          icon={<AiOutlineUserAdd style={{ boxSizing: "content-box" }} />}
+          size="sm"
+          isRound
+          fontSize="12px"      // 👈 controla el ícono
           bgGradient="linear(to-r, teal.400, blue.500)"
           color="white"
-          fontSize="xs"
-          fontWeight="semibold"
-          rounded="full"
           shadow="xl"
           _hover={{ shadow: "2xl", transform: "scale(1.05)" }}
           _active={{ transform: "scale(0.95)" }}
           onClick={onOpen}
-        >
-        </MotionButton>
+        />
       </Flex>
 
       <Modal isOpen={isOpen} onClose={onClose} isCentered size="2xl">
@@ -59,7 +55,7 @@ export default function AddPatientButton({ priority }: Props) {
               toastInfo={toastInfo}
               onlyPatient={true}
               priorityVal={priority}
-              onClose_1={onClose} // 👈 importante: ahora pasa el correcto
+              onClose_1={onClose}
             />
           </ModalBody>
         </ModalContent>
