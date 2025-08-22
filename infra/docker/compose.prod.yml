@@ -11,6 +11,11 @@ services:
       - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
       - /home/appointment-platform/mongo-backup:/backup:ro   # 👈 monta tu carpeta real
       - ./../mongo/prod-init/01-init-restore.sh:/docker-entrypoint-initdb.d/init-restore.sh:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     environment:
 
       - MONGO_INITDB_ROOT_USERNAME=pgaisse
@@ -28,6 +33,11 @@ services:
     restart: unless-stopped
     expose:
       - "3304"            # 👈 visible solo dentro de la red Docker
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     env_file:
       - ../../apps/backend/.env.backend.prod
     depends_on:
@@ -41,6 +51,11 @@ services:
       dockerfile: infra/docker/Dockerfile.frontend
     container_name: nginx_prod
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     env_file:
       - ../../apps/frontend/.env.frontend.prod
     ports:
@@ -58,6 +73,11 @@ services:
   certbot:
     image: certbot/certbot
     container_name: certbot_prod
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"     # tamaño máximo de un archivo de log
+        max-file: "3"       # número de archivos de log rotados
     volumes:
       - certs:/etc/letsencrypt
       - certbot-www:/var/www/certbot
