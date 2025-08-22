@@ -331,7 +331,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
       {
         $lookup: {
           from: 'appointments',
-          let: { priorityId: '$_id', priorityName: '$name', priorityColor: '$color', priorityDescription: '$description', priorityNotes: '$notes' },
+          let: { priorityNum: '$id', priorityId: '$_id', priorityName: '$name', priorityColor: '$color', priorityDescription: '$description', priorityNotes: '$notes' },
           pipeline: [
             {
               $match: {
@@ -407,10 +407,13 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
                   days: "$days",
                 },
                 priority: {
-                  name: "$$priorityName",
-                  color: "$$priorityColor",
-                  description: "$$priorityDescription",
-                  notes: "$$priorityNotes"
+                  durationHours: "$durationHours",
+                  description: "$priorityDescription",
+                  notes: "$priorityNotes",
+                  id: "$priorityNum",
+                  _id: "$priorityId",
+                  name: "$priorityName",
+                  color: "$priorityColor",
                 }
               },
             },
@@ -427,10 +430,22 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
       {
         $project: {
           _id: 1,
+          priorityNum: "$id",
+          priorityId: "$_id",
           priorityName: "$name",
           priorityColor: "$color",
           description: 1,
           durationHours: 1,
+          priority: {
+            org_id: "$org_id",
+            id: "$id",
+            _id: "$_id",
+            description: "$description",
+            notes: "$notes",
+            durationHours: "$durationHours",
+            name: "$name",
+            color: "$color"
+          },
           count: { $size: "$patients" },
           patients: 1,
         },

@@ -51,7 +51,7 @@ const Layout = () => {
         { name: "Appointment Manager", icon: HiOutlineClipboardDocumentCheck, path: paths.appointmentManager, color: "cyan.600" },
         { name: "Patient Finder", icon: LuUserRoundSearch, path: paths.patientFinder, color: "purple.500" },
         { name: "Appointments", icon: FaRegCalendarCheck, path: paths.assignedAppointments, color: "teal.500" },
-        
+        { name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
        
         
 

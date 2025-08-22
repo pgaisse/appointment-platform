@@ -34,13 +34,13 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import React, { useEffect, useState } from 'react';
-import { Appointment, GroupedAppointment, Priority } from '@/types';
-import { useDraggableCards } from '@/Hooks/Query/useDraggableCards';
+import { Appointment, GroupedAppointment } from '@/types';
 import { UpdatePayload, useUpdateItems } from '@/Hooks/Query/useUpdateItems';
 import { useQueryClient } from '@tanstack/react-query';
-import { formatDateSingle } from '@/Functions/FormatDateSingle';
 import { iconMap } from '../CustomIcons';
 import Pagination from '../Pagination';
+import AddPatientButton from '../DraggableCards/AddPatientButton';
+import DeleteItemButton from './DeleteItemButton';
 
 type Props = {
   onCardClick?: (item: Appointment) => void;
@@ -174,7 +174,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
   const toast = useToast();
 
   console.log("dataAP2", dataAP2)
-  const { mutate, isPending } = useUpdateItems();
+  const { mutate } = useUpdateItems();
   const [activeItem, setActiveItem] = useState<Appointment | null>(null);
   const [optimisticData, setOptimisticData] = useState<GroupedAppointment[] | null>(null);
   const [sourceCol, setSourceCol] = useState<GroupedAppointment | undefined>();
@@ -393,8 +393,10 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
             minW="250px"
             flex="0 0 auto"
             minHeight="300px"
+            maxHeight="600px"
             border="1px solid #E2E8F0"
             borderRadius="md"
+            position={"relative"}
             bg="gray.50"
             mr={4}
           >
@@ -414,8 +416,16 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
               </Heading>
             </CardHeader>
 
-            <CardBody p={3} w="100%" maxW="100vw" overflowY="auto" bg="white" minH="480px"
-              maxH="480px" >
+            <CardBody
+              p={3}
+              w="100%"
+              maxW="100vw"
+              overflowY="auto"
+              bg="white"
+              h="100%"         // 👈 ocupa siempre el 100% de alto disponible
+              position="relative"
+            >
+
               <SortableContext items={items} strategy={verticalListSortingStrategy}>
                 {paginatedPatients.length > 0 ? (
                   paginatedPatients.map((item) => (
@@ -426,7 +436,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                       onClick={onCardClick}
                       item={item}
                     >
+
                       <Grid templateColumns="1fr" templateRows="auto" w="100%">
+
                         <GridItem>
                           <HStack>
                             <Icon as={TimeIcon} color="green" />
@@ -443,6 +455,12 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                             <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
                               <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
                             </Tooltip>
+
+                            <DeleteItemButton
+                              id={item._id}
+                              modelName="Appointment"
+                            />
+
                           </HStack>
                         </GridItem>
                         <GridItem>
@@ -454,6 +472,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                           </HStack>
                         </GridItem>
                       </Grid>
+
                     </SortableItem>
                   ))
                 ) : (
@@ -464,17 +483,27 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                   </SortableItem>
                 )}
               </SortableContext>
+              
             </CardBody>
+            <Box
+                pr={4}
+                pt={1}
+                alignContent={"end"}
+                bg="transparent"
+                zIndex={1}   // 👈 asegura que quede encima del contenido
+              >
+                <AddPatientButton key={col._id} priority={col.priority} />
+              </Box>
             <CardFooter minH="50px"
               maxH="50px">
-              
-                <Pagination
-                  isPlaceholderData={isPlaceholderData}
-                  totalPages={totalPages}
-                  currentPage={currentPage}
-                  onPageChange={(page) => handlePageChange(col._id || "", page)}
-                />
-              
+
+              <Pagination
+                isPlaceholderData={isPlaceholderData}
+                totalPages={totalPages}
+                currentPage={currentPage}
+                onPageChange={(page) => handlePageChange(col._id || "", page)}
+              />
+
             </CardFooter>
           </Card>
         );

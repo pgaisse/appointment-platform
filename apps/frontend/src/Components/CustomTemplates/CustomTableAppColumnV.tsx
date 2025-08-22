@@ -1,4 +1,3 @@
-import { formatDateSingle } from "@/Functions/FormatDateSingle";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import {
   Box,
@@ -18,18 +17,14 @@ import {
   useDisclosure
 } from "@chakra-ui/react";
 import { useEffect, useState } from "react";
-import AvailabilityDates, { WeekDay } from "./AvailabilityDates";
-import { DateRange } from "./CustomBestApp";
-import { Appointment, GroupedAppointment, Priority, TimeBlock } from "@/types";
+import { WeekDay } from "./AvailabilityDates";
+import { Appointment, GroupedAppointment, TimeBlock } from "@/types";
 import DraggableCards from "./DraggableCards";
 import AvailabilityDates2 from "./AvailabilityDates2";
 import DateRangeSelector from "../searchBar/DateRangeSelector";
 import { useDraggableCards } from "@/Hooks/Query/useDraggableCards";
 import { filterAppointmentsByRange, RangeOption } from "@/Functions/filterAppointmentsByRage";
 
-interface Query {
-
-}
 
 const CustomTableAppColumnV = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -38,8 +33,8 @@ const CustomTableAppColumnV = () => {
   const subTextColor = useColorModeValue("gray.500", "gray.400");
   const bgModal = useColorModeValue("white", "gray.800")
   const bgText = useColorModeValue("gray.100", "gray.700");
-  const [selectedDays, setSelectedDays] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
-  const { data: dataAP2, refetch, isPlaceholderData } = useDraggableCards();
+  const [, setSelectedDays] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
+  const { data: dataAP2, isPlaceholderData } = useDraggableCards();
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
 
@@ -79,7 +74,6 @@ const CustomTableAppColumnV = () => {
     setSelectedItem(item);
     onOpen();
   };
-console.log()
   return (
     <>
       <Box

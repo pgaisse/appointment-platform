@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 3004,
       strictPort: true,
+      allowedHosts: ['dev.letsmarter.com'], // 👈 aquí permites tu dominio
       hmr: {
         protocol: "wss",
         host: "dev.letsmarter.com",

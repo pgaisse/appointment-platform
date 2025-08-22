@@ -26,3 +26,6 @@ mongo-backup-host:
 	mongodump \
 		--uri "mongodb://pgaisse:Patoch-2202@localhost:27017/productionDB?authSource=admin" \
 		--out /home/appointment-platform/mongo-backup/$$(date +%F-%H%M)
+
+mongo_dev:
+	docker exec -it mongo_dev mongosh -u pgaisse -p Patoch-2202 --authenticationDatabase admin

@@ -13,12 +13,12 @@ dayjs.extend(utc);
 export default function Multistep() {
 
 
-  const [selectedDays, setSelectedDays] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
+  const [] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
   const [selectedDates, setSelectedDates] = useState<DateRange[]>([]);
   const [markedEvents, setMarkedEvents] = useState<MarkedEvents>([]);
 
-  const { handleSelectSlot } = useSlotSelection(false, selectedDates, setSelectedDates, markedEvents, setMarkedEvents);
-  const { handleSelectEvent } = useEventSelection(setSelectedDates, setMarkedEvents, markedEvents);
+  useSlotSelection(false, selectedDates, setSelectedDates, markedEvents, setMarkedEvents);
+  useEventSelection(setSelectedDates, setMarkedEvents, markedEvents);
 
   //Manejadores de fecha para appointment
   const [selectedAppDates, setSelectedAppDates] = useState<DateRange[]>([]);
@@ -44,6 +44,7 @@ export default function Multistep() {
         mode={"CREATION"}
         datesApp={selectedAppDates}
         setDatesApp={setSelectedAppDates}
+        onlyPatient={false} 
 
       >
       </CustomEntryForm>
