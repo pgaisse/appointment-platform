@@ -8,9 +8,9 @@ services:
       - ../../apps/backend/.env.backend.prod
     volumes:
       - prod_mongo_data:/data/db
-      - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
-      - /home/appointment-platform/mongo-backup:/backup:ro   # 👈 monta tu carpeta real
-      - ./../mongo/prod-init/01-init-restore.sh:/docker-entrypoint-initdb.d/init-restore.sh:ro
+      - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:rw
+      - /home/appointment-platform/mongo-backup:/backup:rw   # 👈 monta tu carpeta real
+      - ./../mongo/prod-init/01-init-restore.sh:/docker-entrypoint-initdb.d/init-restore.sh:rw
     logging:
       driver: "json-file"
       options:

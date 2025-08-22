@@ -8,6 +8,6 @@ mongorestore \
   --password "$MONGO_INITDB_ROOT_PASSWORD" \
   --authenticationDatabase admin \
   --db "$MONGO_INITDB_DATABASE" \
-  /backup/productionDB || true
+  /backup_dev/"$MONGO_INITDB_DATABASE" || true
 
 echo "✅ Restore finalizado"

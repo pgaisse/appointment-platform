@@ -13,13 +13,15 @@ services:
         max-size: "10m"     # tamaño máximo de un archivo de log
         max-file: "3"       # número de archivos de log rotados
     environment:
-    - MONGO_INITDB_ROOT_USERNAME=pgaisse
-    - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
-    - MONGO_INITDB_DATABASE=productionDB
+      - MONGO_INITDB_ROOT_USERNAME=pgaisse
+      - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
+      - MONGO_INITDB_DATABASE=productionDB
     volumes:
-      - mongo_dev:/data/db
-      - ./../mongo/dev-init:/docker-entrypoint-initdb.d:ro
-      - /home/appointment-platform/mongo-backup:/backup_dev:ro
+      - mongo_dev_data:/data/db
+      - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
+      - /home/appointment-platform/mongo-backup:/backup_dev
+      - ./../mongo/dev-init/01-init-restore.sh:/docker-entrypoint-initdb.d/init-restore-dev.sh:ro
+   
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 5s
@@ -111,7 +113,7 @@ services:
       - app_network_dev
 
 volumes:
-  mongo_dev:
+  mongo_dev_data:
   appointment_dev_certbot_www:
   letsencrypt_dev:
 

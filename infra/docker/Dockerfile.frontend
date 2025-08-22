@@ -1,8 +1,6 @@
 FROM node:20-alpine as build
 WORKDIR /app
 
-# Eliminar posibles archivos de configuración antiguos
-RUN rm -f /usr/share/nginx/html/env-config.js
 
 # Instalar dependencias
 COPY apps/frontend/package*.json ./
