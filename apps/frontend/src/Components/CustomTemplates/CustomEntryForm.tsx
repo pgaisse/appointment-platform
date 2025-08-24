@@ -1,4 +1,4 @@
-import React, { ReactNode, useState } from "react";
+import React, { ReactNode, useEffect, useState } from "react";
 
 import DOMPurify from 'dompurify';
 import { IoMdClose } from "react-icons/io";
@@ -200,7 +200,13 @@ function CustomEntryForm({ children, dates,
   const [, setTreatment] = useState<Treatment | undefined>(treatmentBack);
   const [selected, setSelected] = useState<number>(priorityVal?.id || -1);
   const [selectedTreatment] = useState<number>(priorityVal?.id || -1);
-  priorityVal ? setValue("priority", priorityVal._id || "") : null
+
+
+  useEffect(() => {
+    if (priorityVal) {
+      setValue("priority", priorityVal._id || "");
+    }
+  }, [priorityVal, setValue]);
 
 
 

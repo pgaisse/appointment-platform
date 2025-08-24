@@ -43,7 +43,7 @@ export default function CustomChat() {
     const [input, setInput] = useState('');
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const [uploadPercent, setUploadPercent] = useState(0);
+    const [, setUploadPercent] = useState(0);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [previews, setPreviews] = useState<PreviewItem[]>([]);
 
@@ -78,7 +78,6 @@ export default function CustomChat() {
         data.forEach((conv: Conversation) => {
             if (!Array.isArray(conv.chatmessage)) return; // ⛑ Previene el error
             const convAppId = (conv as any).appId ?? (conv as any).app_id ?? (conv as any)._id ?? '';
-
             conv.chatmessage.forEach((msg) => {
                 const sid = msg.sid?.trim();
                 const phone = msg.phone?.trim();
@@ -126,12 +125,9 @@ export default function CustomChat() {
         setContacts(enrichedContacts);
         setConversations(initialConversations);
     }, [data]);
-
-
     useLayoutEffect(() => {
         scrollRef.current?.scrollIntoView({ behavior: 'auto' }); // o "smooth" si lo prefieres
     }, [conversations, selectedContact]);
-
     useEffect(() => {
         if (!socket) return; // ← Esto ahora no retorna del useEffect
 
@@ -196,129 +192,64 @@ export default function CustomChat() {
         };
     }, [socket]);
 
-
-
-
     const handleSend = () => {
-        if (!selectedContact) return;
+    if (!selectedContact) return;
 
-        const appId = selectedContact.appId;
-        if (!appId) {
-            toast({
-                title: "Cannot send",
-                description: "Missing patient appId.",
-                status: "error",
-                position: "bottom-right",
-            });
-            return;
+    const appId = selectedContact.appId;
+    if (!appId) {
+        toast({
+            title: "Cannot send",
+            description: "Missing patient appId.",
+            status: "error",
+            position: "bottom-right",
+        });
+        return;
+    }
+
+    const hasText = !!input.trim();
+    const hasFiles = Array.isArray(selectedFiles) && selectedFiles.length > 0;
+
+    if (!hasText && !hasFiles) return;
+
+    const messageText = input.trim();
+
+    // reset UI
+    //setInput("");
+    //setPreviews([]);
+    //setSelectedFiles([]);
+
+    sendChat.mutate(
+        {
+            to: formatToE164(selectedContact.phone),
+            appId,
+            body: messageText,
+            files: hasFiles ? selectedFiles : [],
+            onProgress: (p: number) => setUploadPercent(p),
+        },
+        {
+            onSuccess: () => {
+                setUploadPercent(0);
+                toast({
+                    title: hasFiles ? "Media sent" : "Message sent",
+                    status: "success",
+                    duration: 2000,
+                    position: "bottom-right",
+                });
+            },
+            onError: (error: any) => {
+                setUploadPercent(0);
+                console.error("Error sending message:", error);
+                toast({
+                    title: "Failed to send message",
+                    description: error?.message || "Unexpected error",
+                    status: "error",
+                    position: "bottom-right",
+                });
+            },
         }
+    );
+};
 
-        const hasText = !!input.trim();
-        const hasFiles = Array.isArray(selectedFiles) && selectedFiles.length > 0;
-
-        if (!hasText && !hasFiles) return;
-
-        // ❌ Regla: no permitir texto + archivos al mismo tiempo
-        if (hasText && hasFiles) {
-            toast({
-                title: "Choose one",
-                description: "Send a message OR attach files, not both.",
-                status: "warning",
-                position: "bottom-right",
-            });
-            return;
-        }
-
-        // ✅ Solo TEXTO
-        if (hasText) {
-
-            // Optimistic UI solo para texto
-            const optimistic = { author: currentAuthor, body: input.trim() };
-            setInput(""); // restaurar input
-            setConversations((prev: any) => ({
-                ...prev,
-                [selectedContact.phone]: [...(prev[selectedContact.phone] || []), optimistic],
-            }));
-
-            sendChat.mutate(
-                {
-                    to: formatToE164(selectedContact.phone),
-                    appId,
-                    body: input.trim(),
-                },
-                {
-                    onSuccess: () => {
-                        setInput("");
-                        toast({
-                            title: "Message sent",
-                            status: "success",
-                            duration: 2000,
-                            position: "bottom-right",
-                        });
-                    },
-                    onError: (error: any) => {
-                        // revertir optimista
-                        setConversations((prev: any) => {
-                            const list = (prev[selectedContact.phone] || []).slice();
-                            list.pop();
-                            return { ...prev, [selectedContact.phone]: list };
-                        });
-                        console.error("Error sending message:", error);
-                        toast({
-                            title: "Failed to send",
-                            description: error?.message || "Unexpected error",
-                            status: "error",
-                            position: "bottom-right",
-                        });
-
-                    },
-
-                }
-
-            );
-
-            return; // terminamos flujo texto
-        }
-
-        // ✅ Solo ARCHIVOS
-        if (hasFiles) {
-            setInput(""); // restaurar input
-            setSelectedFiles([]);
-            sendChat.mutate(
-                {
-                    to: formatToE164(selectedContact.phone),
-                    appId,
-                    files: selectedFiles,
-                    // onProgress es opcional; coméntalo si no usas barra de progreso:
-                    onProgress: (p) => setUploadPercent?.(p),
-                },
-                {
-                    onSuccess: () => {
-                        setSelectedFiles([]);
-                        setUploadPercent?.(0);
-                        toast({
-                            title: "Media sent",
-                            status: "success",
-                            duration: 2000,
-                            position: "bottom-right",
-                        });
-
-                    },
-                    onError: (error: any) => {
-                        setUploadPercent?.(0);
-                        console.error("Error sending media:", error);
-                        toast({
-                            title: "Failed to send media",
-                            description: error?.message || "Unexpected error",
-                            status: "error",
-                            position: "bottom-right",
-                        });
-
-                    },
-                }
-            );
-        }
-    };
     const handleFilesReady = (files: File[]) => {
         const items = files.map((f) => ({
             id: `${f.name}-${f.size}-${f.lastModified}-${crypto.randomUUID()}`,
@@ -329,8 +260,6 @@ export default function CustomChat() {
         setSelectedFiles(files);
         setPreviews(items);
     };
-
-
     const removePreview = (id: string) => {
         setPreviews((prev) => {
             const tgt = prev.find(p => p.id === id);
@@ -344,8 +273,6 @@ export default function CustomChat() {
             return next;
         });
     };
-
-    // limpiar todos
     const clearPreviews = () => {
         setPreviews((prev) => {
             prev.forEach(p => URL.revokeObjectURL(p.url));
@@ -353,7 +280,6 @@ export default function CustomChat() {
         });
         setSelectedFiles([]);
     };
-
     return (
         <Flex h="80%" w="90%" mt={5} mx="auto" bg={bg} borderRadius="2xl" overflow="hidden" shadow="2xl">
             {/* Sidebar */}
@@ -418,7 +344,6 @@ export default function CustomChat() {
 
                         <VStack spacing={3} flex={1} overflowY="auto" align="stretch" pr={2}>
                             {(conversations[selectedContact.phone] || []).map((msg, idx) => {
-                                console.log("selectedContact", selectedContact)
                                 const isClinic = msg.author === currentAuthor;
                                 return (
                                     <Flex key={idx} justify={isClinic ? 'flex-end' : 'flex-start'} w="100%">

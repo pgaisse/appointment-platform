@@ -39,6 +39,7 @@ app.get('/api/health', (_req, res) => {
 // -------- Rutas --------
 app.use("/api",SMS);
 app.use("/api",Routes);
+app.enable("trust proxy");
 
 // -------- Server + Socket.IO --------
 

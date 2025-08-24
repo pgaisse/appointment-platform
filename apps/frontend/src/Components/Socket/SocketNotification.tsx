@@ -22,17 +22,15 @@ type MSG = {
 
 export const SocketNotification = () => {
     const { socket, connected } = useSocket();
-    const [messages, setMessages] = useState<MSG[]>([]);
+    const [, setMessages] = useState<MSG[]>([]);
     const toast = useToast();
     const queryClient = useQueryClient();
 
     useEffect(() => {
-        console.log("Connected",connected,"Socket:", socket)
         if (!socket || !connected) return;
 
         const handleSMS = (data: MSG) => {
             if(!data.notification)return
-            console.log('📬 SMS received from backend:', data);
             setMessages((prev) => [...prev, data]);
 
             const normalized = data.body.trim().toLowerCase();

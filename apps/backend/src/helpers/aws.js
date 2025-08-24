@@ -93,17 +93,33 @@ async function uploadImageFromUrl(imageUrl, folderName, fileName = null) {
 async function getSignedUrl(key) {
     const url = `https://${process.env.CLOUDFRONT_DOMAIN}/${key}`;
     const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hora
+    const privateKey = fs.readFileSync(process.env.PRIVATE_KEY_PATH, "utf8");
 
     const signedUrl = await getCloudFrontSignedUrl({
         url,
         keyPairId: process.env.CLOUDFRONT_KEY_PAIR_ID,
         dateLessThan: expires,
+        privateKey: privateKey
     });
 
     return signedUrl;
 }
 
+async function getDirectMediaUrl(chatServiceSid, mediaSid) {
+  const url = `https://mcs.us1.twilio.com/v1/Services/${chatServiceSid}/Media/${mediaSid}`;
+console.log(url)
+  const response = await axios.get(url, {
+    auth: {
+      username: process.env.TWILIO_ACCOUNT_SID,
+      password: process.env.TWILIO_AUTH_TOKEN
+    }
+  });
+
+  return response.data.links.content_direct_temporary;
+}
+
 module.exports = {
+    getDirectMediaUrl,
     uploadFileFromBuffer,
     uploadImageFromUrl,
     getSignedUrl,
