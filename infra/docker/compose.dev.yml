@@ -45,6 +45,7 @@ services:
     expose:
       - "3003"
     volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
       - ../..:/repo
       - /repo/apps/backend/node_modules
     depends_on:
@@ -81,7 +82,7 @@ services:
     image: nginx:1.27-alpine
     ports:
       - "8080:80"
-      - "8443:443"
+      - "8443:8443"
     env_file:
       - ../../apps/backend/.env.backend.dev
     logging:

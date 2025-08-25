@@ -1,8 +1,7 @@
-import { Alert, AlertIcon, Button, Flex, Icon, ResponsiveValue, Skeleton, Stack, Tooltip, useBreakpointValue } from '@chakra-ui/react';
+import { Button, Flex, Icon, ResponsiveValue, Skeleton, Stack, Tooltip } from '@chakra-ui/react';
 import { QueryObserverResult, RefetchOptions } from '@tanstack/react-query';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { FieldError } from 'react-hook-form';
-import { useTreatments } from '@/Hooks/Query/useTreatments';
 import { Priority } from '@/types';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
 import { FiCheckCircle } from 'react-icons/fi';
@@ -28,7 +27,6 @@ function CustomButtonGroup({
   setSelected,
   onChange,
   value,
-  btnSize = 25,
   gap = "15px",
   setCatSelected,
   refetch,
@@ -52,7 +50,6 @@ function CustomButtonGroup({
     }, ...(options ?? [])]
     : (options ?? []);
 
-  const isMobile = useBreakpointValue({ base: true, md: false });
 
 
   useEffect(() => {

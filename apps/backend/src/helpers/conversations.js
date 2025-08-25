@@ -23,10 +23,8 @@ const { Appointment, ContactAppointment } = require('../models/Appointments')
 const main = async (appointmentId, req) => {
     const session = await mongoose.startSession();
     //console.log("DENTRO DE CONVERSATION este es IO",io)
-    console.log("appointmentId : ", appointmentId)
     try {
         const appId = new ObjectId(appointmentId);
-        console.log("appId", appId)
         const appointment = await Appointment.findOne(
             { _id: appId },
             {
@@ -901,7 +899,20 @@ async function getServiceSidForConversation(conversationSid) {
   return is;
 }
 
+async function uploadToMCS(fileBuffer, filename, contentType) {
+      const mcsUrl = `https://mcs.us1.twilio.com/v1/Services/${serviceSid}/Media`;
+      const resp = await axios.post(mcsUrl, fileBuffer, {
+        auth: { username: accountSid, password: authToken },
+        headers: {
+          'Content-Type': contentType || 'application/octet-stream',
+          'X-Twilio-Filename': filename || 'file',
+        },
+      });
+      return resp?.data?.sid; // ME...
+    }
+
 module.exports = {
+    uploadToMCS,
     getServiceSidForConversation,
     getTwilioMediaMetadata,
     formatSydneyDateRange,

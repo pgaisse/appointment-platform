@@ -70,15 +70,6 @@ export function FileUploadButton({ onFilesReady, isSending = false, hasText = fa
   const handleFileSelection = (filesList: FileList | null) => {
     if (!filesList || filesList.length === 0) return;
 
-    if (hasText) {
-      toast({
-        title: "Choose one",
-        description: "Send a message OR attach files, not both.",
-        status: "warning",
-        position: "bottom-right",
-      });
-      return;
-    }
 
     const files = Array.from(filesList).filter(isImageFile);
     if (files.length === 0) {

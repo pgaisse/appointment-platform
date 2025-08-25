@@ -2,7 +2,6 @@
 import { useMutation, UseMutationResult } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
-import { env } from "@/types";
 
 type SendChatMessageInput = {
   to: string;                 // E.164
@@ -41,7 +40,7 @@ export function useSendChatMessage(): UseMutationResult<
         for (const f of files) fd.append("files", f, f.name);
       }
 
-      const url = `${import.meta.env.VITE_BASE_URL}/send-message`;
+      const url = `${import.meta.env.VITE_BASE_URL}/sendMessage`;
 
       const res = await axios.post<SendChatMessageResponse>(url, fd, {
         headers: {

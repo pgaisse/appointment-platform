@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
-import { env } from '@/types';
 
 export const useSocket = () => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
@@ -17,7 +16,6 @@ export const useSocket = () => {
               audience: import.meta.env.VITE_AUTH0_AUDIENCE,
             },
           });
-console.log("algo",import.meta.env.VITE_APP_SERVER_SOCKET)
           const newSocket = io(import.meta.env.VITE_APP_SERVER_SOCKET, {
             transports: ['websocket'],
             auth: {
@@ -28,12 +26,10 @@ console.log("algo",import.meta.env.VITE_APP_SERVER_SOCKET)
 
           newSocket.on('connect', () => {
             setConnected(true);
-            console.log('✅ Socket conectado:', newSocket.id);
           });
 
           newSocket.on('disconnect', () => {
             setConnected(false);
-            console.log('❌ Socket desconectado');
           });
 
           setSocket(newSocket);

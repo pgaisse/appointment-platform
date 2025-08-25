@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect, useState } from "react";
-import { env } from "@/types";
 type Projection = Record<string, number | { $slice: number }>;
 // Tipado opcional para los filtros
 type CollectionFilters = {
@@ -39,11 +38,7 @@ const fetchCollection = async function <T>(
 
 
   const url = `${import.meta.env.VITE_BASE_URL}/query/${collection}`;
-  console.log("📡 useGetCollection → fetching:", {
-    url,
-    headers: { Authorization: `Bearer ${token?.slice(0, 20)}...` },
-    params: finalParams,
-  });
+
   const res = await axios.get(url, {
     headers: {
       Authorization: `Bearer ${token}`,

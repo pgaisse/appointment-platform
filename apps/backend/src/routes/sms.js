@@ -1,11 +1,10 @@
 const express = require('express');
 const path = require('path');
-
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const { ContactStatus } = require("../constants")
 const DOMPurify = require('isomorphic-dompurify');
-const { Appointment, MessageLog, MediaFile } = require('../models/Appointments');
+const { Appointment, MessageLog, MediaFile, Message } = require('../models/Appointments');
 const sms = require('../helpers/conversations')
 const helpers = require('../helpers');
 const multer = require("multer");
@@ -16,45 +15,43 @@ const mongoose = require('mongoose');
 const { attachUserInfo, jwtCheck, checkJwt, decodeToken, verifyJwtManually } = require('../middleware/auth');
 const { SendMessageSchema } = require("../schemas/messages");
 const { uploadImageFromUrl, getFileMetadata, getPublicImageLink } = require('../helpers/imagesManagment')
-//router.use(attachUserInfo); // /send
+const { receiveMessage } = require('../controllers/message.controller');
+const Appointments = require('../models/Appointments');
+
+
+const storage = multer.memoryStorage();
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const BASE_URL = process.env.BASE_URL;
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
+const client = twilio(accountSid, authToken);
+
+
+
+const fields = [
+  { name: 'file', maxCount: 1 },
+  { name: 'files', maxCount: 20 },
+];
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB por archivo
+  fileFilter: (req, file, cb) => {
+    const isMimeOk = /^image\/(jpe?g|png|webp|gif)$/i.test(file.mimetype);
+    const isExtOk = /\.(jpe?g|png|webp|gif)$/i.test(file.originalname);
+    if (isMimeOk && isExtOk) return cb(null, true);
+    cb(new Error('Extensión o MIME inválido (solo JPG/PNG/WEBP/GIF)'));
+  },
+});
 const smsLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 100,
   message: 'Too many requests, please try again later.',
 });
-const { receiveMessage } = require('../controllers/message.controller');
-const Appointments = require('../models/Appointments');
-// Sanitización de entrada
-function sanitizeInput(input) {
-  if (typeof input !== 'string') return '';
-  return DOMPurify.sanitize(input.trim());
-}
+///END POINTS
 
 
-
-
-router.post('/sms', (req, res) => {
-  console.log("📩 MENSAJE RECIBIDO DESDE TWILIO");
-  res.set('Content-Type', 'text/xml');
-  res.status(200).send('<Response></Response>');
-});
-
-router.get('/test-socket', jwtCheck, (req, res) => {
-  const fakeMessage = {
-    from: '+61412345678',
-    body: 'yes',
-    notification: true,
-    receivedAt: new Date()
-  };
-
-  const orgRoom = `${"Iconic Smiles".toLowerCase().replace(/\s+/g, '_')}`;
-  console.log("Room desde sms", orgRoom)
-  req.io.to(orgRoom).emit('smsReceived', fakeMessage); // ✅ Enavía al room específico
-
-  console.log("📡 Emitido:", fakeMessage);
-  res.send({ fakeMessage });
-});
-router.get('/send-sms', async (req, res) => {
+router.get('/sendSms', async (req, res) => {
 
   const appointmentId = '6879e8e61cebb27de2734d0c';
 
@@ -75,14 +72,8 @@ router.get('/send-sms', async (req, res) => {
     return res.status(500).json({ error: 'Failed to send SMS', details: error.message });
   }
 })
-
-
-
-
-
-router.post('/send-sms', async (req, res) => {
+router.post('/sendSms', async (req, res) => {
   const { appointmentId } = req.body;
-  console.log("HA llegado un mensaje a send-sms")
   // 🔍 Validación de entrada
   if (!appointmentId) {
     return res.status(400).json({ error: 'Missing required field: appointmentId' });
@@ -100,20 +91,6 @@ router.post('/send-sms', async (req, res) => {
     return res.status(500).json({ error: 'Failed to send SMS', details: error.message });
   }
 });
-
-
-
-
-
-
-
-
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const BASE_URL = process.env.BASE_URL;
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const client = twilio(accountSid, authToken);
-
 router.get('/getchats', jwtCheck, async (req, res) => {
   try {
     const { org_id } = await helpers.getTokenInfo(req.headers.authorization);
@@ -197,374 +174,250 @@ router.get('/getchats', jwtCheck, async (req, res) => {
 });
 
 
-
-
-router.post('/sending-sms', jwtCheck, async (req, res) => {
+router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) => {
+  console.log("➡️ req.body:", req.body);   // campos de texto
+  console.log("➡️ req.files:", req.files); // array de archivos enviados
+  // #region recepcion de parámetros
   const session = await mongoose.startSession();
+  const { to, body = '', appId } = req.body;
+  const files = req.files || [];
+
+  // #endregion recepcion de parametros
   let committed = false;
 
   try {
     session.startTransaction();
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ error: 'Missing Authorization header' });
-    }
+    // #region sanitizar
+    const safeTo = helpers.sanitizeInput(to);
+    const safeBody = helpers.sanitizeInput(body);
+    const safeAppId = helpers.sanitizeInput(appId);
+    // #endregion sanitizar 
 
-    const { org_id } = await helpers.getTokenInfo(authHeader);
-    const { to, body, appId } = req.body;
-    console.log("to", to, "body", body, "appId", appId, "org_id", org_id)
-    const { sid: conversationSid } = await Appointment.findOne({ _id: appId, org_id }, { sid: 1 })
-    console.log("Este es el rey de los sid:", conversationSid)
-    if (typeof to !== 'string' || typeof body !== 'string') {
-      return res.status(400).json({ error: 'Invalid or missing "to" or "body"' });
-    }
-
-    if (!appId || typeof appId !== 'string' || !mongoose.Types.ObjectId.isValid(appId)) {
-      return res.status(400).json({ error: 'Missing or invalid "appId" field' });
-    }
-
-    await client.conversations.v1
-      .conversations(conversationSid)
-      .messages
-      .create({
-        author: org_id.toLowerCase(),
-        body: body,
-      });
-
-    const updatedAppointment = await Appointment.findOneAndUpdate(
-      { _id: appId },
-      { $set: { lastMessage: new Date() } },
-      { new: true, session }
-    );
-
-    if (!updatedAppointment) {
-      throw new Error(`Appointment not found for ID: ${appId}`);
-    }
-
-    await session.commitTransaction();
-    committed = true;
-
-    res.status(200).json({
-      success: true,
-      sid: conversationSid,
-      to,
-      body,
-      appId,
-    });
-
-  } catch (err) {
-    if (!committed) {
-      try {
-        await session.abortTransaction();
-      } catch (abortErr) {
-        console.warn("⚠️ Error al abortar la transacción:", abortErr.message);
-      }
-    }
-    console.error("❌ Error in /sending-sms:", err);
-    res.status(500).json({ error: err?.message || 'Internal Server Error' });
-  } finally {
-    session.endSession();
-  }
-});
-
-
-const storage = multer.memoryStorage();
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB por archivo
-  fileFilter: (req, file, cb) => {
-    const isMimeOk = /^image\/(jpe?g|png|webp|gif)$/i.test(file.mimetype);
-    const isExtOk = /\.(jpe?g|png|webp|gif)$/i.test(file.originalname);
-    if (isMimeOk && isExtOk) return cb(null, true);
-    cb(new Error('Extensión o MIME inválido (solo JPG/PNG/WEBP/GIF)'));
-  },
-});
-
-
-// ✅ Acepta 1 archivo (file) o varios (files)
-const fields = [
-  { name: 'file', maxCount: 1 },
-  { name: 'files', maxCount: 20 },
-];
-router.post('/send-message', jwtCheck, upload.array('files'), async (req, res) => {
-  const session = await mongoose.startSession();
-  let committed = false;
-
-  try {
-    session.startTransaction();
-
+    // #region limitadores
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
-
     const { org_id } = await helpers.getTokenInfo(authHeader);
-
-    const { to, body = '', appId } = req.body;
-    const files = req.files || [];
-
-    if (!appId || !mongoose.Types.ObjectId.isValid(appId)) {
-      return res.status(400).json({ error: 'Missing or invalid "appId"' });
+    if (!safeAppId || !mongoose.Types.ObjectId.isValid(safeAppId)) {
+      return res.status(400).json({ error: 'Missing or invalid "safeAppId"' });
     }
-    if (!to || typeof to !== 'string') {
+
+    const data = await Appointment.findOne({ _id: safeAppId }, { sid: 1, phoneInput: 1 })
+    if (!data) return res.status(401).json({ error: 'Unknow Patient' });
+    const conversationId = data.sid;
+
+    if (!safeTo || typeof safeTo !== 'string') {
       return res.status(400).json({ error: 'Missing or invalid "to"' });
     }
 
-    const hasText = !!body.trim();
+    if (safeBody && typeof safeBody !== 'string') {
+      return res.status(400).json({ error: '"body" must be a string' });
+    }
+    if (files.length > 20) {
+      return res.status(400).json({ error: 'Maximum 20 files allowed' });
+    }
+    if (files.some(f => f.size > 10 * 1024 * 1024)) {
+      return res.status(400).json({ error: 'Each file must be <= 10MB' });
+    }
+
+    if (files.length > 0) {
+      for (const file of files) {
+        const isMimeOk = /^image\/(jpe?g|png|webp|gif)$/i.test(file.mimetype);
+        const isExtOk = /\.(jpe?g|png|webp|gif)$/i.test(file.originalname);
+        if (!isMimeOk || !isExtOk) {
+          return res.status(400).json({ error: 'Invalid file type (only JPG/PNG/WEBP/GIF allowed)' });
+        }
+
+      }
+    }
+    //#endregion limitadores
+
+    // #region Subir archivos
+    const uploadedUrls = [];
+    for (const file of files) {
+      const key = await aws.uploadFileFromBuffer(file.buffer, org_id, {
+        folderName: org_id,
+        contentType: file.mimetype,
+        originalName: file.originalname,
+        fieldName: file.fieldname,
+      });
+      let signedUrl = null;
+      try {
+        signedUrl = await aws.getSignedUrl(key);
+      }
+      catch (err) {
+        console.log(err)
+        throw new Error("The URL wasn't signed", err)
+
+      }
+      uploadedUrls.push({ url: signedUrl, type: file.mimetype, size: file.filesize });
+    }
+    console.log("uploadedUrls", uploadedUrls)
+    // #endregion Subir archivos
+
+    // #region enviar mensaje a Twilio
+    const msg = await client.conversations.v1
+      .conversations(conversationId)
+      .messages
+      .create({
+        author: org_id,
+        body,
+        media: uploadedUrls?.map(m => m.url) || [] // Twilio solo recibe URLs públicas
+      });
+    // #endregion
+
+    // #region  Registro preliminar en DB
+    const newMsg = new Message({
+      conversationId: msg.conversationSid,
+      sid: msg.sid,
+      author: data.phoneInput,
+      body: safeBody,
+      media: uploadedUrls,
+      status: "pending",
+      direction: "outbound"
+    });
+
+    await newMsg.save();
+
+    // #endregion registro en db
+
+
+    // #region  Enviar a Twilio
+    const hasText = !!safeBody.trim();
     const hasFiles = files.length > 0;
 
-    // Regla: O texto O archivos (no ambos)
-    if ((hasText && hasFiles) || (!hasText && !hasFiles)) {
-      return res.status(400).json({ error: 'Send either text OR files, not both (and not neither).' });
-    }
-
-    // Obtener conversación (CH...) desde la cita
-    const appt = await Appointment.findOne({ _id: appId }, { sid: 1 }).lean();
-    if (!appt?.sid) return res.status(404).json({ error: 'Conversation SID not found for appointment' });
-    const conversationSid = appt.sid;
-
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
-    console.log("accountSid", accountSid, "authToken", authToken, "serviceSid", serviceSid)
-
-    // Helper: subir un archivo a MCS → devuelve mediaSid (ME...)
-    async function uploadToMCS(fileBuffer, filename, contentType) {
-      const mcsUrl = `https://mcs.us1.twilio.com/v1/Services/${serviceSid}/Media`;
-      console.log(mcsUrl)
-      const resp = await axios.post(mcsUrl, fileBuffer, {
-        auth: { username: accountSid, password: authToken },
-        headers: {
-          'Content-Type': contentType || 'application/octet-stream',
-          'X-Twilio-Filename': filename || 'file',
-        },
-      });
-      return resp?.data?.sid; // ME...
-    }
-
-    // Enviar mensaje a Conversations (texto o media)
-    const convMsgUrl = `https://conversations.twilio.com/v1/Conversations/${conversationSid}/Messages`;
-
-    let mediaSids = [];
-    if (hasFiles) {
-      // Subir todos los archivos a MCS
-      for (const f of files) {
-        const meSid = await uploadToMCS(f.buffer, f.originalname, f.mimetype);
-        if (meSid) mediaSids.push(meSid);
-      }
-      // Crear mensaje con 1..N MediaSid (sin body)
-      const form = new URLSearchParams();
-      form.set('Author', String(org_id).toLowerCase());
-      for (const me of mediaSids) form.append('MediaSid', me);
 
 
 
-      const serviceSid = await getServiceSidForConversation(conversationSid);
+    // #ebndregion  Enviar a Twilio
 
-      const Resp = await axios.post(convMsgUrl, form, {
-        auth: { username: accountSid, password: authToken },
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      const received = {
-        body: {
-          ...Resp.data, // <= PascalCase
-          ChatServiceSid: serviceSid
-        }
-      }
-
-
-      await helpers.loadImage(received, org_id);
-
-    } else {
-      // Solo texto
-      const form = new URLSearchParams();
-      form.set('Author', String(org_id).toLowerCase());
-      form.set('Body', body.trim());
-
-
-
-      const serviceSid = await getServiceSidForConversation(conversationSid);
-
-      const Resp = await axios.post(convMsgUrl, form, {
-        auth: { username: accountSid, password: authToken },
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      const received = {
-        body: {
-          ...Resp.data, // <= PascalCase
-          ChatServiceSid: serviceSid
-        }
-      }
-
-      await helpers.loadImage(received, org_id);
-    }
-
-    // Actualizar lastMessage
-    await Appointment.findByIdAndUpdate(appId, { $set: { lastMessage: new Date() } }, { session });
-
-    await session.commitTransaction();
-    committed = true;
 
     return res.status(200).json({
       success: true,
-      conversationSid,
-      mediaSids, // vacío si fue texto
+      msg,
     });
   } catch (err) {
     if (!committed) {
       try { await session.abortTransaction(); } catch { }
     }
-    console.error('❌ Error in /send-message:', err?.response?.data || err.message);
+    console.error('❌ Error in /sendMessage:', err?.response?.data || err.message);
     return res.status(500).json({ error: err?.response?.data || err?.message || 'Internal Server Error' });
   } finally {
     session.endSession();
   }
 });
 
-router.post('/testreq', async (req, res, next) => {
-  let mediaSids = [];
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
-
-  const { org_id } = await helpers.getTokenInfo(authHeader);
-
-  const appt = await Appointment.findOne({ _id: "6893189412ccc563dbe6fee7" }, { sid: 1 }).lean();
-  if (!appt?.sid) return res.status(404).json({ error: 'Conversation SID not found for appointment' });
-  const conversationSid = appt.sid;
-  // Crear mensaje con 1..N MediaSid (sin body)
-  const form = new URLSearchParams();
-  form.set('Author', String(org_id).toLowerCase());
-  for (const me of mediaSids) form.append('MediaSid', me);
-
-  const convMsgUrl = `https://conversations.twilio.com/v1/Conversations/${conversationSid}/Messages`;
-
-  const serviceSid = await sms.getServiceSidForConversation(conversationSid);
-  console.log("serviceSid", serviceSid, "conversationSid", conversationSid, convMsgUrl)
-
-  const Resp = await axios.post(convMsgUrl, form, {
-    auth: { username: accountSid, password: authToken },
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-
-  console.log(req.body, "req.body")
-
-  const received = {
-    body: {
-      ...Resp.data, // <= PascalCase
-      ChatServiceSid: serviceSid
-    }
-  }
-  console.log("convMsgUrl ", convMsgUrl)
-  console.log(received, "answer")
-  // Inyecta ChatServiceSid al objeto antes de normalizar
-
-
-  await helpers.loadImage(received, org_id);
-}
-)
-
 
 router.post('/webhook2', express.urlencoded({ extended: false }), async (req, res, next) => {
-  const { source } = req.body;
-  console.log(TWILIO_AUTH_TOKEN, BASE_URL)
   try {
-    // ✅ Si es FRONTEND, requiere autenticación con jwtCheck
-    if (source === 'frontend') {
-      jwtCheck(req, res, async (err) => {
-        if (err) {
-          console.warn('⛔ JWT invalid:', err.message);
-          return res.status(401).json({ error: 'Unauthorized frontend request' });
-        }
 
-        const { appointmentId } = req.body;
-        if (!appointmentId) {
-          return res.status(400).json({ error: 'appointmentId es requerido' });
-        }
+    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+    const cleanUrl = url.trim();  // quita espacios ocultos
+    console.log("🔍 cleanUrl:", JSON.stringify(cleanUrl));
 
-        console.log('📲 Request recibido desde el FRONTEND');
-        await sms.main(appointmentId, req);
-        return res.status(200).json({ success: true });
-      });
+
+    // ✅ TWILIO → Validar X-Twilio-Signature
+    const signature = req.headers['x-twilio-signature'];
+    const valid = twilio.validateRequest(
+      process.env.TWILIO_AUTH_TOKEN,
+      signature,
+      url,
+      req.body
+    );
+
+    if (!valid) {
+      console.warn('❌ Firma de Twilio inválida');
+      // return res.status(403).json({ error: 'Invalid Twilio signature' });
     }
 
-    // ✅ Si viene de Twilio (sin token), procesa directamente
-    else {
-      // ✅ TWILIO → Validar X-Twilio-Signature
-      const signature = req.headers['x-twilio-signature'];
-      const url = `${BASE_URL}/webhook2`; // Debe ser la URL EXACTA registrada en Twilio
-      console.log("url", url)
-      const valid = twilio.validateRequest(
-        TWILIO_AUTH_TOKEN,
-        signature,
-        url,
-        req.body
-      );
+    const { source } = req.body;
+    const payload = req.body;
+    console.log("se entró")
+    console.log("payload", payload)
+    const isInbound = payload.Author && payload.Author.startsWith("+"); // ej: +61, +56, etc.
 
-      /*if (!valid) {
-        console.warn('❌ Firma de Twilio inválida');
-        return res.status(403).json({ error: 'Invalid Twilio signature' });
-      }*/
+    // #region Gestion de estado de mensajes
+    if (payload.EventType === "onMessageAdded") {
+      const status = isInbound ? "sent" : (payload.Status || "pending");
+      //obtener org_id
+      const data = await Appointment.findOne({ sid: payload.ConversationSid }, { org_id: 1 })
+      const org_id = data.org_id;
+      // #region de existir media, subirla a la cloud y obtener la url
+      const uploadedUrls = [];
 
-      console.log('📩 Request recibido desde TWILIO');
 
-      const { Author, ConversationSid } = req.body;
-      if (!ConversationSid) {
-        return res.status(400).json({ error: 'Missing ConversationSid from Twilio' });
+      if (isInbound && payload.Media && payload.Media.length > 0) {
+
+        if (typeof payload.Media === "string") {
+          try {
+            mediaArray = JSON.parse(payload.Media); // lo convierte en array de objetos
+          } catch (err) {
+            console.error("Error al parsear Media:", err);
+          }
+        } else {
+          mediaArray = payload.Media; // ya es array
+        }
+        console.log("payload.Media", mediaArray)
+        for (const file of mediaArray) {
+          const url = await aws.getDirectMediaUrl(payload.ChatServiceSid, file.Sid)
+          console.log("url---------------------------------->", url, org_id)
+          const key = await aws.uploadImageFromUrl(url, org_id, {
+            folderName: org_id,
+            contentType: file.mimetype,
+            originalName: file.originalname,
+            fieldName: file.fieldname,
+          });
+          let signedUrl = null;
+          try {
+            signedUrl = await aws.getSignedUrl(key);
+            console.log("signedUrl---------------------->", signedUrl)
+          }
+          catch (err) {
+            console.log(err)
+            throw new Error("The URL wasn't signed", err)
+
+          }
+          uploadedUrls.push({ url: signedUrl, type: file.mimetype, size: file.filesize });
+        }
       }
 
-      const localPhone = sms.convertToLocalMobile(Author);
-      const appointment = await Appointment.findOne(
-        { phoneInput: localPhone },
+      // #endregion
+      // 🔹 Mensaje nuevo confirmado en Twilio
+      await Message.findOneAndUpdate(
+        { sid: payload.MessageSid },
         {
-          _id: 1,
-          phoneInput: 1,
-          nameInput: 1,
-          lastNameInput: 1,
-          selectedAppDates: 1, // trae el arreglo completo
-          org_id: 1,
-          lastMessageInteraction: 1,
-          lastMessage: 1,
-          sid: 1
-        }
+          conversationId: payload.ConversationSid,
+          sid: payload.MessageSid,
+          author: payload.Author,
+          body: payload.Body || null,
+          media: uploadedUrls || [],
+          status: status,
+          direction: isInbound ? "inbound" : "outbound"
+        },
+        { upsert: true, new: true } // inserta si no existe
       );
-
-      if (!appointment) {
-        return res.status(400).json({ error: 'No appointments for this user' });
-      }
-      await Appointment.updateOne({ _id: appointment._id },
-        { $set: { lastMessage: new Date() }, },
-      );
-      const idString = appointment._id.toString();
-      console.log("appointment", appointment)
-      const isConfirmation = await sms.isThisSMSaConfirmation(req, appointment)
-      console.log(isConfirmation ? "Es una confirmación" : "no es una confirmación")
-      if (isConfirmation) { // Se pasa al sistema de confirmación de citas
-        await sms.main(idString, req);
-      }
-      else { //El mensaje se envia directamente por socket
-
-        if (
-          Array.isArray(appointment.selectedAppDates) &&
-          appointment.selectedAppDates.length > 0 &&
-          appointment.selectedAppDates[0].status === ContactStatus.Pending
-        ) {
-          await Appointment.updateOne(
-            { _id: appointment._id },
-            { $set: { "selectedAppDates.0.status": ContactStatus.Rejected } },
-          );
-        }
-
-        await helpers.refreshSocketObject(appointment, req)
-      }
-      return res.status(200).json({ success: true });
     }
 
+
+    if (payload.EventType === "onDeliveryUpdated") {
+      const status = payload.Status;
+      if (status) {
+        await Message.findOneAndUpdate(
+          { sid: payload.MessageSid },
+          { status }
+        );
+      }
+    }
+
+
+    // #endregion
+
+    res.sendStatus(200);
   } catch (error) {
     console.error('❌ Error en POST /webhook2:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-
 router.get('/image-meta/:fileId', async (req, res) => {
   const { fileId } = req.params;
 
@@ -582,9 +435,6 @@ router.get('/image-meta/:fileId', async (req, res) => {
     res.status(500).json({ error: 'No se pudo obtener metadata del archivo' });
   }
 });
-
-
-
 router.get('/image/:fileId', async (req, res) => {
   const { fileId } = req.params;
 
@@ -608,8 +458,6 @@ router.get('/image/:fileId', async (req, res) => {
     res.status(500).json({ error: 'No se pudo obtener la imagen' });
   }
 });
-
-
 router.get('/image-link/:fileId', jwtCheck, async (req, res) => {
   const { fileId } = req.params;
   try {
@@ -619,8 +467,6 @@ router.get('/image-link/:fileId', jwtCheck, async (req, res) => {
     res.status(500).json({ error: 'No se pudo generar el link de imagen' });
   }
 });
-
-
 router.post('/upload-file', jwtCheck, upload.fields(fields), async (req, res) => {
   try {
     const { org_id } = await helpers.getTokenInfo(req.headers.authorization);
@@ -673,7 +519,4 @@ router.post('/upload-file', jwtCheck, upload.fields(fields), async (req, res) =>
     res.status(500).json({ success: false, message: 'Upload failed', error: err?.message });
   }
 });
-
-
-
 module.exports = router;

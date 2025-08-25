@@ -139,6 +139,50 @@ const ContactSchema = new mongoose.Schema({
 
 
 
+const MessageSchema = new mongoose.Schema(
+  {
+    conversationId: {
+      type: String,   // Twilio Conversation SID o tu propio ID de conversación
+      required: true,
+      index: true
+    },
+    sid: {
+      type: String,   // Twilio Message SID (ej: "IMXXXX")
+      required: true,
+      index: true
+    },
+    author: {
+      type: String,   // "patient" | "clinic"
+      required: true
+    },
+
+    // Contenido del mensaje
+    body: {
+      type: String    // Puede ser null si es solo multimedia
+    },
+    media: [          // Puede estar vacío si es solo texto
+      {
+        url: { type: String, required: true }, // URL al storage (S3, GDrive, etc.)
+        type: { type: String },                // MIME ej: "image/png", "application/pdf"
+        size: { type: Number }                 // opcional: peso en bytes
+      }
+    ],
+
+    // Estado y control
+    status: {
+      type: String,
+      enum: ["pending", "sent", "delivered", "read", "failed"],
+      default: "pending"
+    },
+    direction: {
+      type: String,
+      enum: ["inbound", "outbound"], // recibido o enviado
+      required: true
+    }
+  },
+  { timestamps: true } // agrega createdAt y updatedAt
+);
+
 const TreatmentSchema = new mongoose.Schema({
   org_id: String,
   name: {
@@ -235,4 +279,5 @@ module.exports = {
   TemplateToken: mongoose.model("TemplateToken", TemplateTokenSchema),
   MessageTemplate: mongoose.model("MessageTemplate", MessageTemplateSchema),
   MediaFile: mongoose.model("MediaFile", MediaFileSchema),
+  Message: mongoose.model("Message", MessageSchema)
 };

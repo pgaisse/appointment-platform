@@ -45,7 +45,6 @@ router.post('/', jwtCheck, async (req, res) => {
     obj.color = color
     obj.org_id = org_id
     obj.user_id = sub
-    //console.log("obj", obj.model)
     let newAppointment;
     switch (obj.model) {
       case "Categories":
@@ -163,7 +162,6 @@ router.get('/treatments', jwtCheck, async (req, res) => {
 
 router.get('/query/:collection', jwtCheck, async (req, res) => {
   try {
-    console.log("📩 Request recibida en /query/:collection", req.params, req.query);
     const { collection } = req.params;
     const Model = models[collection];
     //console.log("models", models)
@@ -189,6 +187,7 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
         filters = convertIdsInFilter(filters);
       }
     }
+    console.log("Filter : ", filters)
 
     let projection = {};
 
@@ -242,7 +241,6 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
   const updates = Array.isArray(req.body) ? req.body : [req.body];
   const results = [];
   const { data } = updates[0]
-  console.log(data)
   try {
     for (const update of updates) {
       const { table, id_field, id_value, data } = update;
@@ -266,14 +264,11 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
         continue;
       }
 
-      console.log("🔄 Updating:", { [id_field]: id_value }, { $set: data });
-
       const updatedDoc = await Model.findOneAndUpdate(
         { [id_field]: id_value },
         { $set: data },
         { new: true }
       );
-      console.log("updatedDoc", updatedDoc)
       if (!updatedDoc) {
         results.push({
           status: "failed",
@@ -303,8 +298,6 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
 });
 
 router.get('/DraggableCards', jwtCheck, async (req, res) => {
-
-
   try {
     const authHeader = req.headers.authorization;
 
@@ -331,7 +324,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
       {
         $lookup: {
           from: 'appointments',
-          let: { priorityId: '$_id', priorityName: '$name', priorityColor: '$color', priorityDescription: '$description', priorityNotes: '$notes' },
+          let: {durationHours: '$durationHours', priorityNum: '$id', priorityId: '$_id', priorityName: '$name', priorityColor: '$color', priorityDescription: '$description', priorityNotes: '$notes' },
           pipeline: [
             {
               $match: {
@@ -407,10 +400,13 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
                   days: "$days",
                 },
                 priority: {
+                  durationHours: "$$durationHours",
+                  description: "$$priorityDescription",
+                  notes: "$$priorityNotes",
+                  id: "$$priorityNum",
+                  _id: "$$priorityId",
                   name: "$$priorityName",
                   color: "$$priorityColor",
-                  description: "$$priorityDescription",
-                  notes: "$$priorityNotes"
                 }
               },
             },
@@ -427,10 +423,22 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
       {
         $project: {
           _id: 1,
+          priorityNum: "$id",
+          priorityId: "$_id",
           priorityName: "$name",
           priorityColor: "$color",
           description: 1,
           durationHours: 1,
+          priority: {
+            org_id: "$org_id",
+            id: "$id",
+            _id: "$_id",
+            description: "$description",
+            notes: "$notes",
+            durationHours: "$durationHours",
+            name: "$name",
+            color: "$color"
+          },
           count: { $size: "$patients" },
           patients: 1,
         },
@@ -446,7 +454,6 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
 
 router.post('/add', jwtCheck, async (req, res) => {
   try {
-    console.log("Se entró a add...")
     const authHeader = req.headers.authorization;
     if (!authHeader) {
       return res.status(401).json({ error: 'No authorization header provided' });
@@ -460,7 +467,6 @@ router.post('/add', jwtCheck, async (req, res) => {
     }
 
     const { modelName, data } = req.body;
-    console.log("data", data)
     let sid;
     // ✅ Validaciones básicas
     if (!modelName || typeof modelName !== 'string') {
@@ -482,14 +488,12 @@ router.post('/add', jwtCheck, async (req, res) => {
         patientId: data.nameInput._id,
         org_id: org_id,
       };
-      console.log("este es existingSid :", existingSid)
       sid = !existingSid
         ? await sms.createConversationAndAddParticipant(formattedPhone, "+61482088223", meta)
         //si->unirlo
         : existingSid
       // await sms.addSmsParticipantToConversation(existingSid,formattedPhone, "+61482088223")
 
-      console.log("NUEVO SID: ", sid)
     }
 
 
@@ -547,7 +551,6 @@ router.delete("/:id", jwtCheck, async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ error: "Invalid ID format" });
     }
-    console.log(models[modelName])
     const Model = models[modelName];
     if (!Model) {
       return res.status(404).json({ error: `Model "${modelName}" not found` });
@@ -555,7 +558,7 @@ router.delete("/:id", jwtCheck, async (req, res) => {
 
     // 🔐 Buscar y eliminar el documento sólo si coincide con el org_id
     const deletedDoc = await Model.findOneAndDelete({ _id: id, org_id });
-    console.log("deletedDoc", deletedDoc, id)
+ 
     if (!deletedDoc) {
       return res.status(404).json({ error: "Document not found or not authorized" });
     }
@@ -583,16 +586,11 @@ router.get('/sorting', jwtCheck, async (req, res) => {
     endDate = new Date(endDate);
 
     // 🔎 Ver qué viene en el request
-    console.log("📩 Query params:", req.query);
-    console.log("📌 org_id:", org_id);
-    console.log("📅 startDate:", startDate, " endDate:", endDate);
-    console.log("📂 category:", category);
 
     // Ejecutar lógica
     const result = await findMatchingAppointments(startDate, endDate);
 
     // 🔎 Ver qué devuelve tu función
-    console.log("✅ Resultado de findMatchingAppointments:", JSON.stringify(result, null, 2));
 
     res.json([result]);
   }
@@ -687,7 +685,6 @@ router.post("/cleanup-twilio", jwtCheck, async (req, res) => {
   try {
     const dryRun = req.body?.dryRun || false;
 
-    console.log(`🚀 Iniciando limpieza combinada. dryRun=${dryRun}`);
 
     // ✅ Obtener todos los sid de ambas colecciones
     const appointmentSids = await Appointment.distinct("sid");
@@ -705,7 +702,6 @@ router.post("/cleanup-twilio", jwtCheck, async (req, res) => {
           await client.conversations.v1.conversations(convo.sid).remove();
         }
         deletions.push(convo.sid);
-        console.log(`${dryRun ? "🔍 Simulando" : "🗑️ Eliminada"} conversación: ${convo.sid}`);
       }
     }
 

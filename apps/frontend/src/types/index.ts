@@ -288,6 +288,8 @@ export interface MediaFile {
 
 export type GroupedAppointment = {
   _id: string | null; // puede ser null si no hay prioridad asignada
+  priority: Priority;
+  priorityNum: number;
   priorityName?: string;
   priorityColor?: string;
   priorityId?: string;

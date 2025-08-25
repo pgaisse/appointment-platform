@@ -281,6 +281,25 @@ const getTokenInfo = async (token) => {
   };
 };
 
+const jwt = require("jsonwebtoken");
+
+async function getTokenInfo2(authHeader) {
+  const token = authHeader.replace("Bearer ", "");
+  const decoded = jwt.decode(token, { complete: true });
+
+  if (!decoded) throw new Error("Invalid token");
+
+  // Aquí puedes ver todo el payload
+  console.log("decoded payload:", decoded.payload);
+
+  return {
+    org_id: decoded.payload.org_id,
+    account_sid: decoded.payload.account_sid,
+    sub: decoded.payload.sub
+  };
+}
+
+
 
 function capitalizeWords(text) {
   if (!text) return text;
@@ -383,39 +402,39 @@ function normalizeMessage(input = {}) {
   const {
     // ConversationSid <- conversation_sid | conversationSid | CONVERSATION_SID | sid | SID
     ConversationSid: ConversationSid =
-      input.conversation_sid ?? input.conversationSid ?? input.CONVERSATION_SID ?? input.sid ?? input.SID ?? '',
+    input.conversation_sid ?? input.conversationSid ?? input.CONVERSATION_SID ?? input.sid ?? input.SID ?? '',
 
     // Media <- media | MEDIA
     Media: Media = input.media ?? input.MEDIA ?? input.Media ?? [],
 
     // Body <- body | BODY
-    Body: Body = input.body ?? input.BODY ??input.Body ?? '',
+    Body: Body = input.body ?? input.BODY ?? input.Body ?? '',
 
     // ChatServiceSid <- chat_service_sid | chatServiceSid | CHAT_SERVICE_SID
     ChatServiceSid: ChatServiceSid =
-      input.chat_service_sid ?? input.chatServiceSid ?? input.CHAT_SERVICE_SID ??input.Chat_Service_Sid ?? '',
+    input.chat_service_sid ?? input.chatServiceSid ?? input.CHAT_SERVICE_SID ?? input.Chat_Service_Sid ?? '',
 
     // AccountSid <- account_sid | accountSid | ACCOUNT_SID
     AccountSid: AccountSid =
-      input.account_sid ?? input.accountSid ?? input.ACCOUNT_SID ??input.Account_Sid ?? '',
+    input.account_sid ?? input.accountSid ?? input.ACCOUNT_SID ?? input.Account_Sid ?? '',
 
     // Source <- source | SOURCE
-    Source: Source = input.source ?? input.SOURCE ??input.Source ?? '',
+    Source: Source = input.source ?? input.SOURCE ?? input.Source ?? '',
 
     // RetryCount <- retry_count | retryCount | RETRY_COUNT
     RetryCount: RetryCount =
-      input.retry_count ?? input.retryCount ?? input.RETRY_COUNT ?? 0,
+    input.retry_count ?? input.retryCount ?? input.RETRY_COUNT ?? 0,
 
     // Author <- author | AUTHOR
     Author: Author = input.author ?? input.AUTHOR ?? input.Author ?? '',
 
     // MessageSid <- message_sid | messageSid | MESSAGE_SID
     MessageSid: MessageSid =
-      input.message_sid ?? input.messageSid ?? input.MESSAGE_SID ?? input.Message_Sid ?? '',
+    input.message_sid ?? input.messageSid ?? input.MESSAGE_SID ?? input.Message_Sid ?? '',
 
     // DateCreated <- date_created | dateCreated | DATE_CREATED
     DateCreated: DateCreated =
-      input.date_created ?? input.dateCreated ?? input.DATE_CREATED ?? input.Date_Created ?? new Date(),
+    input.date_created ?? input.dateCreated ?? input.DATE_CREATED ?? input.Date_Created ?? new Date(),
   } = input;
 
   // (opcional) blindaje: fuerza Media a []
@@ -441,7 +460,7 @@ const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TO
 
 async function loadImage(input, org_id) {
   normalizedInput = normalizeMessage(input.body)
-  const { 
+  const {
     Media = [],
     Body = '',
     Author = '',
@@ -451,7 +470,7 @@ async function loadImage(input, org_id) {
   } = normalizedInput;
 
   console.log("prueba par ver que recibe", ConversationSid, Media, Body, Author, MessageSid, DateCreated);
- // console.log('NormalizedInput', normalizedInput);
+  // console.log('NormalizedInput', normalizedInput);
 
   if (!ConversationSid) throw new Error('ConversationSid es requerido');
 
@@ -613,8 +632,17 @@ const refreshSocketObject = async (appointment, req) => {
   console.log("📡 Emitido por socket correctamente", JSON.stringify(data, null, 2));
 };
 
+const DOMPurify = require("isomorphic-dompurify");
 
+function sanitizeInput(input) {
+  return DOMPurify.sanitize(input, {
+    ALLOWED_TAGS: [],        // no permitir etiquetas HTML
+    ALLOWED_ATTR: []         // no permitir atributos HTML
+  });
+}
 module.exports = {
+  getTokenInfo2,
+  sanitizeInput,
   loadImage,
   refreshSocketObject,
   buildObjectWithCleanedValues,

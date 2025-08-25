@@ -1,13 +1,11 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { Alert, AlertDescription, AlertIcon, AlertTitle, Box, Spinner, Center } from '@chakra-ui/react';
 import PremiumDentalLanding from "@/Components/CustomTemplates/PremiumDentalLanding";
-import { CustomUser } from "@/types";
 import React from "react";
 
 const Index = () => {
-  const { user, error, isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
-  const typedUser = user as CustomUser;
-  const [token, setToken] = React.useState<string | null>(null);
+  const { error, isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const [, setToken] = React.useState<string | null>(null);
 
 
   // 🚀 Pedir el access_token automáticamente al autenticar

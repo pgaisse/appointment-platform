@@ -1,4 +1,4 @@
-import React, { ReactNode, useState } from "react";
+import React, { ReactNode, useEffect, useState } from "react";
 
 import DOMPurify from 'dompurify';
 import { IoMdClose } from "react-icons/io";
@@ -62,6 +62,7 @@ dayjs.extend(timezone);
 
 
 type Props = {
+  onlyPatient?: boolean
   onClose_1?: () => void;
   rfetchPl?: (options?: RefetchOptions) => Promise<QueryObserverResult<any, Error>>
   handleAppSelectEvent?: (slotInfo: SlotInfo) => void;
@@ -95,12 +96,10 @@ type Props = {
 
 };
 
-function CustomEntryForm({ children, dates, 
+function CustomEntryForm({ children, dates,
   btnName = "Save", onClose_1,
   nameVal, lastNameVal, phoneVal, emailVal, priorityVal, datesSelected, datesAppSelected, note, reschedule = false, rfetchPl, treatmentBack,
-  idVal, mode = "CREATION", refetch_list, toastInfo,
-  
-  setDatesApp}: Props) {
+  idVal, mode = "CREATION", refetch_list, toastInfo, onlyPatient = false, setDatesApp }: Props) {
   //console.log("reschedule", reschedule)
 
   //const {hasAppointment, setHasAppointment}=useState(true)
@@ -108,7 +107,8 @@ function CustomEntryForm({ children, dates,
 
   const { onOpen: onOpenApp, onClose: onCloseApp, isOpen: isOpenApp } = useDisclosure();
 
-  const [isAnAppointment, setIsAnAppointment] = useState(true); // ← abierto por defecto
+  const [isAnAppointment, setIsAnAppointment] = useState(!onlyPatient); // ← abierto por defecto
+
 
   const onToggle = () => setIsAnAppointment(!isAnAppointment);
   const navigate = useNavigate();
@@ -167,7 +167,6 @@ function CustomEntryForm({ children, dates,
   const { mutate: editItem, isPending: editIsPending } = useUpdateItems();
   const queryClient = useQueryClient();
   const toast = useToast();
-  console.log("TREATMENTBACK: ", treatmentBack)
   const {
     register,
     reset,
@@ -188,21 +187,31 @@ function CustomEntryForm({ children, dates,
       note: he.decode(note || ""),
       phoneInput: he.decode(phoneVal || ""),
       emailInput: he.decode(emailVal || ""),
-      priority: priorityVal?.id.toString() ?? undefined ,
+      priority: priorityVal?.id.toString() ?? undefined,
       id: idVal || "default",
       reschedule: reschedule ? true : false
     },
   });
 
   const appointmentErrors = errors as FieldErrors<AppointmentForm>;
-  const [duration, setDuration] = useState<number>(0)
+  const [duration, setDuration] = useState<number>(priorityVal?.durationHours || 0)
   const [] = useState<number>(0)
   const [, setIdpriority] = useState<string>("")
   const [color, setColor] = useState<string>("")
   const [, setTreatment] = useState<Treatment | undefined>(treatmentBack);
   const [selected, setSelected] = useState<number>(priorityVal?.id || -1);
-
   const [selectedTreatment] = useState<number>(priorityVal?.id || -1);
+
+
+  useEffect(() => {
+    if (priorityVal) {
+      setValue("priority", priorityVal._id || "");
+    }
+  }, [priorityVal, setValue]);
+
+
+
+  console.log("priorityVal", priorityVal)
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [selectedAppDates, setSelectedAppDates] = useState<DateRange[]>(datesAppSelected || []);
 
@@ -220,9 +229,8 @@ function CustomEntryForm({ children, dates,
   const onSubmit = (data: AppointmentForm | ContactForm) => {
 
     const cleanedData = sanitize(data)
+    console.log("cleanedData", cleanedData)
     if (mode == "CREATION") {
-
-      console.log("cleanedData", cleanedData)
 
       mutate(cleanedData, {
         onSuccess: () => {
@@ -234,6 +242,10 @@ function CustomEntryForm({ children, dates,
             isClosable: true,
           });
           reset();
+
+          queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+          queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+          if (onClose_1) onClose_1()
           navigate("/appointments/priority-list");
         },
         onError: (error: any) => {
@@ -260,7 +272,6 @@ function CustomEntryForm({ children, dates,
         id_value: idVal ?? "",   // valor PK, fallback to empty string if undefined
         data: cleanedData
       }];
-      console.log("payload", payload)
 
       editItem(payload,
         {
@@ -287,11 +298,9 @@ function CustomEntryForm({ children, dates,
 
   };
 
-  console.log("Errors:", errors);
 
   const onError = () => {
     setHasSubmitted(true); // Marcamos que intentaron enviar, pero había errores
-    // Opcional: console.log(errors)
   };
   return (
     <>
@@ -315,7 +324,7 @@ function CustomEntryForm({ children, dates,
             hasArrow
             placement="top"
           >
-            <IconButton
+            {!onlyPatient && <IconButton
               position="absolute"
               top="1"
               right="1"
@@ -339,7 +348,7 @@ function CustomEntryForm({ children, dates,
                 transform: "scale(0.95)",
                 shadow: "sm",
               }}
-            />
+            />}
           </Tooltip>
         </Box>
         <CustomHeading fontSize="md">
@@ -425,11 +434,9 @@ function CustomEntryForm({ children, dates,
 
                     selected={selectedTreatment}
                     {...field}
-                    onChange={(id, _value, color, durationTreatment) => {
+                    onChange={(id, _value, _color, _durationTreatment) => {
                       setIdpriority(id)
                       field.onChange(id);
-                      setDuration(durationTreatment ? durationTreatment : 0)
-                      setColor(color ? color : "gray")
                       trigger("treatment");
                     }}
 

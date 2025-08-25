@@ -33,18 +33,20 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import React, { useEffect, useState } from 'react';
-import { Appointment, GroupedAppointment, Priority } from '@/types';
-import { useDraggableCards } from '@/Hooks/Query/useDraggableCards';
+import React, { useEffect, useRef, useState } from 'react';
+import { Appointment, GroupedAppointment } from '@/types';
 import { UpdatePayload, useUpdateItems } from '@/Hooks/Query/useUpdateItems';
 import { useQueryClient } from '@tanstack/react-query';
-import { formatDateSingle } from '@/Functions/FormatDateSingle';
 import { iconMap } from '../CustomIcons';
 import Pagination from '../Pagination';
+import AddPatientButton from '../DraggableCards/AddPatientButton';
+import DeleteItemButton from './DeleteItemButton';
+import SearchBar, { SearchBarRef } from '../searchBar';
 
 type Props = {
   onCardClick?: (item: Appointment) => void;
   dataAP2: GroupedAppointment[] | undefined
+  dataContacts: Appointment[]
   isPlaceholderData: boolean
 };
 
@@ -79,7 +81,7 @@ function SortableItem({
   };
 
   return (
-    <>
+    
       <Box
         ref={setNodeRef}
         userSelect="none"
@@ -103,7 +105,7 @@ function SortableItem({
       >
 
         {children}
-      </Box></>
+      </Box>
   );
 }
 
@@ -115,7 +117,6 @@ function moveItem(
   toColumnId: string,
   toIndex: number
 ): GroupedAppointment[] {
-  console.log('🛠 moveItem called', { itemId, fromColumnId, toColumnId, toIndex });
   const newData = [...data];
 
   const sourceCol = newData.find(col => col._id === fromColumnId);
@@ -131,7 +132,6 @@ function moveItem(
     return data;
   }
 
-  console.log('➡️ Eliminando item de columna origen:', fromColumnId, 'Item:', `${item.nameInput} ${item.lastNameInput}`);
 
   if (fromColumnId === toColumnId) {
     // Movimiento dentro de la misma columna
@@ -149,7 +149,6 @@ function moveItem(
     // Recalcular posiciones
     sourceCol.patients = newPatients.map((p, idx) => ({ ...p, position: idx }));
 
-    console.log('⬅️ Nueva lista de pacientes en columna (mismo lugar):', fromColumnId, sourceCol.patients.map(p => `${p.nameInput} ${p.lastNameInput}`));
   } else {
     // Movimiento entre columnas diferentes
     // Eliminar de columna origen
@@ -162,19 +161,17 @@ function moveItem(
     // Recalcular posiciones en destino
     destCol.patients = newPatients.map((p, idx) => ({ ...p, position: idx }));
 
-    console.log('⬅️ Nueva lista de pacientes en destino:', toColumnId, destCol.patients.map(p => `${p.nameInput} ${p.lastNameInput}`));
-    console.log('⬅️ Nueva lista de pacientes en origen:', fromColumnId, sourceCol.patients.map(p => `${p.nameInput} ${p.lastNameInput}`));
   }
 
   return newData;
 }
 
 
-export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderData }: Props) {
+export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData }: Props) {
   const toast = useToast();
 
-  console.log("dataAP2", dataAP2)
-  const { mutate, isPending } = useUpdateItems();
+  const searchRef = useRef<SearchBarRef>(null);
+  const { mutate } = useUpdateItems();
   const [activeItem, setActiveItem] = useState<Appointment | null>(null);
   const [optimisticData, setOptimisticData] = useState<GroupedAppointment[] | null>(null);
   const [sourceCol, setSourceCol] = useState<GroupedAppointment | undefined>();
@@ -208,11 +205,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
       setOptimisticData(dataAP2);
     }
 
-    console.log('🚀 Drag start:', { activeId: id, originColId: originCol?._id, itemNombre: item ? `${item.nameInput} ${item.lastNameInput}` : null });
   };
 
   const handleDragCancel = () => {
-    console.log('❌ Drag cancel');
     setActiveItem(null);
     setSourceCol(undefined);
   };
@@ -220,10 +215,8 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    console.log('🛑 Drag end:', { activeId: active.id, overId: over?.id });
 
     if (!over || active.id === over.id || !optimisticData || !sourceCol) {
-      console.log('⏭️ Drag end: no hay cambio o datos inválidos, reseteando estado');
       setActiveItem(null);
       setSourceCol(undefined);
       return;
@@ -256,14 +249,10 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
     const overIndex = destinationCol.patients.findIndex(p => p._id === overId);
     const index = overIndex === -1 ? destinationCol.patients.length : overIndex;
 
-    console.log('📍 Mover item', activeId, 'de', fromId, 'a', toId, 'posición:', index);
 
     const updatedData = moveItem(optimisticData, activeId, fromId, toId, index);
 
-    console.log('🔄 Datos actualizados tras mover:', updatedData.map(c => ({
-      colId: c._id,
-      pacientes: c.patients.map(p => ({ nombre: `${p.nameInput} ${p.lastNameInput}`, pos: p.position })),
-    })));
+
 
     setOptimisticData(updatedData);
 
@@ -301,7 +290,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
       });
     }
 
-    console.log('📤 updatePayload:', payload);
 
     // Actualizar cache local para renderizar inmediatamente
     queryClient.setQueryData(['DraggableCards'], updatedData);
@@ -331,7 +319,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
 
       },
       onSettled: () => {
-        console.log('🔔 Mutate settled - limpiar estado');
         setSourceCol(undefined);
         setActiveItem(null);
       },
@@ -356,6 +343,16 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
       [colId]: page,
     }));
   };
+
+  const pageSize = 10
+  const [filteredItems, setFilteredItems] = useState<Appointment[] | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const start = (currentPage - 1) * (pageSize ? pageSize : 0);
+  const end = start + (pageSize ? pageSize : 0);
+  const paginatedSource = filteredItems ?? dataContacts;
+  const currentItems = paginatedSource ? paginatedSource.slice(start, end) : [];
+  const totalPages = paginatedSource ? Math.ceil(paginatedSource.length / (pageSize || 1)) : 0;
+
 
   if (!optimisticData) return
   <>
@@ -393,8 +390,10 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
             minW="250px"
             flex="0 0 auto"
             minHeight="300px"
+            maxHeight="600px"
             border="1px solid #E2E8F0"
             borderRadius="md"
+            position={"relative"}
             bg="gray.50"
             mr={4}
           >
@@ -414,8 +413,16 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
               </Heading>
             </CardHeader>
 
-            <CardBody p={3} w="100%" maxW="100vw" overflowY="auto" bg="white" minH="480px"
-              maxH="480px" >
+            <CardBody
+              p={3}
+              w="100%"
+              maxW="100vw"
+              overflowY="auto"
+              bg="white"
+              h="100%"         // 👈 ocupa siempre el 100% de alto disponible
+              position="relative"
+            >
+
               <SortableContext items={items} strategy={verticalListSortingStrategy}>
                 {paginatedPatients.length > 0 ? (
                   paginatedPatients.map((item) => (
@@ -426,7 +433,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                       onClick={onCardClick}
                       item={item}
                     >
+
                       <Grid templateColumns="1fr" templateRows="auto" w="100%">
+
                         <GridItem>
                           <HStack>
                             <Icon as={TimeIcon} color="green" />
@@ -443,6 +452,12 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                             <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
                               <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
                             </Tooltip>
+
+                            <DeleteItemButton
+                              id={item._id}
+                              modelName="Appointment"
+                            />
+
                           </HStack>
                         </GridItem>
                         <GridItem>
@@ -454,6 +469,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                           </HStack>
                         </GridItem>
                       </Grid>
+
                     </SortableItem>
                   ))
                 ) : (
@@ -464,21 +480,146 @@ export default function DraggableColumns({ onCardClick, dataAP2, isPlaceholderDa
                   </SortableItem>
                 )}
               </SortableContext>
+
             </CardBody>
+            <Box
+              pr={4}
+              pt={1}
+              alignContent={"end"}
+              bg="transparent"
+              zIndex={1}   // 👈 asegura que quede encima del contenido
+            >
+              <AddPatientButton key={col._id} priority={col.priority} />
+            </Box>
             <CardFooter minH="50px"
               maxH="50px">
-              
-                <Pagination
-                  isPlaceholderData={isPlaceholderData}
-                  totalPages={totalPages}
-                  currentPage={currentPage}
-                  onPageChange={(page) => handlePageChange(col._id || "", page)}
-                />
-              
+
+              <Pagination
+                isPlaceholderData={isPlaceholderData}
+                totalPages={totalPages}
+                currentPage={currentPage}
+                onPageChange={(page) => handlePageChange(col._id || "", page)}
+              />
+
             </CardFooter>
           </Card>
         );
       })}
+
+      <Card
+        minW="250px"
+        flex="0 0 auto"
+        minHeight="300px"
+        maxHeight="600px"
+        border="1px solid #E2E8F0"
+        borderRadius="md"
+        position={"relative"}
+        bg="gray.50"
+        mr={4}
+      >
+        <CardHeader>
+          <Heading
+            size="sm"
+            mb={2}
+            bg={`red.100`}
+            p={3}
+            borderRadius="md"
+            width="fit-content"
+            display="flex"
+            alignItems="center"
+            gap={2}
+          >
+            {"Contacts"}
+          </Heading>
+        </CardHeader>
+
+        <CardBody
+          p={3}
+          w="100%"
+          maxW="100vw"
+          overflowY="auto"
+          bg="white"
+          h="100%"         // 👈 ocupa siempre el 100% de alto disponible
+          position="relative"
+        >
+          <SearchBar ref={searchRef} data={dataContacts || []} onFilter={setFilteredItems} who='contact' />
+
+
+          {currentItems.length > 0 &&
+            currentItems.map((item) => (
+              <Box
+                key={`${item._id}-box`}
+                userSelect="none"
+                p={4}
+                borderRadius={10}
+                border="1px"
+                borderColor="gray.50"
+                w="full"
+                my={2}
+                cursor="default"
+                boxShadow="md"
+                bg="white"
+                _hover={{ borderColor: "black", cursor: "pointer" }}
+
+              >
+
+                <Grid templateColumns="1fr" templateRows="auto" w="100%">
+
+                  <GridItem>
+
+                  </GridItem>
+                  <GridItem>
+                    <HStack>
+                      <Text fontWeight="bold">
+                        {item.nameInput} {item.lastNameInput}
+                      </Text>
+
+
+                      <DeleteItemButton
+                        id={item._id}
+                        modelName="Appointment"
+                      />
+
+                    </HStack>
+                  </GridItem>
+                  <GridItem>
+                    <HStack>
+                      <Icon as={PhoneIcon} color="green" />
+                      <Text color="gray.500">
+                        {formatAusPhoneNumber(item.phoneInput)}
+                      </Text>
+                    </HStack>
+                  </GridItem>
+                </Grid>
+
+              </Box>
+            ))
+          }
+
+
+        </CardBody>
+        <Tooltip label={"New Contact"} placement="top" fontSize="sm" hasArrow >
+          <Box
+            pr={4}
+            pt={1}
+            alignContent={"end"}
+            bg="transparent"
+            zIndex={1}   // 👈 asegura que quede encima del contenido
+          >
+            <AddPatientButton onlyPatient={true} />
+          </Box>
+        </Tooltip>
+        <CardFooter minH="50px"
+          maxH="50px">
+
+
+
+          <Pagination isPlaceholderData={isPlaceholderData} totalPages={totalPages} currentPage={currentPage} onPageChange={setCurrentPage} />
+
+
+        </CardFooter>
+      </Card>
+
 
       <DragOverlay>
         {activeItem && (

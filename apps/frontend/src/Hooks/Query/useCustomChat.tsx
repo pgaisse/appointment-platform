@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
-import { ChatMessage, env } from '@/types';
+import { ChatMessage } from '@/types';
 
 
 interface SocketData<T = any> {
@@ -36,12 +36,10 @@ export const useCustomChat = () => {
 
       newSocket.on('connect', () => {
         setConnected(true);
-        console.log('✅ Socket conectado:', newSocket.id);
       });
 
       newSocket.on('disconnect', () => {
         setConnected(false);
-        console.log('❌ Socket desconectado');
       });
 
       newSocket.onAny((event, payload) => {

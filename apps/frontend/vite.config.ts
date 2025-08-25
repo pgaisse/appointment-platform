@@ -5,9 +5,6 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Carga todas las variables (sin filtrar por VITE_ para debug)
-  const env = loadEnv(mode, process.cwd(), '')
-
-  console.log('🔍 Variables cargadas en build:', env)
 
   return {
     plugins: [react(), tsconfigPaths()],
@@ -16,6 +13,7 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 3004,
       strictPort: true,
+      allowedHosts: ['dev.letsmarter.com'], // 👈 aquí permites tu dominio
       hmr: {
         protocol: "wss",
         host: "dev.letsmarter.com",

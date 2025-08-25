@@ -75,7 +75,7 @@ function CustomTableApp({ pageSize }: Query) {
   const { handleSelectSlot: handleAppSelectSlot } = useSlotSelection(false, selectedAppDates, setSelectedAppDates, markedAppEvents, setMarkedAppEvents);
   const { handleSelectEvent: handleAppSelectEvent } = useEventSelection(setSelectedAppDates, setMarkedAppEvents, markedAppEvents);
   const [filteredItems, setFilteredItems] = useState<Appointment[] | null>(null);
-  console.log("data", data)
+
   const deleteDisclosure = useDisclosure();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [itemToDelete, setItemToDelete] = useState<string>("");
@@ -88,7 +88,6 @@ function CustomTableApp({ pageSize }: Query) {
   });
 
   const confirmDelete = (id: string) => {
-    console.log("ESTE ES EL ID:", id)
     setItemToDelete(id);
     deleteDisclosure.onOpen();
   };
