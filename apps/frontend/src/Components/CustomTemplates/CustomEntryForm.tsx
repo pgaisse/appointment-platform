@@ -107,7 +107,8 @@ function CustomEntryForm({ children, dates,
 
   const { onOpen: onOpenApp, onClose: onCloseApp, isOpen: isOpenApp } = useDisclosure();
 
-  const [isAnAppointment, setIsAnAppointment] = useState(true); // ← abierto por defecto
+  const [isAnAppointment, setIsAnAppointment] = useState(!onlyPatient); // ← abierto por defecto
+
 
   const onToggle = () => setIsAnAppointment(!isAnAppointment);
   const navigate = useNavigate();

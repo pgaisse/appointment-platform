@@ -18,7 +18,6 @@ export function filterAppointmentsByRange(
     const now = new Date();
     let start: Date;
     let end: Date;
-console.log("range",range)
     switch (range) {
         case "week":
             start = startOfWeek(now, { weekStartsOn: 1 });
@@ -33,11 +32,9 @@ console.log("range",range)
             end = endOfMonth(now);
             break;
         case "custom":
-            console.log("customStart: ",customStart,"customEnd",customEnd)
             if (!customStart || !customEnd) return grouped;
             start = customStart;
             end = customEnd;
-            console.log("RAngo seleccionado:",{start,end})
             break;
         default:
             return grouped;

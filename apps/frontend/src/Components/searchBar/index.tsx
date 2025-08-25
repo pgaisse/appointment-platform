@@ -2,6 +2,7 @@ import {
   Input,
   InputGroup,
   InputLeftElement,
+  type InputProps,
   Icon,
   Flex,
   Box,
@@ -10,8 +11,9 @@ import { FiSearch } from "react-icons/fi";
 import { useState, forwardRef, useImperativeHandle } from "react";
 import { Appointment } from "@/types";
 
-type Props = {
+type Props = InputProps & {
   data: Appointment[];
+  who?:string;
   onFilter: (filtered: Appointment[]) => void;
 };
 
@@ -19,7 +21,7 @@ export type SearchBarRef = {
   clearInput: () => void;
 };
 
-const SearchBar = forwardRef<SearchBarRef, Props>(({ data, onFilter }, ref) => {
+const SearchBar = forwardRef<SearchBarRef, Props>(({ data, onFilter,who="patient" }, ref) => {
   const [query, setQuery] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,17 +47,19 @@ const SearchBar = forwardRef<SearchBarRef, Props>(({ data, onFilter }, ref) => {
 
   return (
     <Flex justify="center" mb={4}>
-      <Box w={{ base: "100%", md: "60%", lg: "40%" }}>
+      <Box>
         <InputGroup borderRadius="xl" shadow="sm">
           <InputLeftElement pointerEvents="none">
             <Icon as={FiSearch} color="gray.400" />
           </InputLeftElement>
           <Input
+          
             value={query}
             onChange={handleChange}
-            placeholder="Search patient by name, phone or priority"
+            placeholder={`Search ${who} by name, phone or priority`}
             borderRadius="xl"
             py={5}
+            {...ref}
           />
         </InputGroup>
       </Box>

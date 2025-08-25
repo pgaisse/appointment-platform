@@ -187,6 +187,7 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
         filters = convertIdsInFilter(filters);
       }
     }
+    console.log("Filter : ", filters)
 
     let projection = {};
 

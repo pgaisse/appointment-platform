@@ -88,7 +88,6 @@ function CustomTableApp({ pageSize }: Query) {
   });
 
   const confirmDelete = (id: string) => {
-    console.log("ESTE ES EL ID:", id)
     setItemToDelete(id);
     deleteDisclosure.onOpen();
   };

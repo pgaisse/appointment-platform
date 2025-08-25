@@ -17,9 +17,10 @@ const MotionIconButton = motion(IconButton);
 
 type Props = {
   priority?: Priority;
+  onlyPatient?:boolean
 };
 
-export default function AddPatientButton({ priority }: Props) {
+export default function AddPatientButton({ priority,onlyPatient=false }: Props) {
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const toastInfo = {
@@ -51,9 +52,9 @@ export default function AddPatientButton({ priority }: Props) {
           <ModalCloseButton />
           <ModalBody>
             <CustomEntryForm
+              onlyPatient={onlyPatient}
               mode="CREATION"
               toastInfo={toastInfo}
-              onlyPatient={true}
               priorityVal={priority}
               onClose_1={onClose}
             />

@@ -24,9 +24,13 @@ import AvailabilityDates2 from "./AvailabilityDates2";
 import DateRangeSelector from "../searchBar/DateRangeSelector";
 import { useDraggableCards } from "@/Hooks/Query/useDraggableCards";
 import { filterAppointmentsByRange, RangeOption } from "@/Functions/filterAppointmentsByRage";
+import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 
 
 const CustomTableAppColumnV = () => {
+
+
+
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [selectedItem, setSelectedItem] = useState<Appointment>();
   const textColor = useColorModeValue("gray.800", "whiteAlpha.900");
@@ -34,10 +38,23 @@ const CustomTableAppColumnV = () => {
   const bgModal = useColorModeValue("white", "gray.800")
   const bgText = useColorModeValue("gray.100", "gray.700");
   const [, setSelectedDays] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
+
   const { data: dataAP2, isPlaceholderData } = useDraggableCards();
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
+  const query = {
+    $or: [
+      { "selectedAppDates": { $exists: false } },
+      { "selectedAppDates": null },
+      { "selectedAppDates": { $size: 0 } }
+    ]
+  };
 
+  const limit = 100;
+  const { data: dataContacts, isLoading: isLoadingContacts, isPlaceholderData: isPlaceholderDataContacts, refetch: refetchContacts } = useGetCollection<Appointment>("Appointment", {
+    mongoQuery:query,
+    limit,
+  });
   const handleRangeChange = (
     range: RangeOption,
     customStart?: Date,
@@ -51,8 +68,8 @@ const CustomTableAppColumnV = () => {
     );
     setFilteredData(result);
 
-    console.log("🧠 Rango seleccionado:", { range, customStart, customEnd });
   };
+
 
 
   const templateCoumns = {
@@ -70,7 +87,6 @@ const CustomTableAppColumnV = () => {
 
 
   const handleCardClick = (item: Appointment) => {
-    console.log("item", item);
     setSelectedItem(item);
     onOpen();
   };
@@ -85,7 +101,7 @@ const CustomTableAppColumnV = () => {
         color="gray.300"
       >
         <DateRangeSelector onFilterRange={handleRangeChange} />
-        
+
       </Box>
       <Box px={4} py={6}>
 
@@ -180,8 +196,9 @@ const CustomTableAppColumnV = () => {
       <SimpleGrid spacing={6} templateColumns={templateCoumns}>
 
         <DraggableCards
-        isPlaceholderData={isPlaceholderData}
-          dataAP2={filteredData}
+          isPlaceholderData={isPlaceholderData}
+          dataAP2={filteredData?filteredData:[]}
+          dataContacts={dataContacts?dataContacts:[]}
           onCardClick={handleCardClick}
         />
       </SimpleGrid>
