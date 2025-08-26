@@ -167,6 +167,67 @@ export type AppointmentGroup = {
   }[];
 };
 
+export interface Message {
+  sid: string;
+  conversationId: string;
+  author: string;
+  body?: string;
+  media: { url: string; type: string; size?: number }[];
+  status: "pending" | "sent" | "delivered" | "read" | "failed";
+  direction: "inbound" | "outbound";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedMessages {
+  messages: Message[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    hasMore: boolean;
+  };
+}
+
+
+export interface ConversationChat {
+  conversationId: string;
+  lastMessage: {
+    sid?:string;
+    body?: string;
+    status: "pending" | "sent" | "delivered" | "read" | "failed";
+    createdAt: string; // ISO date string
+    media?: MediaFile[];
+    author: string;
+  };
+  owner: {
+    _id: string;
+    name: string;
+    lastName: string;
+    phone: string;
+    email?: string;
+    org_id: string;
+    avatar?:string
+  };
+}
+
+
+export interface Message {
+  sid: string; // Twilio Message SID (IMxxxx) o ID interno
+  conversationId: string; // CHxxxx (Twilio Conversation SID) o ID interno
+  author: string; // quién envió el mensaje ("clinic", teléfono paciente, etc.)
+  body?: string; // texto opcional
+  media: {
+    url: string;  // URL en tu S3/CloudFront (o Drive)
+    type: string; // MIME type (image/png, application/pdf, etc.)
+    size?: number; // tamaño opcional en bytes
+  }[];
+  status: "pending" | "sent" | "delivered" | "read" | "failed"; // estado de entrega
+  direction: "inbound" | "outbound"; // recibido o enviado
+  createdAt: string; // ISO string de creación
+  updatedAt: string; // ISO string de última actualización
+}
+
 
 export type GroupedAppointments = AppointmentGroup[];
 
@@ -278,13 +339,11 @@ export interface LinkItem {
   color: string;
 }
 
-export interface MediaFile {
-  category: 'media' | 'audio' | 'video' | 'document';
-  filename: string;
-  size: number;
-  content_type: string;
-  sid: string;
-}
+export interface MediaFile  {
+      url: string;
+      type?: string;
+      size?: number;
+    }
 
 export type GroupedAppointment = {
   _id: string | null; // puede ser null si no hay prioridad asignada

@@ -17,23 +17,21 @@ import {
     Spinner,
 } from '@chakra-ui/react';
 import { FiMessageCircle } from 'react-icons/fi';
-import { Appointment, ChatMessage, LocalMessage, ManualContact } from '@/types';
+import { Appointment, ChatMessage, ConversationChat, LocalMessage } from '@/types';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
 import { useCustomChat } from '@/Hooks/Query/useCustomChat';
-import { AddContactButton } from './AddContactButton';
-import { ManualContactFormModal } from './ManualContactFormModal';
 
 type Props = {
-    setContacts: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-    setConversations: React.Dispatch<React.SetStateAction<Record<string, LocalMessage[]>>>;
-    setSelectedContact: React.Dispatch<React.SetStateAction<ChatMessage | null>>;
-    currentAuthor: string;
+    setContacts?: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+    setConversations?: React.Dispatch<React.SetStateAction<Record<string, LocalMessage[]>>>;
+    setSelectedContact?: React.Dispatch<React.SetStateAction<ConversationChat | null>>;
+
 };
 
-const NewChatButton = ({ setContacts, setConversations, setSelectedContact, currentAuthor }: Props) => {
+const NewChatButton = ({ setConversations, setSelectedContact }: Props) => {
     const { isOpen, onOpen, onClose } = useDisclosure();
     const [search, setSearch] = useState('');
-    const { socket, lastMessage } = useCustomChat();
+    const { socket } = useCustomChat();
 
     const query = {};
     const projection = { nameInput: 1, lastNameInput: 1, phoneInput: 1, sid: 1 };
@@ -45,7 +43,6 @@ const NewChatButton = ({ setContacts, setConversations, setSelectedContact, curr
         projection,
     });
 
-
     const filteredContacts = useMemo(() => {
         return data.filter((contact) => {
             const fullName = `${contact.nameInput} ${contact.lastNameInput}`.toLowerCase();
@@ -56,36 +53,23 @@ const NewChatButton = ({ setContacts, setConversations, setSelectedContact, curr
         });
     }, [search, data]);
 
-    const handleSelectContact = (contact: ManualContact) => {
-        const chat: ChatMessage = {
-            appId: contact._id,
-            sid: contact.sid,
-            phone: contact.phoneInput,
-            name: `${contact.nameInput} ${contact.lastNameInput}`,
-            body: '',
-            avatar: '',
-            author: currentAuthor,
-            dateCreated: new Date().toISOString(),
-            nextToken: '',
-            media:[],
-            lastMessage:new Date(contact.createdAt || ""),
-        };
+    const handleSelectContact = (contact: ConversationChat) => {
+        const chat: ConversationChat = contact;
 
-        setContacts((prev) => {
-            if (!prev.find((p) => p.phone === chat.phone)) return [...prev, chat];
-            return prev;
-        });
+        // ✅ Uso seguro con optional chaining
 
-        setConversations((prev) => ({
+
+        setConversations?.((prev) => ({
             ...prev,
-            [chat.phone]: prev[chat.phone] || [],
+            [chat.owner.phone]: prev[chat.owner.phone] || [],
         }));
 
-        setSelectedContact(chat);
+        setSelectedContact?.(chat);
+
         socket?.emit('smsSend', {
-            appId: contact._id,
-            phone: contact.phoneInput,
-            name: `${contact.nameInput} ${contact.lastNameInput}`,
+            appId: contact.owner._id,
+            phone: contact.owner.phone,
+            name: `${contact.owner.name} ${contact.owner.lastName}`,
         });
 
         onClose();
@@ -124,9 +108,7 @@ const NewChatButton = ({ setContacts, setConversations, setSelectedContact, curr
                             mb={2}
                             borderRadius="xl"
                         />
-                        
-                      
-  
+
                         {isLoading ? (
                             <Spinner mx="auto" my={10} />
                         ) : (
@@ -138,7 +120,7 @@ const NewChatButton = ({ setContacts, setConversations, setSelectedContact, curr
                                         borderRadius="lg"
                                         _hover={{ bg: 'gray.100' }}
                                         cursor="pointer"
-                                        onClick={() => handleSelectContact(contact)}
+                                        onClick={() => handleSelectContact(contact as unknown as ConversationChat)}
                                     >
                                         <Avatar size="sm" name={`${contact.nameInput} ${contact.lastNameInput}`} />
                                         <Box>

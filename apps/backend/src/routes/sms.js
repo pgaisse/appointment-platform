@@ -270,7 +270,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
     const newMsg = new Message({
       conversationId: msg.conversationSid,
       sid: msg.sid,
-      author: data.phoneInput,
+      author: org_id,
       body: safeBody,
       media: uploadedUrls,
       status: "pending",
@@ -519,4 +519,126 @@ router.post('/upload-file', jwtCheck, upload.fields(fields), async (req, res) =>
     res.status(500).json({ success: false, message: 'Upload failed', error: err?.message });
   }
 });
+
+// GET /messages/:conversationId/sync
+router.get('/messages/:conversationId/sync', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { after, updatedAfter } = req.query;
+
+    let newMessages = [];
+    let updatedMessages = [];
+
+    // 🔹 Mensajes nuevos desde la última vez
+    if (after) {
+      newMessages = await Message.find({
+        conversationId,
+        createdAt: { $gt: new Date(after) }
+      }).sort({ createdAt: 1 });
+    }
+
+    // 🔹 Mensajes ya existentes pero que cambiaron (ej: status)
+    if (updatedAfter) {
+      updatedMessages = await Message.find({
+        conversationId,
+        updatedAt: { $gt: new Date(updatedAfter) }
+      }).sort({ updatedAt: 1 });
+    }
+
+    res.json({ newMessages, updatedMessages });
+  } catch (err) {
+    console.error("Error sincronizando mensajes:", err);
+    res.status(500).json({ error: "No se pudo sincronizar historial" });
+  }
+});
+
+// GET /messages/:conversationId
+router.get('/messages/:conversationId', async (req, res) => {
+  try {
+    console.log("Entró a /messages/:conversationId")
+    const { conversationId } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const messages = await Message.find({ conversationId })
+      .sort({ createdAt: 1 })  // orden cronológico
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Message.countDocuments({ conversationId });
+    console.log("total", total)
+    res.json({
+      messages,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        hasMore: skip + messages.length < total
+      }
+    });
+  } catch (err) {
+    console.error("Error cargando historial:", err);
+    res.status(500).json({ error: "No se pudo obtener historial" });
+  }
+});
+// GET /conversations
+router.get("/conversations", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+
+    const { org_id } = await helpers.getTokenInfo(authHeader);
+    const orgId = org_id;
+    if (!orgId) return res.status(400).json({ error: "No org_id found in request" });
+
+    const conversations = await Message.aggregate([
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$conversationId",       // cada conversación
+          lastMessage: { $first: "$$ROOT" }
+        }
+      },
+      {
+        $lookup: {
+          from: "appointments",         // colección
+          localField: "_id",            // Message.conversationId
+          foreignField: "sid",          // Appointment.sid
+          as: "appointment"
+        }
+      },
+      { $unwind: "$appointment" },
+      { $match: { "appointment.org_id": orgId } }, // 🔹 restricción por organización
+      {
+        $project: {
+          conversationId: "$_id",
+          lastMessage: {
+            body: "$lastMessage.body",
+            status: "$lastMessage.status",
+            createdAt: "$lastMessage.createdAt",
+            media: "$lastMessage.media",
+            author: "$lastMessage.author",
+            sid: "$lastMessage.sid"
+          },
+          owner: {
+            _id: "$appointment._id",
+            name: "$appointment.nameInput" ,
+            lastName: "$appointment.lastNameInput" ,
+            phone: "$appointment.phoneInput",
+            email: "$appointment.emailInput",
+            org_id: "$appointment.org_id"
+          }
+        }
+      }
+    ]);
+
+    res.json(conversations);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error fetching conversations" });
+  }
+});
+
+
 module.exports = router;
