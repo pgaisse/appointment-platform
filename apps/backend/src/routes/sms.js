@@ -232,59 +232,106 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
     }
     //#endregion limitadores
 
-    // #region Subir archivos
+    // #region Subir archivos  (REEMPLAZA tu bloque actual)
     const uploadedUrls = [];
+    const meSids = [];
+    const mediaPublicUrl = [];
+    const savedPerFile = []; // útil para DB por mensaje
+
     for (const file of files) {
+      // 1) Subes a tu storage (como ya hacías)
       const key = await aws.uploadFileFromBuffer(file.buffer, org_id, {
         folderName: org_id,
         contentType: file.mimetype,
         originalName: file.originalname,
         fieldName: file.fieldname,
       });
-      let signedUrl = null;
-      try {
-        signedUrl = await aws.getSignedUrl(key);
-      }
-      catch (err) {
-        console.log(err)
-        throw new Error("The URL wasn't signed", err)
 
-      }
-      uploadedUrls.push({ url: signedUrl, type: file.mimetype, size: file.filesize });
+      let signedUrl = null;
+      try { signedUrl = await aws.getSignedUrl(key); }
+      catch (err) { throw new Error("The URL wasn't signed"); }
+
+      const publicUrl = `https://${process.env.CLOUDFRONT_DOMAIN}/${key}`;
+
+      // 2) Subes el binario ADEMÁS a Twilio MCS y guardas el ME...
+      const me = await sms.uploadToMCS(file.buffer, file.originalname, file.mimetype);
+      if (!me?.sid) throw new Error("MCS did not return a SID");
+
+      meSids.push(me.sid);
+      mediaPublicUrl.push(publicUrl);
+      uploadedUrls.push({ url: signedUrl, type: file.mimetype, size: file.size });
+
+      // Para mapear 1 a 1 archivo->mensaje en tu DB
+      savedPerFile.push({
+        url: signedUrl,
+        signedUrl,
+        type: file.mimetype,
+        size: file.size,
+        filename: file.originalname,
+        mediaSid: me.sid,
+      });
     }
-    console.log("uploadedUrls", uploadedUrls)
+
+    console.log("MCS mediaSids:", meSids);
+    console.log("mediaPublicUrl (CloudFront):", mediaPublicUrl);
+    console.log("uploadedUrls (signed):", uploadedUrls);
     // #endregion Subir archivos
 
-    // #region enviar mensaje a Twilio
-    const msg = await client.conversations.v1
-      .conversations(conversationId)
-      .messages
-      .create({
-        author: org_id,
-        body,
-        media: uploadedUrls?.map(m => m.url) || [] // Twilio solo recibe URLs públicas
-      });
-    // #endregion
+    // #region enviar mensaje a Twilio  (REEMPLAZA tu bloque actual)
+    const groupId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const messagesCreated = [];
 
-    // #region  Registro preliminar en DB
-    const newMsg = new Message({
+    if (meSids.length === 0) {
+      // Solo texto
+      if (!safeBody?.trim()) {
+        return res.status(400).json({ error: 'Message has neither text nor files' });
+      }
+      const msg = await client.conversations.v1
+        .conversations(conversationId)
+        .messages
+        .create({
+          author: org_id,
+          body: safeBody,
+          attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1 }),
+        });
+      messagesCreated.push({ msg, mediaInfo: [] });
+    } else {
+      // Varios archivos => N mensajes (uno por ME...)
+      for (let i = 0; i < meSids.length; i++) {
+        const msg = await client.conversations.v1
+          .conversations(conversationId)
+          .messages
+          .create({
+            author: org_id,
+            mediaSid: meSids[i],                // <- CLAVE EN CONVERSATIONS REST
+            body: i === 0 ? safeBody || undefined : undefined, // texto solo en el primero (opcional)
+            attributes: JSON.stringify({ groupId, groupIndex: i, groupCount: meSids.length }),
+          });
+
+        messagesCreated.push({ msg, mediaInfo: [savedPerFile[i]] });
+      }
+    }
+
+    console.log("Twilio creó:", messagesCreated.map(x => x.msg.sid));
+    // #endregion enviar mensaje a Twilio
+
+    // #region Registro en DB  (pequeño ajuste para N mensajes)
+    const docs = messagesCreated.map(({ msg, mediaInfo }) => ({
       conversationId: msg.conversationSid,
       sid: msg.sid,
       author: org_id,
-      body: safeBody,
-      media: uploadedUrls,
+      body: msg.body || "",
+      media: mediaInfo.length ? mediaInfo : [],   // 1 archivo por mensaje
       status: "pending",
-      direction: "outbound"
-    });
+      direction: "outbound",
+      index: msg.index,          // 👈 clave para orden estable
+    }));
 
-    await newMsg.save();
-
-    // #endregion registro en db
-
+    await Message.insertMany(docs);
+    // #endregion Registro en DB
 
     // #region  Enviar a Twilio
-    const hasText = !!safeBody.trim();
-    const hasFiles = files.length > 0;
+
 
 
 
@@ -294,7 +341,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
 
     return res.status(200).json({
       success: true,
-      msg,
+      docs,
     });
   } catch (err) {
     if (!committed) {
@@ -335,13 +382,17 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
     console.log("se entró")
     console.log("payload", payload)
     const isInbound = payload.Author && payload.Author.startsWith("+"); // ej: +61, +56, etc.
+    //obtener org_id
+    const data = await Appointment.findOne({ sid: payload.ConversationSid }, { org_id: 1 })
+    const org_id = data.org_id;
+    const org = org_id.toLowerCase()
+
+
 
     // #region Gestion de estado de mensajes
     if (payload.EventType === "onMessageAdded") {
       const status = isInbound ? "sent" : (payload.Status || "pending");
-      //obtener org_id
-      const data = await Appointment.findOne({ sid: payload.ConversationSid }, { org_id: 1 })
-      const org_id = data.org_id;
+
       // #region de existir media, subirla a la cloud y obtener la url
       const uploadedUrls = [];
 
@@ -367,6 +418,7 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
             originalName: file.originalname,
             fieldName: file.fieldname,
           });
+           console.log("key---------------------------------->", key, org_id)
           let signedUrl = null;
           try {
             signedUrl = await aws.getSignedUrl(key);
@@ -379,35 +431,63 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
           }
           uploadedUrls.push({ url: signedUrl, type: file.mimetype, size: file.filesize });
         }
+
       }
+
 
       // #endregion
       // 🔹 Mensaje nuevo confirmado en Twilio
-      await Message.findOneAndUpdate(
+      const saved = await Message.findOneAndUpdate(
         { sid: payload.MessageSid },
         {
           conversationId: payload.ConversationSid,
           sid: payload.MessageSid,
           author: payload.Author,
-          body: payload.Body || null,
+          body: payload.Body ? payload.Body : "",
           media: uploadedUrls || [],
           status: status,
+          index: payload.index,          // 👈 clave para orden estable
           direction: isInbound ? "inbound" : "outbound"
         },
         { upsert: true, new: true } // inserta si no existe
       );
+      console.log("saved",saved)
+      req.io.to(org).emit("newMessage", {
+        sid: saved.sid,
+        index: payload.index,
+        conversationId: saved.conversationId,
+        author: saved.author,
+        body: saved.body,
+        media: saved.media,
+        status: saved.status,
+        direction: saved.direction,
+        createdAt: saved.createdAt,
+        updatedAt: saved.updatedAt,
+      });
+
+      console.log("y con un payload.conversationId= ", payload.ConversationSid)
     }
 
 
     if (payload.EventType === "onDeliveryUpdated") {
       const status = payload.Status;
-      if (status) {
-        await Message.findOneAndUpdate(
-          { sid: payload.MessageSid },
-          { status }
-        );
+
+      const updated = await Message.findOneAndUpdate(
+        { sid: payload.MessageSid },
+        { status },
+        { new: true }
+      );
+      if (updated) {
+        req.io.to(org).emit("messageUpdated", {
+          sid: updated.sid,
+          conversationId: updated.conversationId, // 👈 NECESARIO
+          status: updated.status,
+        });
+
+        console.log("📤 Emitido messageUpdated:", updated.sid, updated.status);
       }
     }
+    //emmpujar socket
 
 
     // #endregion
@@ -418,6 +498,8 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
+
 router.get('/image-meta/:fileId', async (req, res) => {
   const { fileId } = req.params;
 
@@ -562,9 +644,14 @@ router.get('/messages/:conversationId', async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const messages = await Message.find({ conversationId })
-      .sort({ createdAt: 1 })  // orden cronológico
-      .skip(skip)
-      .limit(parseInt(limit));
+      .sort({ createdAt: -1 }) // últimos primero
+      .limit(limit)
+      .lean();
+
+    const ordered = messages.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
 
     const total = await Message.countDocuments({ conversationId });
     console.log("total", total)
@@ -623,8 +710,8 @@ router.get("/conversations", async (req, res) => {
           },
           owner: {
             _id: "$appointment._id",
-            name: "$appointment.nameInput" ,
-            lastName: "$appointment.lastNameInput" ,
+            name: "$appointment.nameInput",
+            lastName: "$appointment.lastNameInput",
             phone: "$appointment.phoneInput",
             email: "$appointment.emailInput",
             org_id: "$appointment.org_id"

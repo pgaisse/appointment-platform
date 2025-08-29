@@ -72,20 +72,24 @@ async function uploadFileFromBuffer(
     return key; // devuelves la key que luego puedes firmar con getSignedUrl
 }
 // 🌐 Subir imagen desde URL
-async function uploadImageFromUrl(imageUrl, folderName, fileName = null) {
-    const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+async function uploadImageFromUrl(imageUrl, folderName, options = {}) {
+  const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
 
-    const buffer = Buffer.from(response.data, 'binary');
-    const mimeType = response.headers['content-type'];
-    const extension = path.extname(new URL(imageUrl).pathname) || '.jpg';
+  const buffer = Buffer.from(response.data, 'binary');
+  const mimeType = options.contentType || response.headers['content-type'];
+  const extFromName = options.originalName ? path.extname(options.originalName) : '';
+  const extension = extFromName || path.extname(new URL(imageUrl).pathname) || '.jpg';
 
-    const safeFolder = folderName.replace(/\/+$/, '');
-    const finalFileName = fileName || `image-${Date.now()}${extension.replace(/\?.*$/, '')}`;
-    const key = safeFolder ? `${safeFolder}/${finalFileName}` : finalFileName;
+  const safeFolder = folderName.replace(/\/+$/, '');
+  const finalFileName =
+    options.fileName || `${options.prefix || 'image-'}${Date.now()}${extension.replace(/\?.*$/, '')}`;
 
-    await uploadImage(buffer, key, mimeType);
-    return key;
+  const key = safeFolder ? `${safeFolder}/${finalFileName}` : finalFileName;
+
+  await uploadImage(buffer, key, mimeType);
+  return key;
 }
+
 
 
 

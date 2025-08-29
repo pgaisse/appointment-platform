@@ -35,7 +35,7 @@ function setupSocket(server) {
 
   const io = socketIo(server, {
     cors: {
-      origin: 'https://letsmarter.com', // Cambia esto si tu frontend está en otro origen
+      origin: process.env.SERVER_URL, // Cambia esto si tu frontend está en otro origen
       methods: ['GET', 'POST'],
       credentials: true,
     },
@@ -89,7 +89,7 @@ function setupSocket(server) {
     }
 
 
-    const orgRoom = org_id.toLowerCase();
+    const orgRoom = "org_BzRwcS0qiW57b8SX".toLowerCase();
     socket.join(orgRoom);
 
     //console.log(`✅ Socket conectado: ${socket.id}`);

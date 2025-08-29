@@ -1,10 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useEffect, useState } from "react";
-import { PaginatedMessages } from "@/types";
-
-
+import { Message, PaginatedMessages } from "@/types";
 
 const fetchMessages = async (
   conversationId: string,
@@ -22,28 +19,28 @@ const fetchMessages = async (
 
 export const useMessages = (
   conversationId: string,
-  page = 1,
-  limit = 50
+  page: number,
+  limit: number
 ) => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
-  const [token, setToken] = useState<string | null>(null);
 
-  useEffect(() => {
-    const getToken = async () => {
-      if (isAuthenticated) {
-        const newToken = await getAccessTokenSilently({
-          authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
-        });
-        setToken(newToken);
-      }
-    };
-    getToken();
-  }, [getAccessTokenSilently, isAuthenticated]);
-
-  return useQuery<PaginatedMessages>({
+  return useQuery<PaginatedMessages & { messages: Message[] }>({
     queryKey: ["messages", conversationId, page, limit],
-    queryFn: () => fetchMessages(conversationId, token!, page, limit),
-    enabled: !!token && !!conversationId,   // 👈 evita el fetch sin ID
+    queryFn: async () => {
+      if (!isAuthenticated) throw new Error("Not authenticated");
+      const token = await getAccessTokenSilently({
+        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+      });
+      const data = await fetchMessages(conversationId, token, page, limit);
+
+      // 🔒 ordenar por index (seguro y consistente)
+      const sorted = [...data.messages].sort(
+        (a, b) => Number(a.index) - Number(b.index)
+      );
+
+      return { ...data, messages: sorted };
+    },
+    enabled: !!conversationId && isAuthenticated,
     refetchOnWindowFocus: false,
   });
 };

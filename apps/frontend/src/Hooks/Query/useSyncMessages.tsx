@@ -1,24 +1,16 @@
+// useSyncMessages.ts
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useEffect, useState } from "react";
 import { Message } from "@/types";
-
-// Tipado del mensaje (igual que en el historial)
-
-
-// Tipado de la respuesta del sync
-interface SyncMessages {
-  newMessages: Message[];
-  updatedMessages: Message[];
-}
 
 const fetchSyncMessages = async (
   conversationId: string,
   token: string,
   after?: string,
   updatedAfter?: string
-): Promise<SyncMessages> => {
+): Promise<Message[]> => {
+  console.log("se ha llamado  a sync")
   const url = `${import.meta.env.VITE_BASE_URL}/messages/${conversationId}/sync`;
   const params: Record<string, string> = {};
   if (after) params.after = after;
@@ -28,7 +20,10 @@ const fetchSyncMessages = async (
     headers: { Authorization: `Bearer ${token}` },
     params,
   });
-  return res.data;
+
+  // 🔄 Normalizar: { newMessages, updatedMessages } → Message[]
+  const { newMessages = [], updatedMessages = [] } = res.data;
+  return [...newMessages, ...updatedMessages];
 };
 
 export const useSyncMessages = (
@@ -37,26 +32,20 @@ export const useSyncMessages = (
   updatedAfter?: string
 ) => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
-  const [token, setToken] = useState<string | null>(null);
 
-  useEffect(() => {
-    const getToken = async () => {
-      if (isAuthenticated) {
-        const newToken = await getAccessTokenSilently({
-          authorizationParams: {
-            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-          },
-        });
-        setToken(newToken);
-      }
-    };
-    getToken();
-  }, [getAccessTokenSilently, isAuthenticated]);
-
-  return useQuery<SyncMessages>({
-    queryKey: ["messagesSync", conversationId, after, updatedAfter],
-    queryFn: () => fetchSyncMessages(conversationId, token!, after, updatedAfter),
-    enabled: !!token && !!conversationId, // solo corre si hay token y conversación
+  return useQuery<Message[]>({
+    queryKey: ["messagesSync", conversationId], // 👈 estable
+    queryFn: async () => {
+      if (!isAuthenticated) return [];
+      const token = await getAccessTokenSilently({
+        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+      });
+      return fetchSyncMessages(conversationId, token, after, updatedAfter);
+    },
+    enabled: Boolean(conversationId && isAuthenticated),
     refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: 5_000, // 5s en cache como "fresco"
+    gcTime: 60_000,   // ⬅️ antes era cacheTime en v4
   });
 };

@@ -33,7 +33,7 @@ const main = async (appointmentId, req) => {
                 nameInput: 1,
                 lastNameInput: 1,
                 org_name: 1,
-                org_id:1,
+                org_id: 1,
                 sid: 1,
             }
         ).populate('selectedAppDates.contact');
@@ -136,7 +136,7 @@ const patientNoContacted = async (appointment, session) => {
 
             try {
                 await sendMessage(cSid, confirmationMessage, org_id);
-                
+
                 console.log('✅ SMS enviado');
             } catch (sendErr) {
                 console.error('❌ Error al enviar SMS:', sendErr.message);
@@ -237,7 +237,7 @@ const patientPending = async (appointment, req, session) => {
                     receivedAt: new Date(),
                 });
                 console.log("📡 Emitido por socket correctamente");
-                console.log("appointment",appointment)
+                console.log("appointment", appointment)
             }
 
             console.log("📝 Actualización completada:", {
@@ -840,8 +840,8 @@ const isThisSMSaConfirmation = async (req, appointment) => {
     console.log(isPreviousConfirmationRequest)
 
     const isCurrentFromPatient = latest.author !== appointment.org_id.toLowerCase();
-    console.log("previous.author",previous.author, "appointment.org_id",appointment.org_id.toLowerCase() )
-    console.log("latest.author",latest.author, "appointment.org_id",appointment.org_id.toLowerCase() )
+    console.log("previous.author", previous.author, "appointment.org_id", appointment.org_id.toLowerCase())
+    console.log("latest.author", latest.author, "appointment.org_id", appointment.org_id.toLowerCase())
     console.log("isPreviousConfirmationRequest ", isPreviousConfirmationRequest, previous.author, " ===", appointment.org_id, "&&",
         sanitizeText(previous.body), "===", sanitizeText(lastMessageInteraction))
     console.log("isCurrentFromPatient ", isCurrentFromPatient, latest.author, appointment.org_id)
@@ -864,52 +864,55 @@ const isThisSMSaConfirmation = async (req, appointment) => {
  * @returns {Promise<Object>} - Objeto con los metadatos del archivo (JSON).
  */
 async function getTwilioMediaMetadata(metadataUrl, accountSid, authToken) {
-  if (!metadataUrl || !accountSid || !authToken) {
-    throw new Error('Missing metadataUrl, accountSid, or authToken');
-  }
+    if (!metadataUrl || !accountSid || !authToken) {
+        throw new Error('Missing metadataUrl, accountSid, or authToken');
+    }
 
-  try {
-    const response = await axios.get(metadataUrl, {
-      auth: {
-        username: accountSid,
-        password: authToken
-      },
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
+    try {
+        const response = await axios.get(metadataUrl, {
+            auth: {
+                username: accountSid,
+                password: authToken
+            },
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
 
-    return response.data;
-  } catch (err) {
-    console.error('❌ Error fetching Twilio media metadata:', err.message);
-    throw err;
-  }
+        return response.data;
+    } catch (err) {
+        console.error('❌ Error fetching Twilio media metadata:', err.message);
+        throw err;
+    }
 }
 
 const serviceCache = new Map(); // CH -> { is, ts }
 
 async function getServiceSidForConversation(conversationSid) {
-  const hit = serviceCache.get(conversationSid);
-  if (hit && Date.now() - hit.ts < 5 * 60_000) return hit.is; // 5 min de TTL
+    const hit = serviceCache.get(conversationSid);
+    if (hit && Date.now() - hit.ts < 5 * 60_000) return hit.is; // 5 min de TTL
 
-  const conv = await client.conversations.v1.conversations(conversationSid).fetch();
-  console.log("Conversation fetched:", conv);
-  const is = conv.chatServiceSid;
-  serviceCache.set(conversationSid, { is, ts: Date.now() });
-  return is;
+    const conv = await client.conversations.v1.conversations(conversationSid).fetch();
+    console.log("Conversation fetched:", conv);
+    const is = conv.chatServiceSid;
+    serviceCache.set(conversationSid, { is, ts: Date.now() });
+    return is;
 }
-
 async function uploadToMCS(fileBuffer, filename, contentType) {
-      const mcsUrl = `https://mcs.us1.twilio.com/v1/Services/${serviceSid}/Media`;
-      const resp = await axios.post(mcsUrl, fileBuffer, {
+    const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID
+    const mcsUrl = `https://mcs.us1.twilio.com/v1/Services/${serviceSid}/Media`;
+    console.log(mcsUrl)
+    const resp = await axios.post(mcsUrl, fileBuffer, {
         auth: { username: accountSid, password: authToken },
         headers: {
-          'Content-Type': contentType || 'application/octet-stream',
-          'X-Twilio-Filename': filename || 'file',
+            'Content-Type': contentType || 'application/octet-stream',
+            'X-Twilio-Filename': filename || 'file',
         },
-      });
-      return resp?.data?.sid; // ME...
-    }
+    });
+    console.log("resp",resp?.data)
+    return resp?.data; // ME...
+}
+
 
 module.exports = {
     uploadToMCS,

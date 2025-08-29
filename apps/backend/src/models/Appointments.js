@@ -146,6 +146,10 @@ const MessageSchema = new mongoose.Schema(
       required: true,
       index: true
     },
+    index: {
+      type:String,
+      index:true
+    },
     sid: {
       type: String,   // Twilio Message SID (ej: "IMXXXX")
       required: true,
