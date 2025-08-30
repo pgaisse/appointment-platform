@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
-const { ContactStatus } = require("../constants")
+const { ContactStatus } = require("../constants");
+const { boolean } = require('joi');
 // Priority Schema (subdocumento)
 const PrioritySchema = new mongoose.Schema({
   org_id: {
@@ -38,6 +39,7 @@ const PrioritySchema = new mongoose.Schema({
 
 // Appointment Schema
 const AppointmentsSchema = new mongoose.Schema({
+  unknown:Boolean,
   sid: String,
   lastMessage: Date,
   lastMessageInteraction: { type: String, default: "" },

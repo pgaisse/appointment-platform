@@ -355,6 +355,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
 });
 
 
+
 router.post('/webhook2', express.urlencoded({ extended: false }), async (req, res, next) => {
   try {
 
@@ -377,16 +378,28 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
       // return res.status(403).json({ error: 'Invalid Twilio signature' });
     }
 
-    const { source } = req.body;
     const payload = req.body;
     console.log("se entró")
     console.log("payload", payload)
     const isInbound = payload.Author && payload.Author.startsWith("+"); // ej: +61, +56, etc.
     //obtener org_id
-    const data = await Appointment.findOne({ sid: payload.ConversationSid }, { org_id: 1 })
-    const org_id = data.org_id;
-    const org = org_id.toLowerCase()
+    const data = await Appointment.updateOne(
+      { sid: payload.ConversationSid },
+      {
+        $setOnInsert:
+        {
+          nameInput: payload.Author,
+          phoneInput: payload.Author,
+          sid: payload.ConversationSid,
+          unknown: true,
+        }
+      },
 
+      { upsert: true }
+
+    )
+    const org_id = process.env.TWILIO_ORG_ID;
+    const orgId = org_id.toLowerCase()
 
 
     // #region Gestion de estado de mensajes
@@ -418,7 +431,7 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
             originalName: file.originalname,
             fieldName: file.fieldname,
           });
-           console.log("key---------------------------------->", key, org_id)
+          console.log("key---------------------------------->", key, org_id)
           let signedUrl = null;
           try {
             signedUrl = await aws.getSignedUrl(key);
@@ -443,7 +456,7 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
           conversationId: payload.ConversationSid,
           sid: payload.MessageSid,
           author: payload.Author,
-          body: payload.Body ? payload.Body : "",
+          body: payload.Body ? helpers.sanitizeInput(payload.Body) : "",
           media: uploadedUrls || [],
           status: status,
           index: payload.index,          // 👈 clave para orden estable
@@ -451,8 +464,8 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
         },
         { upsert: true, new: true } // inserta si no existe
       );
-      console.log("saved",saved)
-      req.io.to(org).emit("newMessage", {
+      console.log("saved", saved)
+      req.io.to(orgId).emit("newMessage", {
         sid: saved.sid,
         index: payload.index,
         conversationId: saved.conversationId,
@@ -478,7 +491,7 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
         { new: true }
       );
       if (updated) {
-        req.io.to(org).emit("messageUpdated", {
+        req.io.to(orgId).emit("messageUpdated", {
           sid: updated.sid,
           conversationId: updated.conversationId, // 👈 NECESARIO
           status: updated.status,
@@ -602,6 +615,7 @@ router.post('/upload-file', jwtCheck, upload.fields(fields), async (req, res) =>
   }
 });
 
+
 // GET /messages/:conversationId/sync
 router.get('/messages/:conversationId/sync', async (req, res) => {
   try {
@@ -696,10 +710,11 @@ router.get("/conversations", async (req, res) => {
         }
       },
       { $unwind: "$appointment" },
-      { $match: { "appointment.org_id": orgId } }, // 🔹 restricción por organización
+      { $match: { } }, // 🔹 restricción por organización
       {
         $project: {
           conversationId: "$_id",
+          
           lastMessage: {
             body: "$lastMessage.body",
             status: "$lastMessage.status",
@@ -714,11 +729,13 @@ router.get("/conversations", async (req, res) => {
             lastName: "$appointment.lastNameInput",
             phone: "$appointment.phoneInput",
             email: "$appointment.emailInput",
-            org_id: "$appointment.org_id"
+            org_id: "$appointment.org_id",
+            unknown:"$appointment.unknown",
           }
         }
       }
     ]);
+    console.log("conversations",conversations)
 
     res.json(conversations);
   } catch (error) {

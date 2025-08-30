@@ -182,26 +182,28 @@ export interface SyncMessages {
   newMessages: Message[];
   updatedMessages: Message[];
 }
-
+export type Lastmsg = {
+  _id?: string;
+  name?: string;
+  lastName?: string;
+  phone?: string;
+  email?: string;
+  org_id?: string;
+  avatar?: string
+  unknown?: boolean;
+};
 export interface ConversationChat {
   conversationId: string;
+  chatmessage?: Message,
   lastMessage: {
     sid?: string;
     body?: string;
-    status: "pending" | "sent" | "delivered" | "read" | "failed";
+    status: MessageStatus
     createdAt: string; // ISO date string
     media?: MediaFile[];
     author: string;
   };
-  owner: {
-    _id: string;
-    name: string;
-    lastName: string;
-    phone: string;
-    email?: string;
-    org_id: string;
-    avatar?: string
-  };
+  owner: Lastmsg
 }
 export type MessageStatus =
   | "pending"
@@ -210,9 +212,10 @@ export type MessageStatus =
   | "read"
   | "failed"
   | (string & {}); // <- extensible
+export type PreviewItem = { id: string; url: string; name: string; size: number };
 
 export interface Message {
-  clientTempId?:string
+  clientTempId?: string
   sid: string; // Twilio Message SID (IMxxxx) o ID interno
   conversationId: string; // CHxxxx (Twilio Conversation SID) o ID interno
   author: string; // quién envió el mensaje ("clinic", teléfono paciente, etc.)
@@ -230,6 +233,22 @@ export interface Message {
   tempOrder?: number;   // 👈 orden local para optimistas
   status: MessageStatus;   // <- usa el tipo flexible
 }
+
+
+export type MessagesByPhone = Record<string, Message[]>;
+
+export type SelectedConversation = {
+  conversationId: string; // puede ser local-* hasta que el backend devuelva CH...
+  phone: string;
+  name: string;
+};
+
+export type AddToChatListInput = {
+  conversationId: string;
+  phone: string;
+  name: string;
+  lastMessage?: Message;
+};
 
 // (single) cuando solo hay texto o 1 mensaje
 export type SendChatMessageResponseSingle = {
@@ -336,6 +355,13 @@ export interface Conversation {
   appId: string,
   lastMessage: Date,
   chatmessage: ChatMessage[]
+}
+export interface ConversationS {
+  conversationId: string;
+  phone: string;
+  name: string;
+  lastMessage: Message;
+  chatmessage: Message;
 }
 
 export interface ChatMessage {

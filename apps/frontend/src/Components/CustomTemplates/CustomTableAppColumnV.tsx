@@ -51,7 +51,7 @@ const CustomTableAppColumnV = () => {
   };
 
   const limit = 100;
-  const { data: dataContacts, isLoading: isLoadingContacts, isPlaceholderData: isPlaceholderDataContacts, refetch: refetchContacts } = useGetCollection<Appointment>("Appointment", {
+  const { data: dataContacts } = useGetCollection<Appointment>("Appointment", {
     mongoQuery:query,
     limit,
   });
