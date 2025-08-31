@@ -182,7 +182,7 @@ export interface SyncMessages {
   newMessages: Message[];
   updatedMessages: Message[];
 }
-export type Lastmsg = {
+export type Owner = {
   _id?: string;
   name?: string;
   lastName?: string;
@@ -195,15 +195,8 @@ export type Lastmsg = {
 export interface ConversationChat {
   conversationId: string;
   chatmessage?: Message,
-  lastMessage: {
-    sid?: string;
-    body?: string;
-    status: MessageStatus
-    createdAt: string; // ISO date string
-    media?: MediaFile[];
-    author: string;
-  };
-  owner: Lastmsg
+  lastMessage:Message,
+  owner: Owner
 }
 export type MessageStatus =
   | "pending"

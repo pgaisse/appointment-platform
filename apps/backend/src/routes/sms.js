@@ -17,6 +17,14 @@ const { SendMessageSchema } = require("../schemas/messages");
 const { uploadImageFromUrl, getFileMetadata, getPublicImageLink } = require('../helpers/imagesManagment')
 const { receiveMessage } = require('../controllers/message.controller');
 const Appointments = require('../models/Appointments');
+const {
+  listChatCategories,
+  createChatCategory,
+  updateChatCategory,
+  assignCategoryToConversation,
+  listConversationCategories,
+  unassignCategoryFromConversation,
+} = require("../models/Chat/chatCategorizationService");
 
 
 const storage = multer.memoryStorage();
@@ -26,6 +34,8 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
 const client = twilio(accountSid, authToken);
+
+
 
 
 
@@ -684,44 +694,53 @@ router.get('/messages/:conversationId', async (req, res) => {
   }
 });
 // GET /conversations
+// GET /conversations
 router.get("/conversations", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+    if (!authHeader) return res.status(401).json({ error: "Missing Authorization header" });
 
     const { org_id } = await helpers.getTokenInfo(authHeader);
-    const orgId = org_id;
-    if (!orgId) return res.status(400).json({ error: "No org_id found in request" });
+    if (!org_id) return res.status(400).json({ error: "No org_id found in request" });
 
     const conversations = await Message.aggregate([
+      // 1) Tomamos el último mensaje por conversación
       { $sort: { createdAt: -1 } },
       {
         $group: {
-          _id: "$conversationId",       // cada conversación
-          lastMessage: { $first: "$$ROOT" }
-        }
+          _id: "$conversationId",
+          lastMessage: { $first: "$$ROOT" },
+        },
       },
+
+      // 2) Join con appointments para datos del owner y filtrar por organización
       {
         $lookup: {
-          from: "appointments",         // colección
-          localField: "_id",            // Message.conversationId
-          foreignField: "sid",          // Appointment.sid
-          as: "appointment"
-        }
+          from: "appointments",
+          localField: "_id",     // conversationId
+          foreignField: "sid",   // Appointment.sid
+          as: "appointment",
+        },
       },
       { $unwind: "$appointment" },
-      { $match: { } }, // 🔹 restricción por organización
+      //{ $match: { "appointment.org_id": org_id } },
+
+      // 3) Proyección: lastMessage completo (coincide con tipo Message del front)
       {
         $project: {
           conversationId: "$_id",
-          
           lastMessage: {
+            sid: "$lastMessage.sid",
+            conversationId: "$_id",                // 👈 necesario en el front
             body: "$lastMessage.body",
-            status: "$lastMessage.status",
-            createdAt: "$lastMessage.createdAt",
             media: "$lastMessage.media",
+            status: "$lastMessage.status",
+            direction: "$lastMessage.direction",    // 👈 necesario en el front
             author: "$lastMessage.author",
-            sid: "$lastMessage.sid"
+            createdAt: "$lastMessage.createdAt",
+            updatedAt: {                            // 👈 fallback por si falta
+              $ifNull: ["$lastMessage.updatedAt", "$lastMessage.createdAt"],
+            },
           },
           owner: {
             _id: "$appointment._id",
@@ -730,12 +749,14 @@ router.get("/conversations", async (req, res) => {
             phone: "$appointment.phoneInput",
             email: "$appointment.emailInput",
             org_id: "$appointment.org_id",
-            unknown:"$appointment.unknown",
-          }
-        }
-      }
+            unknown: "$appointment.unknown",
+          },
+        },
+      },
+
+      // (opcional) volver a ordenar por el tiempo del último mensaje
+      { $sort: { "lastMessage.createdAt": -1 } },
     ]);
-    console.log("conversations",conversations)
 
     res.json(conversations);
   } catch (error) {
@@ -744,5 +765,90 @@ router.get("/conversations", async (req, res) => {
   }
 });
 
+
+
+/* --- Categorías --- */
+// combos de middlewares por tipo de endpoint
+const { getOrgIdFromRequest } = require("../utils/orgId");
+const getOrgId = (req) => req.user?.org_id || req.user?.organization;
+
+function requireOrg(req, res, next) {
+  const orgId = getOrgIdFromRequest(req);
+  if (!orgId) return res.status(400).json({ error: "Missing org id in token" });
+  req.org_id = orgId;               // lo dejas disponible para el resto del handler
+  next();
+}
+const withJwt = [jwtCheck, attachUserInfo];
+const withAuth = [jwtCheck, attachUserInfo, requireOrg]; // <-- garantiza req.org_id
+
+// --- Categorías ---
+
+
+// --- Categorías ---
+router.get("/categories", withAuth, async (req, res, next) => {
+  try {
+    const org_id = req.org_id; // ya lo pone requireOrg
+    console.log("org", req.org_id)
+    const items = await listChatCategories({ org_id: req.org_id, search: req.query.search });
+    res.json(items);
+  } catch (e) { next(e); }
+});
+
+router.post("/categories", withAuth, async (req, res, next) => {
+  try {
+    const doc = await createChatCategory({ org_id: req.org_id, data: req.body });
+    res.status(201).json(doc);
+  } catch (e) { next(e); }
+});
+
+router.patch("/categories/:id", withAuth, async (req, res, next) => {
+  try {
+    const allowed = {};
+    ["name", "color", "icon", "key", "isActive"].forEach(k => {
+      if (req.body[k] !== undefined) allowed[k] = req.body[k];
+    });
+    const doc = await updateChatCategory({
+      org_id: req.org_id,
+      chatCategoryId: req.params.id,
+      patch: allowed
+    });
+    if (!doc) return res.status(404).json({ error: "Not found" });
+    res.json(doc);
+  } catch (e) { next(e); }
+});
+
+router.post("/conversations/:sid/categories", withAuth, async (req, res, next) => {
+  try {
+    const { chatCategoryKey, chatCategoryId } = req.body;
+    const doc = await assignCategoryToConversation({
+      org_id: req.org_id,
+      conversationSid: req.params.sid,
+      chatCategoryKey,
+      chatCategoryId,
+    });
+    res.status(201).json(doc);
+  } catch (e) { next(e); }
+});
+
+router.get("/conversations/:sid/categories", withAuth, async (req, res, next) => {
+  try {
+    const data = await listConversationCategories({
+      org_id: req.org_id,
+      conversationSid: req.params.sid,
+    });
+    res.json(data);
+  } catch (e) { next(e); }
+});
+
+router.delete("/conversations/:sid/categories/:chatCategoryId", withAuth, async (req, res, next) => {
+  try {
+    const deleted = await unassignCategoryFromConversation({
+      org_id: req.org_id,
+      conversationSid: req.params.sid,
+      chatCategoryId: req.params.chatCategoryId,
+    });
+    res.json({ deleted });
+  } catch (e) { next(e); }
+});
 
 module.exports = router;

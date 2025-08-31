@@ -1,119 +1,322 @@
 // Components/Chat/CustomChat.tsx
 import { Box, Flex, Text, useColorModeValue } from "@chakra-ui/react";
-import { useCallback, useEffect, useState } from "react";
-import { ConversationChat, Message } from "@/types";
+import { useCallback, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useQueryClient } from "@tanstack/react-query";
+
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensors,
+  useSensor,
+  DragStartEvent,
+  DragEndEvent,
+  DragOverlay,
+  closestCenter,
+} from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+
 import MessageList from "@/Components/Chat/MessageList";
 import ChatWindows from "@/Components/Chat/ChatWindows";
 import NewChatButton from "@/Components/Chat/NewChatButton";
 import { useChatSocket } from "@/Hooks/Query/useChatSocket";
-import { useQueryClient } from "@tanstack/react-query";
 import { useConversations } from "@/Hooks/Query/useConversations";
-
-type ConversationListItem = {
-  conversationId: string;
-  phone: string;
-  name: string;
-  avatar?: string;
-  lastMessage?: Message;
-  chatmessage?: Message;
-};
+import { useAssignCategoryToConversation } from "@/Hooks/Query/useChatCategorization";
+import type { ConversationChat, Message } from "@/types";
+import { FaUserAlt } from "react-icons/fa";
+import { Avatar, HStack } from "@chakra-ui/react";
+import ChatCategorizationPanel from "@/Components/Chat/CustomMessages/ChatCategorizationPanel";
 
 export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
   const { user } = useAuth0();
   const org_id = (user as any)?.org_id?.toLowerCase?.() ?? "";
   const queryClient = useQueryClient();
- const { data: dataConversation, isLoading: isLoadingConversation } = useConversations();
- console.log("data",dataConversation)
-  // Actualiza en cache la conversacion local->real
-  const promoteLocalConversationId = useCallback(
-    (phone: string, realConversationId: string) => {
-      // 1) lista de conversaciones
-      queryClient.setQueryData<ConversationListItem[]>(
-        ["conversations"],
-        (prev) => {
-          if (!Array.isArray(prev)) return prev;
-          const localId = `local-${phone}`;
-          return prev.map((c) =>
-            c.phone === phone || c.conversationId === localId
-              ? { ...c, conversationId: realConversationId }
-              : c
-          );
-        }
-      );
 
-      // 2) chat seleccionado
-      setChat((prev) => {
-        if (!prev) return prev;
-        const phoneSel = (prev as any).owner?.phone || (prev as any).phone;
-        const isLocal = String((prev as any).conversationId || "").startsWith("local-");
-        if (phoneSel === phone && isLocal) {
-          return { ...prev, conversationId: realConversationId } as any;
-        }
-        return prev;
-      });
-    },
-    [queryClient]
-  );
+  const { data: dataConversation = [], isLoading: isLoadingConversation } = useConversations();
 
-  // Si tu backend emite un evento específico
-  useEffect(() => {
-    const sock = (window as any)?.__chatSocket; // si tu useChatSocket no expone socket, ignora este bloque
-    if (!sock) return;
-
-    const onReady = (p: { phone: string; conversationId: string }) => {
-      promoteLocalConversationId(p.phone, p.conversationId);
-    };
-    sock.on?.("conversationReady", onReady);
-    return () => sock.off?.("conversationReady", onReady);
-  }, [promoteLocalConversationId]);
-
-  // Callbacks de tiempo real ya existentes
+  // live updates
   useChatSocket(
     org_id,
     (msg: Message) => {
-      // newMessage
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["messages", msg.conversationId] });
-
-      // fallback: si es inbound y trae el teléfono en author, actualiza local->real
-      if (msg.direction === "inbound" && msg.author) {
-        const phone = msg.author; // asumes E164
-        if (phone?.startsWith("+") && msg.conversationId.startsWith("CH")) {
-          promoteLocalConversationId(phone, msg.conversationId);
-        }
-      }
     },
     (msg: Message) => {
-      // messageUpdated
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["messages", msg.conversationId] });
     }
   );
-  const sidebarBg = useColorModeValue('white', 'gray.800');
-  console.log(setChat)
+
+  /* ---------- DND ---------- */
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor)
+  );
+
+  const ids = useMemo(
+    () => dataConversation.map((c) => c.conversationId),
+    [dataConversation]
+  );
+
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const byId = useMemo(() => {
+    const m = new Map<string, ConversationChat>();
+    dataConversation.forEach((c) => m.set(c.conversationId, c));
+    return m;
+  }, [dataConversation]);
+  const activeConv = activeId ? byId.get(activeId) ?? null : null;
+
+  const assign = useAssignCategoryToConversation();
+
+  const handleDragStart = useCallback((e: DragStartEvent) => {
+    setActiveId(String(e.active.id));
+  }, []);
+
+  const handleDragEnd = useCallback(
+    async (e: DragEndEvent) => {
+      const { active, over } = e;
+      setActiveId(null);
+      if (!over) return;
+
+      // Dropped over a category panel area (CategoryDrop uses id="cat-<categoryId>")
+      const overId = String(over.id);
+      if (overId.startsWith("cat-")) {
+        const chatCategoryId = overId.replace("cat-", "");
+        const conversationSid = String(active.id);
+
+        try {
+          await assign.mutateAsync({ conversationSid, chatCategoryId });
+          queryClient.invalidateQueries({
+            queryKey: ["conversation-categories", conversationSid],
+          });
+        } catch (err) {
+          console.error("Failed to assign category:", err);
+        }
+      }
+    },
+    [assign, queryClient]
+  );
+
+  /* ---------- Styling tokens ---------- */
+  const pageBg = useColorModeValue(
+    "linear-gradient(180deg, rgba(246,248,255,0.85) 0%, rgba(241,243,255,0.75) 100%)",
+    "linear-gradient(180deg, rgba(23,25,35,0.85) 0%, rgba(18,20,28,0.85) 100%)"
+  );
+
+  const panelBg = useColorModeValue("rgba(255,255,255,0.85)", "rgba(26,32,44,0.65)");
+  const panelBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
+
+  const sidebarHeaderBg = useColorModeValue("rgba(255,255,255,0.76)", "rgba(26,32,44,0.6)");
+  const sidebarHeaderBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
+
+  const scrollbarThumb = useColorModeValue("#CBD5E0", "#4A5568");
+  const scrollbarTrack = useColorModeValue("#EDF2F7", "#2D3748");
+  const handleOpenChat = useCallback((c: ConversationChat) => setChat(c), []);
   return (
-    <Box h="90%" w="100%">
-      <Flex
-        h="full"
-        mt={5}
-        mx="auto"
-        borderRadius="2xl"
-        overflow="hidden"
-        shadow="sm"
+    <Box h="100%" w="100%" position="relative" overflow="hidden">
+      {/* page backdrop */}
+      <Box
+        position="absolute"
+        inset={0}
+        bgGradient={pageBg}
+        filter="blur(0px)"
+        zIndex={0}
+      />
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
       >
-        {/* Sidebar */}
-        <Box w="30%" bg={sidebarBg} p={6} borderRightWidth="1px">
-          <Text fontSize="2xl" fontWeight="bold" mb={6}>Messages</Text>
-          <NewChatButton setChat={setChat} dataConversation={dataConversation}  />
+        <Flex
+          position="relative"
+          zIndex={1}
+          h="full"
+          mt={5}
+          mx="auto"
+          borderRadius="2xl"
+          overflow="hidden"
+          gap={0}
+          // outer card container
+          px={{ base: 2, md: 4 }}
+        >
+          {/* Categories panel */}
+          <Box
+            p={{ base: 3, md: 6 }}
+            w={{ base: "100%", xl: "20%" }}
+            maxW={{ xl: "520px" }}
+            bg={panelBg}
+            borderWidth="1px"
+            borderColor={panelBorder}
+            borderRadius="2xl"
+            boxShadow="0 10px 30px rgba(0,0,0,0.10)"
+            backdropFilter="saturate(140%) blur(6px)"
+            transition="box-shadow 200ms ease, transform 120ms ease"
+            _hover={{ boxShadow: "0 16px 40px rgba(0,0,0,0.14)" }}
+            mr={{ base: 0, xl: 4 }}
+            // scroll if content overflows
+            maxH="calc(100vh - 120px)"
+            overflowY="auto"
+            sx={{
+              "::-webkit-scrollbar": { width: "10px" },
+              "::-webkit-scrollbar-thumb": {
+                background: scrollbarThumb,
+                borderRadius: "10px",
+              },
+              "::-webkit-scrollbar-track": {
+                background: scrollbarTrack,
+              },
+            }}
+          >
+            <ChatCategorizationPanel
+              conversationSid={chat?.conversationId ?? ""}
+              conversations={dataConversation}
+              onOpenChat={handleOpenChat}
+              density="compact"
+            />
+          </Box>
 
-          <MessageList setChat={setChat} dataConversation={dataConversation} isLoadingConversation={isLoadingConversation}/>
-        </Box>
+          {/* Sidebar: conversations list */}
+          <Box
+            w={{ base: "100%", xl: "15%" }}
+            p={0}
+            borderRadius="2xl"
+            borderWidth="1px"
+            borderColor={panelBorder}
+            bg={panelBg}
+            boxShadow="0 10px 30px rgba(0,0,0,0.10)"
+            backdropFilter="saturate(140%) blur(6px)"
+            transition="box-shadow 200ms ease, transform 120ms ease"
+            _hover={{ boxShadow: "0 16px 40px rgba(0,0,0,0.14)" }}
+            mr={{ base: 0, xl: 4 }}
+            display="flex"
+            flexDirection="column"
+            maxH="calc(100vh - 120px)"
+            overflow="hidden"
+          >
+            {/* Sticky header */}
+            <Box
+              position="sticky"
+              top={0}
+              zIndex={2}
+              px={{ base: 3, md: 6 }}
+              py={4}
+              bg={sidebarHeaderBg}
+              borderBottomWidth="1px"
+              borderColor={sidebarHeaderBorder}
+              backdropFilter="saturate(140%) blur(6px)"
+            >
+              <Text fontSize="2xl" fontWeight="bold">
+                Messages
+              </Text>
+              <Box mt={3}>
+                <NewChatButton setChat={setChat} dataConversation={dataConversation} />
+              </Box>
+            </Box>
 
-        {/* Chat Window */}
-        <ChatWindows chat={chat} isOpen={!!chat} />
-      </Flex>
+            {/* Scrollable list area */}
+            <Box
+              flex="1"
+              px={{ base: 3, md: 6 }}
+              py={4}
+              overflowY="auto"
+              sx={{
+                "::-webkit-scrollbar": { width: "10px" },
+                "::-webkit-scrollbar-thumb": {
+                  background: scrollbarThumb,
+                  borderRadius: "10px",
+                },
+                "::-webkit-scrollbar-track": {
+                  background: scrollbarTrack,
+                },
+              }}
+            >
+              <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+                <MessageList
+                  setChat={setChat}
+                  dataConversation={dataConversation}
+                  isLoadingConversation={isLoadingConversation}
+                />
+              </SortableContext>
+            </Box>
+          </Box>
+
+          {/* Chat window */}
+          <Box
+            flex="1"
+            minW={0}
+            bg={panelBg}
+            borderWidth="1px"
+            borderColor={panelBorder}
+            borderRadius="2xl"
+            boxShadow="0 10px 30px rgba(0,0,0,0.10)"
+            backdropFilter="saturate(140%) blur(6px)"
+            transition="box-shadow 200ms ease, transform 120ms ease"
+            _hover={{ boxShadow: "0 16px 40px rgba(0,0,0,0.14)" }}
+            maxH="calc(100vh - 120px)"
+            overflow="hidden"
+          >
+            <ChatWindows chat={chat} isOpen={!!chat} />
+          </Box>
+        </Flex>
+
+        {/* Drag preview */}
+        <DragOverlay
+          dropAnimation={{
+            duration: 180,
+            easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+          }}
+        >
+          {activeConv ? <DragPreviewChatRow conv={activeConv} /> : null}
+        </DragOverlay>
+      </DndContext>
     </Box>
+  );
+}
+
+/* ---------- Visual clone shown in the DragOverlay ---------- */
+function DragPreviewChatRow({ conv }: { conv: ConversationChat }) {
+  const name =
+    conv.owner?.unknown ? undefined : conv.owner?.name || conv.lastMessage?.author || "No name";
+  const lastPreview = conv.lastMessage?.body
+    ? conv.lastMessage.body
+    : conv.lastMessage?.media?.length
+      ? "📷 Photo"
+      : "";
+
+  return (
+    <HStack
+      p={3}
+      borderRadius="xl"
+      bg="chakra-body-bg"
+      boxShadow="0 18px 48px rgba(0,0,0,0.30)"
+      transition="all 0.2s ease"
+      w="360px"
+      maxW="80vw"
+      cursor="grabbing"
+      userSelect="none"
+      borderWidth="1px"
+      borderColor="blackAlpha.300"
+    >
+      <Avatar
+        size="md"
+        name={name}
+        src={conv.owner?.avatar}
+        icon={conv.owner?.unknown ? <FaUserAlt fontSize="1.5rem" /> : undefined}
+        pointerEvents="none"
+      />
+      <Box flex="1" minW={0}>
+        <Text fontWeight="semibold" noOfLines={1}>
+          {conv.owner?.name || conv.lastMessage?.author || "No name"}
+        </Text>
+        <Text fontSize="sm" color="gray.500" noOfLines={1}>
+          {lastPreview}
+        </Text>
+      </Box>
+    </HStack>
   );
 }

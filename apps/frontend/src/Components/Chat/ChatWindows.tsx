@@ -21,28 +21,73 @@ import { useMessages } from "@/Hooks/Query/useMessages";
 import { useOptimisticMessages } from "@/Hooks/Query/useOptimisticMessages";
 import { formatToE164 } from "@/Functions/formatToE164";
 import { ConversationChat, Message } from "@/types";
+import { FaUserAlt } from "react-icons/fa";
 
-type PreviewItem = { id: string; url: string; name: string; size: number };
+/* ---------- Helpers for day separators ---------- */
+const isSameLocalDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+function formatDayLabel(d: Date, now = new Date(), locale = navigator?.language || "en-US") {
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dateStart  = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((todayStart.getTime() - dateStart.getTime()) / 86400000);
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays > 1 && diffDays < 7) {
+    return new Intl.DateTimeFormat(locale, { weekday: "long" }).format(d); // e.g. "Monday"
+  }
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }).format(d); // e.g. "Sep 2, 2025"
+}
+
+/** A centered day chip with horizontal lines (WhatsApp-like) */
+const DayDivider = memo(function DayDivider({ date }: { date: Date }) {
+  const label = formatDayLabel(date);
+  const line = useColorModeValue("blackAlpha.300", "whiteAlpha.300");
+  const pillBg = useColorModeValue("white", "gray.700");
+  const pillBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
+  const pillText = useColorModeValue("gray.700", "gray.100");
+
+  return (
+    <HStack w="100%" my={2} spacing={3} align="center">
+      <Box flex="1" h="1px" bg={line} />
+      <Box
+        px={3}
+        py={1}
+        borderRadius="full"
+        bg={pillBg}
+        borderWidth="1px"
+        borderColor={pillBorder}
+        color={pillText}
+        fontSize="xs"
+        fontWeight="medium"
+        shadow="sm"
+      >
+        {label}
+      </Box>
+      <Box flex="1" h="1px" bg={line} />
+    </HStack>
+  );
+});
+
 type Props = { chat: ConversationChat | undefined; isOpen: boolean };
 
-/** Contenedor "seguro": SIN hooks si chat es undefined */
 export default function ChatWindows({ chat }: Props) {
   if (!chat) return null;
   return <ChatWindowsInner chat={chat} />;
 }
 
-/** Todo lo que usa hooks vive acá (chat garantizado) */
 function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const sendChat = useSendChatMessage();
 
-  // Mensajes desde servidor + capa optimista (unificada)
   const { data: messagesData } = useMessages(chat.conversationId, 1, 50);
   const { messages, addOptimistic, removeOptimistic, clearOptimistic } =
     useOptimisticMessages(messagesData?.messages || []);
 
-  // onSend memoizado
   const onSend = useCallback(
     ({ text, files }: { text: string; files: File[] }) => {
       const appId = chat.owner._id;
@@ -60,7 +105,6 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         return;
       }
 
-      // Optimista
       const optimistic: Message = {
         sid: `temp-${Date.now()}`,
         conversationId: chat.conversationId,
@@ -77,7 +121,6 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
       };
       addOptimistic(optimistic);
 
-      // Envío real
       sendChat.mutate(
         {
           to: formatToE164(chat.owner.phone || ""),
@@ -95,7 +138,7 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
             removeOptimistic(optimistic.sid);
             console.error("Error sending message:", error);
             toast({
-              title: "Failed to send message",
+              title: "Failed to send",
               description: error?.message || "Unexpected error",
               status: "error",
               position: "bottom-right",
@@ -107,10 +150,17 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
     [chat.conversationId, chat.owner._id, chat.owner.phone, addOptimistic, removeOptimistic, clearOptimistic, queryClient, sendChat, toast]
   );
 
+  const borderCol = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
+
   return (
-    <Flex direction="column" w="70%" p={6} position="relative">
-      <Header name={chat.owner.name || ""} avatar={chat.owner.avatar} />
-      <Divider mb={4} />
+    <Flex direction="column" w="100%" h="full" p={{ base: 3, md: 4 }} position="relative">
+      <Header
+        name={chat.owner?.unknown ? undefined : (chat.owner?.name || chat.lastMessage?.author)}
+        avatar={chat.owner?.avatar}
+        icon={chat.owner?.unknown ? <FaUserAlt fontSize="1.25rem" /> : undefined}
+        name_={chat.owner?.name ? chat.owner?.name : undefined}
+      />
+      <Divider mb={4} borderColor={borderCol} />
 
       <MessageList messages={messages} conversationId={chat.conversationId} />
 
@@ -125,14 +175,34 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
   );
 }
 
-/* ---------- Subcomponentes ---------- */
+/* ---------- Subcomponents ---------- */
 
-const Header = memo(function Header({ name, avatar }: { name: string; avatar?: string }) {
+const Header = memo(function Header({
+  name,
+  avatar,
+  icon,
+  name_,
+}: {
+  name: string | undefined;
+  avatar?: string;
+  icon?: React.ReactElement | undefined;
+  name_: string | undefined;
+}) {
+  const titleColor = useColorModeValue("gray.800", "gray.100");
+  const subColor = useColorModeValue("gray.500", "gray.400");
+
   return (
-    <HStack spacing={4} mb={4} align="center">
-      <Avatar size="lg" name={name} src={avatar} />
-      <Box>
-        <Text fontWeight="bold" fontSize="2xl">{name}</Text>
+    <HStack spacing={4} mb={2} align="center">
+      <Avatar size="md" name={name} src={avatar} icon={icon} />
+      <Box minW={0}>
+        <Text fontWeight="semibold" fontSize={{ base: "lg", md: "xl" }} color={titleColor} noOfLines={1}>
+          {name_ || name || "No name"}
+        </Text>
+        {name && name_ && name_ !== name && (
+          <Text fontSize="sm" color={subColor} noOfLines={1}>
+            {name}
+          </Text>
+        )}
       </Box>
     </HStack>
   );
@@ -140,41 +210,55 @@ const Header = memo(function Header({ name, avatar }: { name: string; avatar?: s
 
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message }) {
   const isClinic = msg.direction === "outbound";
-  // ✅ Colores por defecto (los originales)
-  const bubbleClient = useColorModeValue("gray.100", "gray.700");
-  const bubbleUser = useColorModeValue("blue.100", "blue.600");
-  const textUser = useColorModeValue("gray.900", "white");
-  const textClient = useColorModeValue("gray.900", "white");
+
+  const bubbleInbound = useColorModeValue("gray.100", "gray.700");
+  const bubbleOutbound = useColorModeValue("blue.100", "blue.600");
+  const textInbound = useColorModeValue("gray.900", "white");
+  const textOutbound = useColorModeValue("gray.900", "white");
+  const tickColor = useColorModeValue("green", "green.300");
+
   const showDrive = (u?: string) => !!u && !u.startsWith("blob:");
 
   return (
-    <Flex justify={isClinic ? "flex-end" : "flex-start"} w="100%" >
+    <Flex justify={isClinic ? "flex-end" : "flex-start"} w="100%">
       <Box
-        bg={isClinic ? bubbleUser : bubbleClient}
-        color={isClinic ? textUser : textClient}
-        pl={4} pr={2} py={3}
-        borderRadius="lg" maxW="75%" boxShadow="sm"
+        bg={isClinic ? bubbleOutbound : bubbleInbound}
+        color={isClinic ? textOutbound : textInbound}
+        px={4}
+        py={3}
+        borderRadius="lg"
+        maxW="75%"
+        boxShadow="sm"
       >
         {!!msg.body && (
-          <Text mb={Array.isArray(msg.media) && msg.media.length ? 2 : 0}  fontWeight="normal">
+          <Text fontWeight={"normal"} mb={Array.isArray(msg.media) && msg.media.length ? 2 : 0} whiteSpace="pre-wrap">
             {msg.body}
           </Text>
         )}
 
-        {Array.isArray(msg.media) && msg.media.map((m, i) =>
-          showDrive(m.url) ? (
-            <ImageFromDrive key={i} fileId={m.url} />
-          ) : (
-            <Box   key={i} mt={2} >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={m.url} alt={m.type || "preview"} style={{ maxWidth: "100%", borderRadius: 8 }} />
-            </Box>
-          )
-        )}
+        {Array.isArray(msg.media) &&
+          msg.media.map((m, i) =>
+            showDrive(m.url) ? (
+              <ImageFromDrive key={i} fileId={m.url} />
+            ) : (
+              <Box key={i} mt={2}>
+                <img
+                  src={m.url}
+                  alt={m.type || "preview"}
+                  style={{ maxWidth: "100%", borderRadius: 8, display: "block" }}
+                />
+              </Box>
+            )
+          )}
 
-        <HStack justify="flex-end" mt={1}>
-          {isClinic && (msg.status === "delivered" ? <TiTick size={12} color={"green"}/> : <MdAccessTime size={10} />)}
-          <Text fontSize="10px" textAlign="right" fontWeight="normal">
+        <HStack justify="flex-end" mt={1} spacing={2}>
+          {isClinic &&
+            (msg.status === "delivered" ? (
+              <TiTick size={12} color={tickColor as any} />
+            ) : (
+              <MdAccessTime size={12} />
+            ))}
+          <Text fontWeight={"normal"} fontSize="10px" opacity={0.8}>
             {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </Text>
         </HStack>
@@ -193,10 +277,14 @@ function areMsgEqual(prev: { msg: Message }, next: { msg: Message }) {
   );
 }
 
-/** MessageList con sentinel + auto-scroll solo al abrir/cambiar chat o si ya estás abajo */
+/** MessageList with day separators (WhatsApp-like) */
 const MessageList = memo(function MessageList({
-  messages, conversationId,
-}: { messages: Message[]; conversationId: string }) {
+  messages,
+  conversationId,
+}: {
+  messages: Message[];
+  conversationId: string;
+}) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -210,7 +298,6 @@ const MessageList = memo(function MessageList({
     sentinel.scrollIntoView({ block: "end", behavior });
     await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-    // Espera decode/carga de imágenes, luego baja otra vez
     const imgs = Array.from(scroller.querySelectorAll("img")) as HTMLImageElement[];
     if (imgs.length) {
       const decoders = imgs.map((img) => {
@@ -224,7 +311,6 @@ const MessageList = memo(function MessageList({
     }
   }, []);
 
-  // Al cambiar de chat → baja al final UNA sola vez
   useEffect(() => {
     didInitialScrollRef.current = false;
     requestAnimationFrame(() => {
@@ -234,7 +320,6 @@ const MessageList = memo(function MessageList({
     });
   }, [conversationId, ensureBottom]);
 
-  // Observa si estás "cerca del fondo" (tolerancia)
   useEffect(() => {
     const scroller = scrollerRef.current;
     const sentinel = sentinelRef.current;
@@ -248,24 +333,28 @@ const MessageList = memo(function MessageList({
     return () => io.disconnect();
   }, []);
 
-  // Si llegan mensajes nuevos y estás abajo → mantente abajo
   useEffect(() => {
     if (!didInitialScrollRef.current) return;
     if (isAtBottom) ensureBottom("smooth");
   }, [messages, isAtBottom, ensureBottom]);
 
-  // Cambios de tamaño / mutaciones (imágenes grandes): si estás abajo, mantente abajo
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
 
-    const ro = new ResizeObserver(() => { if (isAtBottom) ensureBottom("auto"); });
+    const ro = new ResizeObserver(() => {
+      if (isAtBottom) ensureBottom("auto");
+    });
     ro.observe(scroller);
 
-    const mo = new MutationObserver(() => { if (isAtBottom) ensureBottom("auto"); });
+    const mo = new MutationObserver(() => {
+      if (isAtBottom) ensureBottom("auto");
+    });
     mo.observe(scroller, { childList: true, subtree: true });
 
-    const onLoad = () => { if (isAtBottom) ensureBottom("auto"); };
+    const onLoad = () => {
+      if (isAtBottom) ensureBottom("auto");
+    };
     scroller.addEventListener("load", onLoad, true);
 
     return () => {
@@ -274,6 +363,24 @@ const MessageList = memo(function MessageList({
       scroller.removeEventListener("load", onLoad, true);
     };
   }, [isAtBottom, ensureBottom]);
+
+  const scrollThumb = useColorModeValue("blackAlpha.300", "whiteAlpha.300");
+
+  // Build interleaved list with day dividers
+  const interleaved = useMemo(() => {
+    const out: React.ReactNode[] = [];
+    let prevDate: Date | null = null;
+
+    for (const m of messages) {
+      const d = new Date(m.createdAt);
+      if (!prevDate || !isSameLocalDay(prevDate, d)) {
+        out.push(<DayDivider key={`day-${d.toDateString()}`} date={d} />);
+        prevDate = d;
+      }
+      out.push(<MessageBubble key={m.sid} msg={m} />);
+    }
+    return out;
+  }, [messages]);
 
   return (
     <Box position="relative" flex="1" minH={0}>
@@ -285,32 +392,34 @@ const MessageList = memo(function MessageList({
         align="stretch"
         pr={2}
         position="absolute"
-        top={0} bottom={0} left={0} right={0}
-        // Ocultar la barra de scroll sin depender del tema
+        top={0}
+        bottom={0}
+        left={0}
+        right={0}
         sx={{
-          '&::-webkit-scrollbar': { width: '0px', height: '0px' },
-          '&::-webkit-scrollbar-thumb': { background: 'transparent' },
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
+          "&::-webkit-scrollbar": { width: "6px" },
+          "&::-webkit-scrollbar-thumb": { background: scrollThumb, borderRadius: "8px" },
+          scrollbarWidth: "thin",
         }}
       >
-        {messages.map((m) => (<MessageBubble key={m.sid} msg={m} />))}
+        {interleaved}
         <div ref={sentinelRef} style={{ height: 1 }} />
       </VStack>
 
       {!isAtBottom && (
         <IconButton
-          aria-label="Ir al último mensaje"
+          aria-label="Go to latest"
           icon={<MdKeyboardArrowDown size={22} />}
           onClick={() => ensureBottom("smooth")}
           position="absolute"
-          bottom="80px"
+          bottom="88px"
           left="50%"
           transform="translateX(-50%)"
           colorScheme="blue"
           borderRadius="full"
           boxShadow="md"
           zIndex={1}
+          size="sm"
         />
       )}
     </Box>
@@ -318,24 +427,33 @@ const MessageList = memo(function MessageList({
 });
 
 const Composer = memo(function Composer({
-  disabled, patientId, conversationId, onSend,
+  disabled,
+  patientId,
+  conversationId,
+  onSend,
 }: {
   disabled?: boolean;
   patientId: string;
   conversationId: string;
   onSend: (p: { text: string; files: File[] }) => void;
 }) {
+  type PreviewItem = { id: string; url: string; name: string; size: number };
+
   const storageKey = useMemo(() => `draft:${conversationId}`, [conversationId]);
 
-  // Lazy init: lee localStorage solo una vez
+  // lazy-init draft from localStorage
   const [text, setText] = useState<string>(() => {
-    try { return localStorage.getItem(storageKey) ?? ""; } catch { return ""; }
+    try {
+      return localStorage.getItem(storageKey) ?? "";
+    } catch {
+      return "";
+    }
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<PreviewItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Persistir borrador
+  // persist draft
   useEffect(() => {
     try {
       const t = text.trim();
@@ -348,19 +466,28 @@ const Composer = memo(function Composer({
 
   const handleFilesReady = useCallback((files: File[]) => {
     setSelectedFiles(files);
-    setPreviews(files.map((f) => ({
-      id: `${f.name}-${f.size}-${f.lastModified}`,
-      url: URL.createObjectURL(f), name: f.name, size: f.size,
-    })));
+    setPreviews(
+      files.map((f) => ({
+        id: `${f.name}-${f.size}-${f.lastModified}`,
+        url: URL.createObjectURL(f),
+        name: f.name,
+        size: f.size,
+      }))
+    );
   }, []);
 
   const handleRemovePreview = useCallback((id: string) => {
     setPreviews((prev) => prev.filter((p) => p.id !== id));
-    setSelectedFiles((prev) => prev.filter((f) => `${f.name}-${f.size}-${f.lastModified}` !== id));
+    setSelectedFiles((prev) =>
+      prev.filter((f) => `${f.name}-${f.size}-${f.lastModified}` !== id)
+    );
   }, []);
 
   const handleClearPreviews = useCallback(() => {
-    setPreviews((prev) => { prev.forEach((p) => URL.revokeObjectURL(p.url)); return []; });
+    setPreviews((prev) => {
+      prev.forEach((p) => URL.revokeObjectURL(p.url));
+      return [];
+    });
     setSelectedFiles([]);
   }, []);
 
@@ -368,58 +495,101 @@ const Composer = memo(function Composer({
     onSend({ text, files: selectedFiles });
     setText("");
     handleClearPreviews();
-    try { localStorage.removeItem(storageKey); } catch {}
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {}
     inputRef.current?.focus();
   }, [onSend, text, selectedFiles, handleClearPreviews, storageKey]);
 
-  useEffect(() => () => { previews.forEach((p) => URL.revokeObjectURL(p.url)); }, [previews]);
+  useEffect(
+    () => () => {
+      previews.forEach((p) => URL.revokeObjectURL(p.url));
+    },
+    [previews]
+  );
+
+  const composerBg = useColorModeValue("white", "gray.800");
+  const composerBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
+  const fieldBorder = useColorModeValue("blackAlpha.300", "whiteAlpha.300");
 
   return (
-    <Box p={4} borderTop="1px solid #E2E8F0">
-      <PreviewBar previews={previews} onRemove={handleRemovePreview} onClear={handleClearPreviews} />
+    <Box pt={3} borderTopWidth="1px" borderColor={composerBorder}>
+      <PreviewBar
+        previews={previews}
+        onRemove={handleRemovePreview}
+        onClear={handleClearPreviews}
+      />
+
       <Flex
         borderRadius="lg"
-        border="1px solid #CBD5E0"
-        px={3}
+        borderWidth="1px"
+        borderColor={fieldBorder}
+        px={2}
         py={2}
         align="center"
         gap={2}
-        bg="white"
+        bg={composerBg}
       >
         <HStack spacing={1}>
-          <Tooltip label="Custom Messages">
-            <ShowTemplateButton selectedPatient={patientId} onSelectTemplate={setText} />
-          </Tooltip>
-          <Tooltip label="Create Templates">
-            <CreateMessageModal
-              triggerButton={<IconButton aria-label="Create template" icon={<MdOutlinePostAdd size={20} />} variant="ghost" size="sm" />}
+          <Tooltip label="Saved messages">
+            <ShowTemplateButton
+              selectedPatient={patientId}
+              onSelectTemplate={setText}
             />
           </Tooltip>
-          <Tooltip label="Upload">
-            <FileUploadButton onFilesReady={handleFilesReady} isSending={!!disabled} hasText={hasText} />
+
+          <Tooltip label="Create template">
+            <CreateMessageModal
+              triggerButton={
+                <IconButton
+                  aria-label="Create template"
+                  icon={<MdOutlinePostAdd size={18} />}
+                  variant="ghost"
+                  size="sm"
+                />
+              }
+            />
           </Tooltip>
+
+          <Tooltip label="Attach file">
+            <FileUploadButton
+              onFilesReady={handleFilesReady}
+              isSending={!!disabled}
+              hasText={hasText}
+            />
+          </Tooltip>
+
           <Tooltip label="Emoji">
-            <EmojiPickerButton inputRef={inputRef} value={text} setValue={setText} />
+            <EmojiPickerButton
+              inputRef={inputRef}
+              value={text}
+              setValue={setText}
+            />
           </Tooltip>
         </HStack>
 
         <Input
           ref={inputRef}
-          placeholder="Say something..."
+          placeholder="Type a message…"
           variant="unstyled"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
           px={2}
           isDisabled={disabled}
         />
 
         <IconButton
-          icon={<FiSend size={20} />}
+          icon={<FiSend size={18} />}
           colorScheme="blue"
           onClick={send}
           aria-label="Send message"
-          size="lg"
+          size="md"
           borderRadius="xl"
           isDisabled={disabled || (!hasText && selectedFiles.length === 0)}
         />

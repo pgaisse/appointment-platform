@@ -36,6 +36,7 @@ app.use((req, _res, next) => {
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, env: process.env.NODE_ENV || 'dev', time: new Date().toISOString() });
 });
+
 // Inyectar io en req
 const server = http.createServer(app);
 const io = setupSocket(server);

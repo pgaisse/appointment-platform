@@ -9,7 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { useCustomChat } from "@/Hooks/Query/useCustomChat";
 import { formatToE164 } from "@/Functions/formatToE164";
-import type { Message, Conversation, ConversationS, ConversationChat } from "@/types";
+import type { Message, ConversationChat } from "@/types";
 
 type ContactDoc = {
   _id: string;
