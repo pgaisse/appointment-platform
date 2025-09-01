@@ -62,7 +62,6 @@ dayjs.extend(timezone);
 
 
 type Props = {
-  typeButonVisible?: boolean
   onlyPatient?: boolean
   onClose_1?: () => void;
   rfetchPl?: (options?: RefetchOptions) => Promise<QueryObserverResult<any, Error>>
@@ -83,7 +82,6 @@ type Props = {
   idVal?: string
   lastNameVal?: string
   phoneVal?: string
-  phoneFieldReadOnly?: boolean
   reschedule?: boolean
   emailVal?: string
   priorityVal?: Priority
@@ -95,15 +93,13 @@ type Props = {
   setDates?: React.Dispatch<React.SetStateAction<DateRange[]>>
   setDatesApp?: React.Dispatch<React.SetStateAction<DateRange[]>>
   treatmentBack?: Treatment
-  conversationId?: string
 
 };
 
 function CustomEntryForm({ children, dates,
   btnName = "Save", onClose_1,
   nameVal, lastNameVal, phoneVal, emailVal, priorityVal, datesSelected, datesAppSelected, note, reschedule = false, rfetchPl, treatmentBack,
-  idVal, mode = "CREATION", refetch_list, toastInfo, onlyPatient = false, setDatesApp, typeButonVisible = true, phoneFieldReadOnly = false,
-  conversationId }: Props) {
+  idVal, mode = "CREATION", refetch_list, toastInfo, onlyPatient = false, setDatesApp }: Props) {
   //console.log("reschedule", reschedule)
 
   //const {hasAppointment, setHasAppointment}=useState(true)
@@ -249,8 +245,6 @@ function CustomEntryForm({ children, dates,
 
           queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-          queryClient.invalidateQueries({ queryKey: ["conversations"] });
-          if (conversationId) { queryClient.invalidateQueries({ queryKey: ["messages", conversationId] }); }
           if (onClose_1) onClose_1()
           navigate("/appointments/priority-list");
         },
@@ -282,7 +276,7 @@ function CustomEntryForm({ children, dates,
       editItem(payload,
         {
 
-          onSuccess: async () => {
+          onSuccess: () => {
             if (refetch_list) { refetch_list(); }
             toast({
               title: toastTitle,
@@ -293,22 +287,11 @@ function CustomEntryForm({ children, dates,
             });
             if (rfetchPl) rfetchPl();
             if (onClose_1) onClose_1()
-            console.log("conversationId", conversationId)
             queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-            queryClient.invalidateQueries({ queryKey: ["conversations"] });
-            if (conversationId) {
-              await queryClient.refetchQueries({
-                predicate: (q) =>
-                  Array.isArray(q.queryKey) &&
-                  q.queryKey[0] === "messages" &&
-                  q.queryKey[1] === conversationId,
-                type: "active",})
-
-              }
             //useEffect(()=>{onClose;}),[onClose]
           },
-          });
+        });
 
 
     }
@@ -341,7 +324,7 @@ function CustomEntryForm({ children, dates,
             hasArrow
             placement="top"
           >
-            {typeButonVisible && <IconButton
+            {!onlyPatient && <IconButton
               position="absolute"
               top="1"
               right="1"
@@ -403,7 +386,6 @@ function CustomEntryForm({ children, dates,
             render={({ field }) => (
               <PhoneInput
                 {...field}
-                isReadOnly={phoneFieldReadOnly}
                 onChange={(val) => field.onChange(val)} // ✅ valor limpio
                 type="tel"
                 isPending={isPending || editIsPending}

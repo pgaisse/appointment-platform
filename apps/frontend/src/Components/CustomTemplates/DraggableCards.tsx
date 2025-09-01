@@ -489,7 +489,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               bg="transparent"
               zIndex={1}   // 👈 asegura que quede encima del contenido
             >
-              <AddPatientButton key={col._id} priority={col.priority}  formProps={{typeButonVisible:false}} />
+              <AddPatientButton key={col._id} priority={col.priority} />
             </Box>
             <CardFooter minH="50px"
               maxH="50px">
@@ -605,9 +605,10 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           alignContent={"end"}
           bg="transparent"
           zIndex={1}   // 👈 asegura que quede encima del contenido
-        >          
-            <AddPatientButton onlyPatient={true} label='New Contact'formProps={{typeButonVisible:false}} />
-          
+        >
+          <Tooltip label={"New Contact"} placement="top" fontSize="sm" hasArrow >
+            <AddPatientButton onlyPatient={true} />
+          </Tooltip>
         </Box>
 
         <CardFooter minH="50px"
