@@ -51,7 +51,7 @@ const router = createBrowserRouter([
         ],
       },
 
-       {
+       {/*
         path: path.messages,
         element: <AuthorizedUsers reqAuth={true} />,
         children: [
@@ -59,7 +59,7 @@ const router = createBrowserRouter([
           
            
         ],
-      },
+      */},
 
       {
         path: path.settings,

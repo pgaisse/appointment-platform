@@ -605,8 +605,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           alignContent={"end"}
           bg="transparent"
           zIndex={1}   // 👈 asegura que quede encima del contenido
-        >
-          
+        >          
             <AddPatientButton onlyPatient={true} label='New Contact'formProps={{typeButonVisible:false}} />
           
         </Box>
@@ -660,6 +659,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           </Box>
         )}
       </DragOverlay>
-    </DndContext>
+    </DndContext >
   );
 }
