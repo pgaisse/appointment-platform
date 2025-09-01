@@ -10,6 +10,7 @@ const qs = require('qs');
 
 const Routes = require('./routes/index');
 const SMS = require('./routes/sms');
+const Socket = require('./routes/socket');
 const mongoConnect = require('./config/db');
 const setupSocket = require('./config/setupSocket');
 
@@ -36,18 +37,22 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, env: process.env.NODE_ENV || 'dev', time: new Date().toISOString() });
 });
 
+// Inyectar io en req
+const server = http.createServer(app);
+const io = setupSocket(server);
+app.use((req, res, next) => { req.io = io; next(); });
+
 // -------- Rutas --------
 app.use("/api",SMS);
 app.use("/api",Routes);
+app.use("/api/socket.io",Socket);
 app.enable("trust proxy");
 
 // -------- Server + Socket.IO --------
 
-const server = http.createServer(app);
 
-// Inyectar io en req
-const io = setupSocket(server);
-app.use((req, _res, next) => { req.io = io; next(); });
+
+
 
 // Conexión DB
 mongoConnect();

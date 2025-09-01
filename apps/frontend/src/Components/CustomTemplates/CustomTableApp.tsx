@@ -96,11 +96,12 @@ function CustomTableApp({ pageSize }: Query) {
       deleteById(itemToDelete);
     searchRef.current?.clearInput(); // ✅ limpiar campo visual y restaurar datos
     queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+    queryClient.invalidateQueries({ queryKey: ["conversations"] });
     setFilteredItems(null); // 👉 Esto forza que se use el nuevo `data` al volver a renderizar
 
     trigger.mutate(); // 🔥 Llama el endpoint sin esperar respuesta
 
-    
+
     deleteDisclosure.onClose();
   };
 
