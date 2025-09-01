@@ -1,6 +1,6 @@
 // Components/Chat/CustomChat.tsx
 import { Box, Flex, Text, useColorModeValue } from "@chakra-ui/react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -35,7 +35,11 @@ export default function CustomChat() {
   const queryClient = useQueryClient();
 
   const { data: dataConversation = [], isLoading: isLoadingConversation } = useConversations();
-
+  useEffect(() => {
+    if (!chat?.conversationId || !dataConversation) return;
+    const fresh = dataConversation.find(c => c.conversationId === chat.conversationId);
+    if (fresh && fresh !== chat) setChat(fresh); // nueva referencia -> re-render
+  }, [dataConversation, chat?.conversationId]);
   // live updates
   useChatSocket(
     org_id,
@@ -182,7 +186,7 @@ export default function CustomChat() {
 
           {/* Sidebar: conversations list */}
           <Box
-            w={{ base: "100%", xl: "15%" }}
+            w={{ base: "100%", xl: "20%" }}
             p={0}
             borderRadius="2xl"
             borderWidth="1px"

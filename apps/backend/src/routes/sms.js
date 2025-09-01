@@ -17,6 +17,9 @@ const { SendMessageSchema } = require("../schemas/messages");
 const { uploadImageFromUrl, getFileMetadata, getPublicImageLink } = require('../helpers/imagesManagment')
 const { receiveMessage } = require('../controllers/message.controller');
 const Appointments = require('../models/Appointments');
+const { getSmsBindingFromWebhookPayload } = require('../utils/twilio-conversations-binding');
+
+
 const {
   listChatCategories,
   createChatCategory,
@@ -391,6 +394,10 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
     const payload = req.body;
     console.log("se entró")
     console.log("payload", payload)
+    //Obteniendo Proxi
+    const { address, proxyAddress } = await getSmsBindingFromWebhookPayload(req.body);
+    console.log("proxyAddress", proxyAddress)
+    //
     const isInbound = payload.Author && payload.Author.startsWith("+"); // ej: +61, +56, etc.
     //obtener org_id
     const data = await Appointment.updateOne(
@@ -464,6 +471,7 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
         { sid: payload.MessageSid },
         {
           conversationId: payload.ConversationSid,
+          proxyAddress,
           sid: payload.MessageSid,
           author: payload.Author,
           body: payload.Body ? helpers.sanitizeInput(payload.Body) : "",
@@ -669,6 +677,7 @@ router.get('/messages/:conversationId', async (req, res) => {
 
     const messages = await Message.find({ conversationId })
       .sort({ createdAt: -1 }) // últimos primero
+      .skip(skip)   
       .limit(limit)
       .lean();
 
@@ -702,9 +711,8 @@ router.get("/conversations", async (req, res) => {
 
     const { org_id } = await helpers.getTokenInfo(authHeader);
     if (!org_id) return res.status(400).json({ error: "No org_id found in request" });
-
     const conversations = await Message.aggregate([
-      // 1) Tomamos el último mensaje por conversación
+      // 1) Último mensaje por conversación
       { $sort: { createdAt: -1 } },
       {
         $group: {
@@ -713,7 +721,7 @@ router.get("/conversations", async (req, res) => {
         },
       },
 
-      // 2) Join con appointments para datos del owner y filtrar por organización
+      // 2) Join appointments
       {
         $lookup: {
           from: "appointments",
@@ -723,24 +731,23 @@ router.get("/conversations", async (req, res) => {
         },
       },
       { $unwind: "$appointment" },
-      //{ $match: { "appointment.org_id": org_id } },
+      // { $match: { "appointment.org_id": org_id } },
 
-      // 3) Proyección: lastMessage completo (coincide con tipo Message del front)
+      // 3) Proyección (incluye proxyAddress del último mensaje)
       {
         $project: {
           conversationId: "$_id",
           lastMessage: {
             sid: "$lastMessage.sid",
-            conversationId: "$_id",                // 👈 necesario en el front
+            conversationId: "$_id",
             body: "$lastMessage.body",
             media: "$lastMessage.media",
             status: "$lastMessage.status",
-            direction: "$lastMessage.direction",    // 👈 necesario en el front
+            direction: "$lastMessage.direction",
             author: "$lastMessage.author",
+            proxyAddress: "$lastMessage.proxyAddress",  // 👈 incluirlo
             createdAt: "$lastMessage.createdAt",
-            updatedAt: {                            // 👈 fallback por si falta
-              $ifNull: ["$lastMessage.updatedAt", "$lastMessage.createdAt"],
-            },
+            updatedAt: { $ifNull: ["$lastMessage.updatedAt", "$lastMessage.createdAt"] },
           },
           owner: {
             _id: "$appointment._id",
@@ -754,7 +761,10 @@ router.get("/conversations", async (req, res) => {
         },
       },
 
-      // (opcional) volver a ordenar por el tiempo del último mensaje
+      // 4) Filtra por el proxy del ÚLTIMO mensaje
+      { $match: { "lastMessage.proxyAddress": process.env.TWILIO_FROM_MAIN } },
+
+      // 5) Orden final
       { $sort: { "lastMessage.createdAt": -1 } },
     ]);
 

@@ -18,29 +18,26 @@ const fetchMessages = async (
 };
 
 export const useMessages = (
-  conversationId: string,
+  conversationId: string | undefined,
   page: number,
   limit: number
 ) => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
   return useQuery<PaginatedMessages & { messages: Message[] }>({
-    queryKey: ["messages", conversationId, page, limit],
+    queryKey: ["messages", conversationId, page, limit], // <- importante
     queryFn: async () => {
       if (!isAuthenticated) throw new Error("Not authenticated");
       const token = await getAccessTokenSilently({
         authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
-      const data = await fetchMessages(conversationId, token, page, limit);
-
-      // 🔒 ordenar por index (seguro y consistente)
-      const sorted = [...data.messages].sort(
-        (a, b) => Number(a.index) - Number(b.index)
-      );
-
+      const data = await fetchMessages(conversationId!, token, page, limit);
+      const sorted = [...data.messages].sort((a, b) => Number(a.index) - Number(b.index));
       return { ...data, messages: sorted };
     },
     enabled: !!conversationId && isAuthenticated,
     refetchOnWindowFocus: false,
+    placeholderData: (prev) => prev, // mantiene mientras llega la nueva
+    staleTime: 0,
   });
 };

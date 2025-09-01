@@ -81,31 +81,31 @@ function SortableItem({
   };
 
   return (
-    
-      <Box
-        ref={setNodeRef}
-        userSelect="none"
-        p={4}
-        borderRadius={10}
-        border="1px"
-        borderColor="gray.50"
-        w="full"
-        my={2}
-        cursor="default"
-        boxShadow="md"
-        bg="white"
-        _hover={{ borderColor: color }}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (item) onClick?.(item);
-        }}
-        style={style}
-        {...attributes}
-        {...listeners}
-      >
 
-        {children}
-      </Box>
+    <Box
+      ref={setNodeRef}
+      userSelect="none"
+      p={4}
+      borderRadius={10}
+      border="1px"
+      borderColor="gray.50"
+      w="full"
+      my={2}
+      cursor="default"
+      boxShadow="md"
+      bg="white"
+      _hover={{ borderColor: color }}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (item) onClick?.(item);
+      }}
+      style={style}
+      {...attributes}
+      {...listeners}
+    >
+
+      {children}
+    </Box>
   );
 }
 
@@ -489,7 +489,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               bg="transparent"
               zIndex={1}   // 👈 asegura que quede encima del contenido
             >
-              <AddPatientButton key={col._id} priority={col.priority} />
+              <AddPatientButton key={col._id} priority={col.priority}  formProps={{typeButonVisible:false}} />
             </Box>
             <CardFooter minH="50px"
               maxH="50px">
@@ -598,17 +598,19 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
 
         </CardBody>
-        <Tooltip label={"New Contact"} placement="top" fontSize="sm" hasArrow >
-          <Box
-            pr={4}
-            pt={1}
-            alignContent={"end"}
-            bg="transparent"
-            zIndex={1}   // 👈 asegura que quede encima del contenido
-          >
-            <AddPatientButton onlyPatient={true} />
-          </Box>
-        </Tooltip>
+
+        <Box
+          pr={4}
+          pt={1}
+          alignContent={"end"}
+          bg="transparent"
+          zIndex={1}   // 👈 asegura que quede encima del contenido
+        >
+          
+            <AddPatientButton onlyPatient={true} label='New Contact'formProps={{typeButonVisible:false}} />
+          
+        </Box>
+
         <CardFooter minH="50px"
           maxH="50px">
 

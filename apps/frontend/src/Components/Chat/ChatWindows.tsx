@@ -1,12 +1,21 @@
 // ChatWindows.tsx
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  forwardRef,
+} from "react";
 import {
   Flex, HStack, Avatar, Box, Divider, VStack, Tooltip, IconButton, Input, Text,
-  useColorModeValue, useToast,
+  useColorModeValue, useToast, Spinner,
 } from "@chakra-ui/react";
 import { FiSend } from "react-icons/fi";
 import { MdAccessTime, MdOutlinePostAdd, MdKeyboardArrowDown } from "react-icons/md";
 import { TiTick } from "react-icons/ti";
+import { FaUserAlt } from "react-icons/fa";
 
 import ShowTemplateButton from "./CustomMessages/ShowTemplateButton";
 import CreateMessageModal from "./CustomMessages/CreateCustomMessageModal";
@@ -21,7 +30,6 @@ import { useMessages } from "@/Hooks/Query/useMessages";
 import { useOptimisticMessages } from "@/Hooks/Query/useOptimisticMessages";
 import { formatToE164 } from "@/Functions/formatToE164";
 import { ConversationChat, Message } from "@/types";
-import { FaUserAlt } from "react-icons/fa";
 
 /* ---------- Helpers for day separators ---------- */
 const isSameLocalDay = (a: Date, b: Date) =>
@@ -37,9 +45,9 @@ function formatDayLabel(d: Date, now = new Date(), locale = navigator?.language 
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   if (diffDays > 1 && diffDays < 7) {
-    return new Intl.DateTimeFormat(locale, { weekday: "long" }).format(d); // e.g. "Monday"
+    return new Intl.DateTimeFormat(locale, { weekday: "long" }).format(d);
   }
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }).format(d); // e.g. "Sep 2, 2025"
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }).format(d);
 }
 
 /** A centered day chip with horizontal lines (WhatsApp-like) */
@@ -84,9 +92,81 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
   const queryClient = useQueryClient();
   const sendChat = useSendChatMessage();
 
-  const { data: messagesData } = useMessages(chat.conversationId, 1, 50);
+  /** ---------- PAGINACIÓN (tipo WhatsApp) ---------- */
+  const limit = 3;
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [all, setAll] = useState<Message[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Scroller DOM desde MessageList (para preservar scroll al cargar más)
+  const scrollerDomRef = useRef<HTMLDivElement | null>(null);
+  const pendingPrependRef = useRef<{ prevHeight: number; prevTop: number } | null>(null);
+
+  // Carga de la página actual
+  const { data: pageData, isFetching } = useMessages(chat.conversationId, page, limit);
+
+  // Reset al cambiar de conversación
+  useEffect(() => {
+    setPage(1);
+    setAll([]);
+    setHasMore(false);
+    setLoadingMore(false);
+    pendingPrependRef.current = null;
+  }, [chat.conversationId]);
+
+  // Merge de páginas en "all" manteniendo orden ascendente y sin duplicados
+  useEffect(() => {
+    if (!pageData) return;
+    setHasMore(!!pageData.pagination?.hasMore);
+
+    setAll((prev) => {
+      const incoming = pageData.messages || [];
+      // Si page === 1, empezamos; si >1, prepend de mensajes antiguos
+      const base = page === 1 ? incoming : [...incoming, ...prev];
+      const map = new Map<string, Message>();
+      for (const m of base) map.set(m.sid, m);
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+    });
+  }, [pageData, page]);
+
+  // Al completar un "prepend", preservamos la posición de scroll
+  useEffect(() => {
+    if (!loadingMore) return;
+    if (isFetching) return;
+    const scroller = scrollerDomRef.current;
+    const pending = pendingPrependRef.current;
+    if (scroller && pending) {
+      // Esperar al siguiente frame para asegurar DOM aplicado
+      requestAnimationFrame(() => {
+        const newHeight = scroller.scrollHeight;
+        const delta = newHeight - pending.prevHeight;
+        scroller.scrollTop = pending.prevTop + delta;
+        pendingPrependRef.current = null;
+        setLoadingMore(false);
+      });
+    } else {
+      setLoadingMore(false);
+    }
+  }, [all.length, isFetching, loadingMore]);
+
+  const requestOlder = useCallback(() => {
+    if (loadingMore || isFetching || !hasMore) return;
+    const scroller = scrollerDomRef.current;
+    if (!scroller) return;
+    pendingPrependRef.current = {
+      prevHeight: scroller.scrollHeight,
+      prevTop: scroller.scrollTop,
+    };
+    setLoadingMore(true);
+    setPage((p) => p + 1);
+  }, [loadingMore, isFetching, hasMore]);
+
+  /** ---------- Optimistic + envío ---------- */
   const { messages, addOptimistic, removeOptimistic, clearOptimistic } =
-    useOptimisticMessages(messagesData?.messages || []);
+    useOptimisticMessages(all);
 
   const onSend = useCallback(
     ({ text, files }: { text: string; files: File[] }) => {
@@ -147,7 +227,17 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         }
       );
     },
-    [chat.conversationId, chat.owner._id, chat.owner.phone, addOptimistic, removeOptimistic, clearOptimistic, queryClient, sendChat, toast]
+    [
+      chat.conversationId,
+      chat.owner._id,
+      chat.owner.phone,
+      addOptimistic,
+      removeOptimistic,
+      clearOptimistic,
+      queryClient,
+      sendChat,
+      toast,
+    ]
   );
 
   const borderCol = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
@@ -162,7 +252,14 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
       />
       <Divider mb={4} borderColor={borderCol} />
 
-      <MessageList messages={messages} conversationId={chat.conversationId} />
+      <MessageList
+        ref={scrollerDomRef}
+        messages={messages}
+        conversationId={chat.conversationId}
+        onLoadOlder={requestOlder}
+        hasMore={hasMore}
+        isLoadingMore={loadingMore}
+      />
 
       <Composer
         key={chat.conversationId}
@@ -277,154 +374,207 @@ function areMsgEqual(prev: { msg: Message }, next: { msg: Message }) {
   );
 }
 
-/** MessageList with day separators (WhatsApp-like) */
-const MessageList = memo(function MessageList({
-  messages,
-  conversationId,
-}: {
+/** MessageList con separadores de día y paginación al hacer scroll hacia arriba */
+type MessageListProps = {
   messages: Message[];
   conversationId: string;
-}) {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const didInitialScrollRef = useRef(false);
+  onLoadOlder?: () => void;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+};
 
-  const ensureBottom = useCallback(async (behavior: ScrollBehavior = "auto") => {
-    const scroller = scrollerRef.current;
-    const sentinel = sentinelRef.current;
-    if (!scroller || !sentinel) return;
+const MessageList = memo(
+  forwardRef<HTMLDivElement, MessageListProps>(function MessageList(
+    { messages, conversationId, onLoadOlder, hasMore, isLoadingMore },
+    outerRef
+  ) {
+    const scrollerRef = useRef<HTMLDivElement | null>(null);
+    const assignScrollerRef = useCallback((el: HTMLDivElement | null) => {
+      scrollerRef.current = el;
+      if (typeof outerRef === "function") outerRef(el);
+      else if (outerRef && "current" in (outerRef as any)) (outerRef as any).current = el;
+    }, [outerRef]);
 
-    sentinel.scrollIntoView({ block: "end", behavior });
-    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    const bottomSentinelRef = useRef<HTMLDivElement>(null);
+    const topSentinelRef = useRef<HTMLDivElement>(null);
+    const [isAtBottom, setIsAtBottom] = useState(true);
+    const didInitialScrollRef = useRef(false);
 
-    const imgs = Array.from(scroller.querySelectorAll("img")) as HTMLImageElement[];
-    if (imgs.length) {
-      const decoders = imgs.map((img) => {
-        if (typeof img.decode === "function") return img.decode().catch(() => {});
-        if (img.complete) return Promise.resolve();
-        return new Promise<void>((res) => img.addEventListener("load", () => res(), { once: true, capture: true }));
-      });
-      await Promise.allSettled(decoders);
-      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      sentinel.scrollIntoView({ block: "end" });
-    }
-  }, []);
+    const ensureBottom = useCallback(async (behavior: ScrollBehavior = "auto") => {
+      const scroller = scrollerRef.current;
+      const sentinel = bottomSentinelRef.current;
+      if (!scroller || !sentinel) return;
 
-  useEffect(() => {
-    didInitialScrollRef.current = false;
-    requestAnimationFrame(() => {
-      ensureBottom("auto");
-      didInitialScrollRef.current = true;
-      setIsAtBottom(true);
-    });
-  }, [conversationId, ensureBottom]);
+      sentinel.scrollIntoView({ block: "end", behavior });
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    const sentinel = sentinelRef.current;
-    if (!scroller || !sentinel) return;
-
-    const io = new IntersectionObserver(
-      (entries) => setIsAtBottom(entries[0]?.isIntersecting ?? false),
-      { root: scroller, threshold: 0, rootMargin: "0px 0px 24px 0px" }
-    );
-    io.observe(sentinel);
-    return () => io.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!didInitialScrollRef.current) return;
-    if (isAtBottom) ensureBottom("smooth");
-  }, [messages, isAtBottom, ensureBottom]);
-
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-
-    const ro = new ResizeObserver(() => {
-      if (isAtBottom) ensureBottom("auto");
-    });
-    ro.observe(scroller);
-
-    const mo = new MutationObserver(() => {
-      if (isAtBottom) ensureBottom("auto");
-    });
-    mo.observe(scroller, { childList: true, subtree: true });
-
-    const onLoad = () => {
-      if (isAtBottom) ensureBottom("auto");
-    };
-    scroller.addEventListener("load", onLoad, true);
-
-    return () => {
-      ro.disconnect();
-      mo.disconnect();
-      scroller.removeEventListener("load", onLoad, true);
-    };
-  }, [isAtBottom, ensureBottom]);
-
-  const scrollThumb = useColorModeValue("blackAlpha.300", "whiteAlpha.300");
-
-  // Build interleaved list with day dividers
-  const interleaved = useMemo(() => {
-    const out: React.ReactNode[] = [];
-    let prevDate: Date | null = null;
-
-    for (const m of messages) {
-      const d = new Date(m.createdAt);
-      if (!prevDate || !isSameLocalDay(prevDate, d)) {
-        out.push(<DayDivider key={`day-${d.toDateString()}`} date={d} />);
-        prevDate = d;
+      const imgs = Array.from(scroller.querySelectorAll("img")) as HTMLImageElement[];
+      if (imgs.length) {
+        const decoders = imgs.map((img) => {
+          if (typeof img.decode === "function") return img.decode().catch(() => {});
+          if (img.complete) return Promise.resolve();
+          return new Promise<void>((res) => img.addEventListener("load", () => res(), { once: true, capture: true }));
+        });
+        await Promise.allSettled(decoders);
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        sentinel.scrollIntoView({ block: "end" });
       }
-      out.push(<MessageBubble key={m.sid} msg={m} />);
-    }
-    return out;
-  }, [messages]);
+    }, []);
 
-  return (
-    <Box position="relative" flex="1" minH={0}>
-      <VStack
-        ref={scrollerRef as any}
-        spacing={3}
-        flex="1"
-        overflowY="auto"
-        align="stretch"
-        pr={2}
-        position="absolute"
-        top={0}
-        bottom={0}
-        left={0}
-        right={0}
-        sx={{
-          "&::-webkit-scrollbar": { width: "6px" },
-          "&::-webkit-scrollbar-thumb": { background: scrollThumb, borderRadius: "8px" },
-          scrollbarWidth: "thin",
-        }}
-      >
-        {interleaved}
-        <div ref={sentinelRef} style={{ height: 1 }} />
-      </VStack>
+    useEffect(() => {
+      didInitialScrollRef.current = false;
+      requestAnimationFrame(() => {
+        ensureBottom("auto");
+        didInitialScrollRef.current = true;
+        setIsAtBottom(true);
+      });
+    }, [conversationId, ensureBottom]);
 
-      {!isAtBottom && (
-        <IconButton
-          aria-label="Go to latest"
-          icon={<MdKeyboardArrowDown size={22} />}
-          onClick={() => ensureBottom("smooth")}
+    // Observa el fondo para mostrar el botón "bajar"
+    useEffect(() => {
+      const scroller = scrollerRef.current;
+      const sentinel = bottomSentinelRef.current;
+      if (!scroller || !sentinel) return;
+
+      const io = new IntersectionObserver(
+        (entries) => setIsAtBottom(entries[0]?.isIntersecting ?? false),
+        { root: scroller, threshold: 0, rootMargin: "0px 0px 24px 0px" }
+      );
+      io.observe(sentinel);
+      return () => io.disconnect();
+    }, []);
+
+    // Observa el top para cargar más
+    useEffect(() => {
+      const scroller = scrollerRef.current;
+      const top = topSentinelRef.current;
+      if (!scroller || !top) return;
+
+      const io = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (entry?.isIntersecting && hasMore && !isLoadingMore) {
+            onLoadOlder?.();
+          }
+        },
+        // rootMargin positiva arriba = dispara antes de tocar el borde (pre-fetch)
+        { root: scroller, threshold: 0, rootMargin: "200px 0px 0px 0px" }
+      );
+      io.observe(top);
+      return () => io.disconnect();
+    }, [hasMore, isLoadingMore, onLoadOlder]);
+
+    // Auto-scroll al fondo solo si el usuario ya estaba abajo
+    useEffect(() => {
+      if (!didInitialScrollRef.current) return;
+      if (isAtBottom) ensureBottom("smooth");
+    }, [messages, isAtBottom, ensureBottom]);
+
+    // Ajustes ante cambios de tamaño/carga de medios cuando está al fondo
+    useEffect(() => {
+      const scroller = scrollerRef.current;
+      if (!scroller) return;
+
+      const ro = new ResizeObserver(() => {
+        if (isAtBottom) ensureBottom("auto");
+      });
+      ro.observe(scroller);
+
+      const mo = new MutationObserver(() => {
+        if (isAtBottom) ensureBottom("auto");
+      });
+      mo.observe(scroller, { childList: true, subtree: true });
+
+      const onLoad = () => {
+        if (isAtBottom) ensureBottom("auto");
+      };
+      scroller.addEventListener("load", onLoad, true);
+
+      return () => {
+        ro.disconnect();
+        mo.disconnect();
+        scroller.removeEventListener("load", onLoad, true);
+      };
+    }, [isAtBottom, ensureBottom]);
+
+    const scrollThumb = useColorModeValue("blackAlpha.300", "whiteAlpha.300");
+
+    // Construye lista intercalada con separadores de día
+    const interleaved = useMemo(() => {
+      const out: React.ReactNode[] = [];
+      let prevDate: Date | null = null;
+
+      for (const m of messages) {
+        const d = new Date(m.createdAt);
+        if (!prevDate || !isSameLocalDay(prevDate, d)) {
+          out.push(<DayDivider key={`day-${d.toDateString()}`} date={d} />);
+          prevDate = d;
+        }
+        out.push(<MessageBubble key={m.sid} msg={m} />);
+      }
+      return out;
+    }, [messages]);
+
+    return (
+      <Box position="relative" flex="1" minH={0}>
+        <VStack
+          ref={assignScrollerRef as any}
+          spacing={3}
+          flex="1"
+          overflowY="auto"
+          align="stretch"
+          pr={2}
           position="absolute"
-          bottom="88px"
-          left="50%"
-          transform="translateX(-50%)"
-          colorScheme="blue"
-          borderRadius="full"
-          boxShadow="md"
-          zIndex={1}
-          size="sm"
-        />
-      )}
-    </Box>
-  );
-});
+          top={0}
+          bottom={0}
+          left={0}
+          right={0}
+          sx={{
+            "&::-webkit-scrollbar": { width: "6px" },
+            "&::-webkit-scrollbar-thumb": { background: scrollThumb, borderRadius: "8px" },
+            scrollbarWidth: "thin",
+          }}
+        >
+          {/* Sentinel superior para "cargar más" */}
+          <div ref={topSentinelRef} style={{ height: 1 }} />
+
+          {/* Loader superior mientras trae páginas antiguas */}
+          {isLoadingMore && (
+            <HStack justify="center" py={2}>
+              <Spinner size="sm" />
+              <Text fontSize="xs" color="gray.500">Loading earlier messages…</Text>
+            </HStack>
+          )}
+
+          {interleaved}
+
+          {/* Sentinel inferior para detectar si estás abajo */}
+          <div ref={bottomSentinelRef} style={{ height: 1 }} />
+        </VStack>
+
+        {!isAtBottom && (
+          <IconButton
+            aria-label="Go to latest"
+            icon={<MdKeyboardArrowDown size={22} />}
+            onClick={() => {
+              const sentinel = bottomSentinelRef.current;
+              sentinel?.scrollIntoView({ behavior: "smooth", block: "end" });
+            }}
+            position="absolute"
+            bottom="88px"
+            left="50%"
+            transform="translateX(-50%)"
+            colorScheme="blue"
+            borderRadius="full"
+            boxShadow="md"
+            zIndex={1}
+            size="sm"
+          />
+        )}
+      </Box>
+    );
+  })
+);
 
 const Composer = memo(function Composer({
   disabled,

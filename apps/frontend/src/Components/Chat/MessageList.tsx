@@ -14,6 +14,8 @@ import { FaUserAlt } from "react-icons/fa";
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import AddPatientButton from "../DraggableCards/AddPatientButton";
+import { formatFromE164 } from "@/Functions/formatFromE164";
 
 type Props = {
   setChat: React.Dispatch<React.SetStateAction<ConversationChat | undefined>>;
@@ -107,6 +109,8 @@ function SortableChatRow({
     if (contact.lastMessage?.media?.length) return "📷 Photo";
     return "";
   })();
+  const formatedNumber=formatFromE164(contact.owner?.phone?contact.owner?.phone:"")
+
 
   return (
     <HStack
@@ -130,10 +134,20 @@ function SortableChatRow({
         pointerEvents="none"
       />
 
+
       <Box flex="1" minW={0}>
-        <Text fontWeight="semibold" noOfLines={1}>
-          {contact.owner?.name || contact.lastMessage?.author || "No name"}
-        </Text>
+        <HStack>
+          <Text fontWeight="semibold" noOfLines={1}>
+            {contact.owner?.name || contact.lastMessage?.author || "No name"}
+
+          </Text>
+          {contact.owner?.unknown ? <AddPatientButton onlyPatient={true} label='New Contact'
+            formProps={{
+              typeButonVisible: false, phoneVal: formatedNumber, phoneFieldReadOnly: true,
+              mode: "EDITION", idVal: contact.owner._id, conversationId:contact.conversationId
+            }} /> : undefined}
+        </HStack>
+
         <Text fontSize="sm" color="gray.500" noOfLines={1}>
           {lastPreview}
         </Text>

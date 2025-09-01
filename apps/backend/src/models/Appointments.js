@@ -161,6 +161,9 @@ const MessageSchema = new mongoose.Schema(
       type: String,   // "patient" | "clinic"
       required: true
     },
+    proxyAddress:{
+      type:String
+    },
 
     // Contenido del mensaje
     body: {
