@@ -54,7 +54,6 @@ export default function DeleteItemButton({
             queryClient.invalidateQueries({ queryKey: [modelName] });
             queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-            queryClient.invalidateQueries({ queryKey: ["conversations"] });
             setFilteredItems?.(null);
             trigger?.mutate();
         }
