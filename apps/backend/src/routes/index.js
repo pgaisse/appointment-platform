@@ -244,7 +244,6 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
   try {
     for (const update of updates) {
       const { table, id_field, id_value, data } = update;
-      data.unknown = false
 
       if (!table || !id_field || !id_value || !data) {
         results.push({
@@ -325,7 +324,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
       {
         $lookup: {
           from: 'appointments',
-          let: { durationHours: '$durationHours', priorityNum: '$id', priorityId: '$_id', priorityName: '$name', priorityColor: '$color', priorityDescription: '$description', priorityNotes: '$notes' },
+          let: {durationHours: '$durationHours', priorityNum: '$id', priorityId: '$_id', priorityName: '$name', priorityColor: '$color', priorityDescription: '$description', priorityNotes: '$notes' },
           pipeline: [
             {
               $match: {
@@ -559,7 +558,7 @@ router.delete("/:id", jwtCheck, async (req, res) => {
 
     // 🔐 Buscar y eliminar el documento sólo si coincide con el org_id
     const deletedDoc = await Model.findOneAndDelete({ _id: id, org_id });
-
+ 
     if (!deletedDoc) {
       return res.status(404).json({ error: "Document not found or not authorized" });
     }

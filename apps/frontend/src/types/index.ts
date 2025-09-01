@@ -168,102 +168,6 @@ export type AppointmentGroup = {
 };
 
 
-
-export interface PaginatedMessages {
-  messages: Message[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    hasMore: boolean;
-  };
-}
-export interface SyncMessages {
-  newMessages: Message[];
-  updatedMessages: Message[];
-}
-export type Owner = {
-  _id?: string;
-  name?: string;
-  lastName?: string;
-  phone?: string;
-  email?: string;
-  org_id?: string;
-  avatar?: string
-  unknown?: boolean;
-};
-export interface ConversationChat {
-  conversationId: string;
-  chatmessage?: Message,
-  lastMessage:Message,
-  owner: Owner
-}
-export type MessageStatus =
-  | "pending"
-  | "sent"
-  | "delivered"
-  | "read"
-  | "failed"
-  | (string & {}); // <- extensible
-export type PreviewItem = { id: string; url: string; name: string; size: number };
-
-export interface Message {
-  clientTempId?: string
-  sid: string; // Twilio Message SID (IMxxxx) o ID interno
-  conversationId: string; // CHxxxx (Twilio Conversation SID) o ID interno
-  author: string; // quién envió el mensaje ("clinic", teléfono paciente, etc.)
-  body?: string; // texto opcional
-  index?: string;       // 👈 Twilio index
-  media: {
-    url: string;  // URL en tu S3/CloudFront (o Drive)
-    type: string; // MIME type (image/png, application/pdf, etc.)
-    size?: number; // tamaño opcional en bytes
-  }[];
-
-  direction: "inbound" | "outbound"; // recibido o enviado
-  createdAt: string; // ISO string de creación
-  updatedAt: string; // ISO string de última actualización
-  tempOrder?: number;   // 👈 orden local para optimistas
-  status: MessageStatus;   // <- usa el tipo flexible
-}
-
-
-export type MessagesByPhone = Record<string, Message[]>;
-
-export type SelectedConversation = {
-  conversationId: string; // puede ser local-* hasta que el backend devuelva CH...
-  phone: string;
-  name: string;
-};
-
-export type AddToChatListInput = {
-  conversationId: string;
-  phone: string;
-  name: string;
-  lastMessage?: Message;
-};
-
-// (single) cuando solo hay texto o 1 mensaje
-export type SendChatMessageResponseSingle = {
-  success: true;
-  messageSid: string;
-  conversationSid: string;
-  index?: number;
-};
-
-// (batch) cuando envías N archivos -> N mensajes
-export type SendChatMessageResponseBatch = {
-  success: true;
-  groupId: string;
-  created: { sid: string; index?: number }[];
-  conversationSid?: string; // opcional por compat
-};
-
-export type SendChatMessageResponse =
-  | SendChatMessageResponseSingle
-  | SendChatMessageResponseBatch;
-
-
 export type GroupedAppointments = AppointmentGroup[];
 
 export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'No Contacted';
@@ -315,7 +219,7 @@ export type LocalMessage = {
   avatar?: string
   dateCreated?: Date
   messageSid?: string
-  media?: MediaFile[]
+  media?:MediaFile[]
 };
 
 export type TokenType = 'string' | 'date' | 'time' | 'phone' | 'custom';
@@ -345,16 +249,9 @@ export interface MessageTemplate {
 
 export interface Conversation {
   name: string,
-  appId: string,
+  appId:string,
   lastMessage: Date,
   chatmessage: ChatMessage[]
-}
-export interface ConversationS {
-  conversationId: string;
-  phone: string;
-  name: string;
-  lastMessage: Message;
-  chatmessage: Message;
 }
 
 export interface ChatMessage {
@@ -365,12 +262,12 @@ export interface ChatMessage {
   author: string;
   body: string;
   avatar: string | undefined
-  lastMessage: Date
+  lastMessage:Date
   dateCreated?: string | Date;
   appId?: string
   messageSid?: string
-  media: MediaFile[] | [];
-
+  media:MediaFile[] | [];
+  
 
 }
 import { IconType } from "react-icons";
@@ -382,9 +279,11 @@ export interface LinkItem {
 }
 
 export interface MediaFile {
-  url: string;
-  type?: string;
-  size?: number;
+  category: 'media' | 'audio' | 'video' | 'document';
+  filename: string;
+  size: number;
+  content_type: string;
+  sid: string;
 }
 
 export type GroupedAppointment = {

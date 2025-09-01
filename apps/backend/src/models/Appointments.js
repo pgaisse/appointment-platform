@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
-const { ContactStatus } = require("../constants");
-const { boolean } = require('joi');
+const { ContactStatus } = require("../constants")
 // Priority Schema (subdocumento)
 const PrioritySchema = new mongoose.Schema({
   org_id: {
@@ -39,7 +38,6 @@ const PrioritySchema = new mongoose.Schema({
 
 // Appointment Schema
 const AppointmentsSchema = new mongoose.Schema({
-  unknown:Boolean,
   sid: String,
   lastMessage: Date,
   lastMessageInteraction: { type: String, default: "" },
@@ -148,10 +146,6 @@ const MessageSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-    index: {
-      type:String,
-      index:true
-    },
     sid: {
       type: String,   // Twilio Message SID (ej: "IMXXXX")
       required: true,
@@ -160,9 +154,6 @@ const MessageSchema = new mongoose.Schema(
     author: {
       type: String,   // "patient" | "clinic"
       required: true
-    },
-    proxyAddress:{
-      type:String
     },
 
     // Contenido del mensaje
