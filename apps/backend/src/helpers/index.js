@@ -5,7 +5,6 @@ const { decodeToken } = require('../middleware/auth');
 const { addMinutes } = require('date-fns');
 
 const aws = require('../helpers/aws');
-const sms = require('../helpers/conversations')
 const { Appointment, MessageLog, MediaFile } = require('../models/Appointments');
 // Cargar los plugins
 dayjs.extend(utc);

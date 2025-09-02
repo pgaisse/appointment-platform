@@ -6,13 +6,6 @@ import {
   useColorModeValue, Switch, Skeleton, Alert, AlertIcon, Avatar,
   AlertDialog, AlertDialogBody, AlertDialogContent, AlertDialogFooter,
   AlertDialogHeader, AlertDialogOverlay, Collapse,
-  Modal,
-  ModalBody,
-  ModalCloseButton,
-  ModalContent,
-  ModalFooter,
-  ModalHeader,
-  ModalOverlay,
 } from "@chakra-ui/react";
 import {
   SearchIcon, AddIcon, CloseIcon, ChevronDownIcon, ChevronRightIcon,
@@ -559,19 +552,32 @@ export const ChatCategorizationPanel: React.FC<Props> = ({
       )}
 
       {/* Embedded modal (create category) */}
-      <Modal
-        isOpen={isOpen}
-        onClose={() => { resetForm(); setIsOpen(false); }}
-        isCentered
-        size="sm"
-        motionPreset="scale"
-      >
-        <ModalOverlay zIndex="modal" />
-        <ModalContent bg={modalBg} borderWidth="1px" borderColor={borderCol} borderRadius="xl">
-          <ModalHeader>New category</ModalHeader>
-          <ModalCloseButton />
+      {isOpen && (
+        <Box
+          position="fixed"
+          inset={0}
+          bg="blackAlpha.600"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          zIndex={1400}
+          onClick={() => { resetForm(); setIsOpen(false); }}
+        >
+          <Box
+            bg={modalBg}
+            borderRadius="xl"
+            p={4}
+            minW={{ base: "90%", sm: "420px" }}
+            borderWidth="1px"
+            borderColor={borderCol}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Flex align="center" justify="space-between" mb={3}>
+              <Heading size="sm">New category</Heading>
+              <IconButton aria-label="Close" size="sm" icon={<CloseIcon />} variant="ghost"
+                onClick={() => { resetForm(); setIsOpen(false); }} />
+            </Flex>
 
-          <ModalBody>
             <Stack spacing={3}>
               <Box>
                 <Text fontSize="sm" mb={1}>Key</Text>
@@ -611,27 +617,28 @@ export const ChatCategorizationPanel: React.FC<Props> = ({
                 </HStack>
               </Box>
 
-              <HStack justify="space-between">
-                <Text fontSize="sm" color="gray.600">Create and assign to active chat</Text>
-                <Switch
-                  isChecked={form.createAndAssign}
-                  onChange={() => setForm((s) => ({ ...s, createAndAssign: !s.createAndAssign }))}
-                />
-              </HStack>
+              <Box>
+                <HStack justify="space-between">
+                  <Text fontSize="sm" color="gray.600">Create and assign to active chat</Text>
+                  <Switch
+                    isChecked={form.createAndAssign}
+                    onChange={() => setForm((s) => ({ ...s, createAndAssign: !s.createAndAssign }))}
+                  />
+                </HStack>
+              </Box>
             </Stack>
-          </ModalBody>
 
-          <ModalFooter>
-            <Button variant="ghost" leftIcon={<CloseIcon />} onClick={() => { resetForm(); setIsOpen(false); }}>
-              Cancel
-            </Button>
-            <Button colorScheme="blue" isLoading={createCat.isPending || assign.isPending} onClick={handleCreate}>
-              Create
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
+            <Flex justify="flex-end" gap={2} mt={4}>
+              <Button variant="ghost" leftIcon={<CloseIcon />} onClick={() => { resetForm(); setIsOpen(false); }}>
+                Cancel
+              </Button>
+              <Button colorScheme="blue" isLoading={createCat.isPending || assign.isPending} onClick={handleCreate}>
+                Create
+              </Button>
+            </Flex>
+          </Box>
+        </Box>
+      )}
 
       {/* Delete confirmation */}
       <AlertDialog

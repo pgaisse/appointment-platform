@@ -208,6 +208,7 @@ export type MessageStatus =
 export type PreviewItem = { id: string; url: string; name: string; size: number };
 
 export interface Message {
+  clientSid?:string
   clientTempId?: string
   sid: string; // Twilio Message SID (IMxxxx) o ID interno
   conversationId: string; // CHxxxx (Twilio Conversation SID) o ID interno

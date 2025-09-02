@@ -238,13 +238,15 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
 });
 
 router.patch("/update-items", jwtCheck, async (req, res) => {
+  const { org_id, sub } = await helpers.getTokenInfo(req.headers.authorization);
+
   const updates = Array.isArray(req.body) ? req.body : [req.body];
   const results = [];
-  const { data } = updates[0]
+
   try {
     for (const update of updates) {
-      const { table, id_field, id_value, data } = update;
-      data.unknown = false
+      const { table, id_field, id_value } = update;
+      let { data } = update;
 
       if (!table || !id_field || !id_value || !data) {
         results.push({
@@ -265,16 +267,32 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
         continue;
       }
 
+      // Forzamos unknown=false y no confiamos en org_id del cliente
+      data = { ...data, unknown: false };
+      if (org_id) {
+        // Si no viene org_id en el doc, lo agregamos con el del token
+        // (No sobreescribimos si ya existe en el payload; lo añade solo si falta)
+        if (data.org_id == null) data.org_id = org_id;
+      }
+
+      // Filtro seguro por organización:
+      // - Si el doc ya tiene org_id, debe coincidir con el del token.
+      // - Si el doc no tiene org_id, permitimos la actualización y le añadimos org_id.
+      const filter = org_id
+        ? { [id_field]: id_value, $or: [{ org_id: { $exists: false } }, { org_id }] }
+        : { [id_field]: id_value };
+
       const updatedDoc = await Model.findOneAndUpdate(
-        { [id_field]: id_value },
+        filter,
         { $set: data },
         { new: true }
       );
+
       if (!updatedDoc) {
         results.push({
           status: "failed",
           id: id_value,
-          reason: "Document not found",
+          reason: "Document not found or not accessible for this organization",
         });
       } else {
         results.push({ status: "success", id: id_value });
@@ -288,7 +306,6 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
       message: allSuccessful ? "All updates applied" : "Some updates failed",
       results,
     });
-
   } catch (err) {
     console.error("❌ Critical error in /update-items:", err.stack || err);
     return res.status(500).json({
@@ -297,6 +314,7 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
     });
   }
 });
+
 
 router.get('/DraggableCards', jwtCheck, async (req, res) => {
   try {

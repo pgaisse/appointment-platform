@@ -8,6 +8,7 @@ type SendChatMessageInput = {
   appId: string;              // _id de la Appointment
   body?: string;              // texto opcional
   files?: File[];             // 0..N archivos
+  clientId?:string
   onProgress?: (percent: number) => void; // progreso total del upload
 };
 

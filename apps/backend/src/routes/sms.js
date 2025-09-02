@@ -18,6 +18,7 @@ const { uploadImageFromUrl, getFileMetadata, getPublicImageLink } = require('../
 const { receiveMessage } = require('../controllers/message.controller');
 const Appointments = require('../models/Appointments');
 const { getSmsBindingFromWebhookPayload } = require('../utils/twilio-conversations-binding');
+const {Organization} =require("../models/Enviroment/Org")
 
 
 const {
@@ -276,6 +277,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
 
       // Para mapear 1 a 1 archivo->mensaje en tu DB
       savedPerFile.push({
+        proxyAddress:process.env.TWILIO_FROM_MAIN,
         url: signedUrl,
         signedUrl,
         type: file.mimetype,
@@ -331,6 +333,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
     // #region Registro en DB  (pequeño ajuste para N mensajes)
     const docs = messagesCreated.map(({ msg, mediaInfo }) => ({
       conversationId: msg.conversationSid,
+      proxyAddress:process.env.TWILIO_FROM_MAIN,
       sid: msg.sid,
       author: org_id,
       body: msg.body || "",
@@ -417,6 +420,7 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
     )
     const org_id = process.env.TWILIO_ORG_ID;
     const orgId = org_id.toLowerCase()
+    console.log("orgId",orgId)
 
 
     // #region Gestion de estado de mensajes
@@ -689,7 +693,7 @@ router.get('/messages/:conversationId', async (req, res) => {
     const total = await Message.countDocuments({ conversationId });
     console.log("total", total)
     res.json({
-      messages,
+      messages:ordered,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -711,8 +715,9 @@ router.get("/conversations", async (req, res) => {
 
     const { org_id } = await helpers.getTokenInfo(authHeader);
     if (!org_id) return res.status(400).json({ error: "No org_id found in request" });
+
     const conversations = await Message.aggregate([
-      // 1) Último mensaje por conversación
+      // 1) Tomar el último mensaje por conversación
       { $sort: { createdAt: -1 } },
       {
         $group: {
@@ -721,19 +726,41 @@ router.get("/conversations", async (req, res) => {
         },
       },
 
-      // 2) Join appointments
+      // 2) Join con appointments + filtro por organización (dentro del lookup)
       {
         $lookup: {
           from: "appointments",
-          localField: "_id",     // conversationId
-          foreignField: "sid",   // Appointment.sid
+          let: { convId: "$_id", wantedOrg: org_id },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$sid", "$$convId"] },
+                    // Soporta org_id como string u ObjectId en la colección
+                    { $eq: [{ $toString: "$org_id" }, "$$wantedOrg"] },
+                  ],
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                nameInput: 1,
+                lastNameInput: 1,
+                phoneInput: 1,
+                emailInput: 1,
+                org_id: 1,
+                unknown: 1,
+              },
+            },
+          ],
           as: "appointment",
         },
       },
-      { $unwind: "$appointment" },
-      // { $match: { "appointment.org_id": org_id } },
+      { $unwind: "$appointment" }, // descarta convos sin appointment o de otra org
 
-      // 3) Proyección (incluye proxyAddress del último mensaje)
+      // 3) Proyección (dejamos proxyAddress por si lo usas en el front, pero ya no filtra)
       {
         $project: {
           conversationId: "$_id",
@@ -745,7 +772,7 @@ router.get("/conversations", async (req, res) => {
             status: "$lastMessage.status",
             direction: "$lastMessage.direction",
             author: "$lastMessage.author",
-            proxyAddress: "$lastMessage.proxyAddress",  // 👈 incluirlo
+            proxyAddress: "$lastMessage.proxyAddress",
             createdAt: "$lastMessage.createdAt",
             updatedAt: { $ifNull: ["$lastMessage.updatedAt", "$lastMessage.createdAt"] },
           },
@@ -761,10 +788,7 @@ router.get("/conversations", async (req, res) => {
         },
       },
 
-      // 4) Filtra por el proxy del ÚLTIMO mensaje
-      { $match: { "lastMessage.proxyAddress": process.env.TWILIO_FROM_MAIN } },
-
-      // 5) Orden final
+      // 4) Orden final por fecha del último mensaje
       { $sort: { "lastMessage.createdAt": -1 } },
     ]);
 
@@ -774,6 +798,7 @@ router.get("/conversations", async (req, res) => {
     res.status(500).json({ error: "Error fetching conversations" });
   }
 });
+
 
 
 

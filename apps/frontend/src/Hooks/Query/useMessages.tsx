@@ -25,7 +25,7 @@ export const useMessages = (
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
   return useQuery<PaginatedMessages & { messages: Message[] }>({
-    queryKey: ["messages", conversationId, page, limit], // <- importante
+    queryKey: ["messages", conversationId], // <- importante
     queryFn: async () => {
       if (!isAuthenticated) throw new Error("Not authenticated");
       const token = await getAccessTokenSilently({
