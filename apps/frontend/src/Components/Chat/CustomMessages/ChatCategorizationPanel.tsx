@@ -5,7 +5,7 @@ import {
   IconButton, Button, HStack, Divider, Spinner, useToast, Tooltip,
   useColorModeValue, Switch, Skeleton, Alert, AlertIcon, Avatar,
   AlertDialog, AlertDialogBody, AlertDialogContent, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogOverlay, Collapse,
+  AlertDialogHeader, AlertDialogOverlay, Collapse, Portal,
 } from "@chakra-ui/react";
 import {
   SearchIcon, AddIcon, CloseIcon, ChevronDownIcon, ChevronRightIcon,
@@ -32,6 +32,7 @@ import type { ConversationChat, Message } from "@/types";
  * Utils
  * ========================= */
 const API_BASE = `${import.meta.env.VITE_BASE_URL}`;
+const OVERLAY_Z = 2000; // z-index alto para escapar de contenedores con overflow/transform
 
 function lastPreviewOf(msg?: Message) {
   if (!msg) return "";
@@ -426,8 +427,6 @@ export const ChatCategorizationPanel: React.FC<Props> = ({
           />
         </InputGroup>
 
-
-
         {allowCreate && (
           <Button
             leftIcon={<AddIcon />}
@@ -439,7 +438,6 @@ export const ChatCategorizationPanel: React.FC<Props> = ({
             New
           </Button>
         )}
-
 
         {isBackgroundFetching && <Spinner size="xs" thickness="2px" />}
       </Flex>
@@ -553,91 +551,101 @@ export const ChatCategorizationPanel: React.FC<Props> = ({
 
       {/* Embedded modal (create category) */}
       {isOpen && (
-        <Box
-          position="fixed"
-          inset={0}
-          bg="blackAlpha.600"
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-          zIndex={1400}
-          onClick={() => { resetForm(); setIsOpen(false); }}
-        >
+        <Portal appendToParentPortal={false}>
           <Box
-            bg={modalBg}
-            borderRadius="xl"
-            p={4}
-            minW={{ base: "90%", sm: "420px" }}
-            borderWidth="1px"
-            borderColor={borderCol}
-            onClick={(e) => e.stopPropagation()}
+            position="fixed"
+            inset={0}
+            bg="blackAlpha.600"
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            zIndex={OVERLAY_Z}
+            onClick={() => { resetForm(); setIsOpen(false); }}
           >
-            <Flex align="center" justify="space-between" mb={3}>
-              <Heading size="sm">New category</Heading>
-              <IconButton aria-label="Close" size="sm" icon={<CloseIcon />} variant="ghost"
-                onClick={() => { resetForm(); setIsOpen(false); }} />
-            </Flex>
+            <Box
+              bg={modalBg}
+              borderRadius="xl"
+              p={4}
+              minW={{ base: "90%", sm: "420px" }}
+              maxW="96vw"
+              maxH="90vh"
+              overflowY="auto"
+              borderWidth="1px"
+              borderColor={borderCol}
+              zIndex={OVERLAY_Z + 1}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Flex align="center" justify="space-between" mb={3}>
+                <Heading size="sm">New category</Heading>
+                <IconButton aria-label="Close" size="sm" icon={<CloseIcon />} variant="ghost"
+                  onClick={() => { resetForm(); setIsOpen(false); }} />
+              </Flex>
 
-            <Stack spacing={3}>
-              <Box>
-                <Text fontSize="sm" mb={1}>Key</Text>
-                <Input
-                  placeholder="e.g. billing"
-                  value={form.key}
-                  onChange={(e) => setForm((s) => ({ ...s, key: e.target.value }))}
-                  onBlur={() => setTouched((t) => ({ ...t, key: true }))}
-                  isInvalid={!!(touched.key && !form.key.trim())}
-                />
-                {keyError && <Text fontSize="xs" color="red.400" mt={1}>Key is required.</Text>}
-              </Box>
-
-              <Box>
-                <Text fontSize="sm" mb={1}>Name</Text>
-                <Input
-                  placeholder="e.g. Billing"
-                  value={form.name}
-                  onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
-                  onBlur={() => setTouched((t) => ({ ...t, name: true }))}
-                  isInvalid={!!(touched.name && !form.name.trim())}
-                />
-                {nameError && <Text fontSize="xs" color="red.400" mt={1}>Name is required.</Text>}
-              </Box>
-
-              <Box>
-                <Text fontSize="sm" mb={1}>Color</Text>
-                <HStack>
+              <Stack spacing={3}>
+                <Box>
+                  <Text fontSize="sm" mb={1}>Key</Text>
                   <Input
-                    type="color"
-                    value={form.color || "#4C6EF5"}
-                    onChange={(e) => setForm((s) => ({ ...s, color: e.target.value }))}
-                    w="60px"
-                    p={1}
+                    placeholder="e.g. billing"
+                    value={form.key}
+                    onChange={(e) => setForm((s) => ({ ...s, key: e.target.value }))}
+                    onBlur={() => setTouched((t) => ({ ...t, key: true }))}
+                    isInvalid={!!(touched.key && !form.key.trim())}
                   />
-                  <Box flex="1" h="10" borderRadius="md" borderWidth="1px" bg={form.color || "#4C6EF5"} />
-                </HStack>
-              </Box>
+                  {touched.key && !form.key.trim() && (
+                    <Text fontSize="xs" color="red.400" mt={1}>Key is required.</Text>
+                  )}
+                </Box>
 
-              <Box>
-                <HStack justify="space-between">
-                  <Text fontSize="sm" color="gray.600">Create and assign to active chat</Text>
-                  <Switch
-                    isChecked={form.createAndAssign}
-                    onChange={() => setForm((s) => ({ ...s, createAndAssign: !s.createAndAssign }))}
+                <Box>
+                  <Text fontSize="sm" mb={1}>Name</Text>
+                  <Input
+                    placeholder="e.g. Billing"
+                    value={form.name}
+                    onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
+                    onBlur={() => setTouched((t) => ({ ...t, name: true }))}
+                    isInvalid={!!(touched.name && !form.name.trim())}
                   />
-                </HStack>
-              </Box>
-            </Stack>
+                  {touched.name && !form.name.trim() && (
+                    <Text fontSize="xs" color="red.400" mt={1}>Name is required.</Text>
+                  )}
+                </Box>
 
-            <Flex justify="flex-end" gap={2} mt={4}>
-              <Button variant="ghost" leftIcon={<CloseIcon />} onClick={() => { resetForm(); setIsOpen(false); }}>
-                Cancel
-              </Button>
-              <Button colorScheme="blue" isLoading={createCat.isPending || assign.isPending} onClick={handleCreate}>
-                Create
-              </Button>
-            </Flex>
+                <Box>
+                  <Text fontSize="sm" mb={1}>Color</Text>
+                  <HStack>
+                    <Input
+                      type="color"
+                      value={form.color || "#4C6EF5"}
+                      onChange={(e) => setForm((s) => ({ ...s, color: e.target.value }))}
+                      w="60px"
+                      p={1}
+                    />
+                    <Box flex="1" h="10" borderRadius="md" borderWidth="1px" bg={form.color || "#4C6EF5"} />
+                  </HStack>
+                </Box>
+
+                <Box>
+                  <HStack justify="space-between">
+                    <Text fontSize="sm" color="gray.600">Create and assign to active chat</Text>
+                    <Switch
+                      isChecked={form.createAndAssign}
+                      onChange={() => setForm((s) => ({ ...s, createAndAssign: !s.createAndAssign }))}
+                    />
+                  </HStack>
+                </Box>
+              </Stack>
+
+              <Flex justify="flex-end" gap={2} mt={4}>
+                <Button variant="ghost" leftIcon={<CloseIcon />} onClick={() => { resetForm(); setIsOpen(false); }}>
+                  Cancel
+                </Button>
+                <Button colorScheme="blue" isLoading={createCat.isPending || assign.isPending} onClick={handleCreate}>
+                  Create
+                </Button>
+              </Flex>
+            </Box>
           </Box>
-        </Box>
+        </Portal>
       )}
 
       {/* Delete confirmation */}
@@ -646,8 +654,8 @@ export const ChatCategorizationPanel: React.FC<Props> = ({
         leastDestructiveRef={cancelRef}
         onClose={() => setDeleteTarget(null)}
       >
-        <AlertDialogOverlay>
-          <AlertDialogContent>
+        <AlertDialogOverlay zIndex={OVERLAY_Z}>
+          <AlertDialogContent zIndex={OVERLAY_Z + 1}>
             <AlertDialogHeader fontSize="lg" fontWeight="bold">
               Delete category
             </AlertDialogHeader>

@@ -12,12 +12,13 @@ import { CheckCircleIcon, WarningIcon } from '@chakra-ui/icons';
 import { useQueryClient } from '@tanstack/react-query';
 
 type MSG = {
-    notification:boolean;
+    notification: boolean;
     from: string;
     body: string;
     name: string;
     date: string;
     receivedAt: Date;
+    decision: 'confirmed' | 'declined' | 'reschedule' | 'unknown';
 };
 
 export const SocketNotification = () => {
@@ -30,13 +31,12 @@ export const SocketNotification = () => {
         if (!socket || !connected) return;
 
         const handleSMS = (data: MSG) => {
-            if(!data.notification)return
+            if (!data.notification) return;
+
             setMessages((prev) => [...prev, data]);
 
-            const normalized = data.body.trim().toLowerCase();
-
             const baseProps = {
-                duration: 5000, // Mantener 5 segundos
+                duration: 5000,
                 isClosable: true,
                 position: 'top-right' as const,
             };
@@ -51,26 +51,72 @@ export const SocketNotification = () => {
                     ...baseProps,
                     status,
                     render: ({ onClose }) => (
-                        <Box p={4} bg={bg} borderRadius="md" color="white" boxShadow="xl" position="relative">
-                            <CloseButton position="absolute" top="0.5rem" right="0.5rem" onClick={onClose} color="white" />
+                        <Box
+                            p={4}
+                            bg={bg}
+                            borderRadius="md"
+                            color="white"
+                            boxShadow="xl"
+                            position="relative"
+                        >
+                            <CloseButton
+                                position="absolute"
+                                top="0.5rem"
+                                right="0.5rem"
+                                onClick={onClose}
+                                color="white"
+                            />
                             <Flex align="center" gap={2}>
-                                <Icon as={status === 'success' ? CheckCircleIcon : WarningIcon} boxSize={6} />
+                                <Icon
+                                    as={
+                                        status === 'success'
+                                            ? CheckCircleIcon
+                                            : WarningIcon
+                                    }
+                                    boxSize={6}
+                                />
                                 <Box>
                                     <Text fontWeight="bold">{title}</Text>
-                                    {extra && <Text fontWeight="bold">{extra}</Text>}
-                                    <Text fontSize="sm">From: {`${data.name} (${data.from})`}</Text>
+                                    {extra && (
+                                        <Text fontWeight="bold">{extra}</Text>
+                                    )}
+                                    <Text fontSize="sm">
+                                        From: {`${data.name} (${data.from})`}
+                                    </Text>
                                 </Box>
                             </Flex>
                         </Box>
                     ),
                 });
 
-            if (normalized === 'yes') {
-                renderToast('success', 'green.500', 'Appointment confirmed', `New Appointment Date: ${data.date}`);
-            } else if (normalized === 'no') {
-                renderToast('error', 'red.500', 'Appointment declined', `Appointment Date: ${data.date}`);
-            } else if (normalized === 'out-of-context') {
-                renderToast('error', 'yellow.500', 'The patient did not confirm correctly');
+            // Render según decisión enviada por backend
+            if (data.decision === 'confirmed') {
+                renderToast(
+                    'success',
+                    'green.500',
+                    'Appointment confirmed',
+                    `New Appointment Date: ${data.date}`
+                );
+            } else if (data.decision === 'declined') {
+                renderToast(
+                    'error',
+                    'red.500',
+                    'Appointment declined',
+                    `Appointment Date: ${data.date}`
+                );
+            } else if (data.decision === 'reschedule') {
+                renderToast(
+                    'error',
+                    'yellow.500',
+                    'Appointment needs reschedule',
+                    `Original Appointment Date: ${data.date}`
+                );
+            } else {
+                renderToast(
+                    'error',
+                    'yellow.500',
+                    'The patient did not confirm correctly'
+                );
             }
 
             queryClient.invalidateQueries({ queryKey: ['Appointment'] });
@@ -78,9 +124,9 @@ export const SocketNotification = () => {
             queryClient.refetchQueries({ queryKey: ['DraggableCards'] });
         };
 
-        socket.on('smsReceived', handleSMS);
+        socket.on('confirmationResolved', handleSMS);
         return () => {
-            socket.off('smsReceived', handleSMS);
+            socket.off('confirmationResolved', handleSMS);
         };
     }, [socket, connected, toast]);
 

@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
-const { ContactStatus } = require("../constants")
+const { ContactStatus, MsgType } = require("../constants")
 const DOMPurify = require('isomorphic-dompurify');
 const { Appointment, MessageLog, MediaFile, Message } = require('../models/Appointments');
 const sms = require('../helpers/conversations')
@@ -18,8 +18,12 @@ const { uploadImageFromUrl, getFileMetadata, getPublicImageLink } = require('../
 const { receiveMessage } = require('../controllers/message.controller');
 const Appointments = require('../models/Appointments');
 const { getSmsBindingFromWebhookPayload } = require('../utils/twilio-conversations-binding');
-const {Organization} =require("../models/Enviroment/Org")
-
+const { Organization } = require("../models/Enviroment/Org")
+const {
+  decideFromBody,
+  findPrevOutboundConfirmation,
+  pickActiveSlotId,
+} = require("../helpers/webhookConfirmHelpers");
 
 const {
   listChatCategories,
@@ -188,6 +192,149 @@ router.get('/getchats', jwtCheck, async (req, res) => {
 });
 
 
+
+router.post("/test-socket", async (req, res) => {
+  try {
+    const orgId = "org_BzRwcS0qiW57b8SX".toLowerCase();
+
+    if (!orgId) {
+      return res.status(400).json({ error: "Missing orgId" });
+    }
+
+    // Emitir evento a la sala (orgId)
+    req.io.to(orgId).emit("confirmationResolved", {
+      notification: true, // 👈 para que tu frontend lo acepte
+      conversationId: "test-conv-123",
+      respondsTo: "test-msg-456",
+      decision: "confirmed", // 👈 puedes cambiar a "declined" | "reschedule" | "unknown"
+      from: "+61411111111",
+      name: "Test Patient",
+      body: "yes", // opcional, solo para debug
+      date: new Date().toISOString(),
+      receivedAt: new Date(),
+    });
+
+    return res.json({
+      success: true,
+      emitted: {
+        orgId,
+        conversationId: "test-conv-123",
+        decision: "confirmed",
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error in /test-socket:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
+router.post('/sendMessageAsk', async (req, res) => {
+  console.log("➡️ req.body:", req.body);   // campos de texto
+  // #region recepcion de parámetros
+  const session = await mongoose.startSession();
+  const { appointmentId } = req.body;
+
+  // #endregion recepcion de parametros
+  let committed = false;
+
+  try {
+    session.startTransaction();
+
+    // #region sanitizar
+    const safeAppId = helpers.sanitizeInput(appointmentId);
+    // #endregion sanitizar 
+
+    // #region limitadores
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+    const { org_id } = await helpers.getTokenInfo(authHeader);
+
+    if (!safeAppId || !mongoose.Types.ObjectId.isValid(safeAppId)) {
+      return res.status(400).json({ error: 'Missing or invalid "safeAppId"' });
+    }
+
+    const data = await Appointment.findOne({ _id: safeAppId }, { sid: 1, phoneInput: 1, lastNameInput: 1, nameInput: 1, org_name: 1, org_id: 1, selectedAppDates: 1, })
+
+    const propStartDate = new Date(data.selectedAppDates[0].proposed.startDate ?? data.selectedAppDates[0].proposed.startDate);
+    const propEndDate = new Date(data.selectedAppDates[0].proposed.endDate ?? data.selectedAppDates[0].proposed.endDate);
+    const propstartDateFormatted = sms.formatSydneyDateRange(propStartDate, propEndDate);
+
+    if (!data) return res.status(401).json({ error: 'Unknow Patient' });
+    const conversationId = data.sid;
+    const safeTo = helpers.sanitizeInput(data.phoneInput);
+    const confirmationMessage = `Hi ${data.nameInput} ${data.lastNameInput}, this is ${data.org_name}. We have a proposed appointment for you on ${propstartDateFormatted}. Please reply with *YES* to confirm your attendance or *NO* if you are unable to attend. Only replies with YES or NO will be accepted.`;
+    const safeBody = helpers.sanitizeInput(confirmationMessage)
+    if (!safeTo || typeof safeTo !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid "to"' });
+    }
+
+    if (safeBody && typeof safeBody !== 'string') {
+      return res.status(400).json({ error: '"body" must be a string' });
+    }
+
+    //#endregion limitadores
+
+    const groupId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+
+    // Solo texto
+    if (!safeBody?.trim()) {
+      return res.status(400).json({ error: 'Message has no Text' });
+    }
+    const msg = await client.conversations.v1
+      .conversations(conversationId)
+      .messages
+      .create({
+        author: org_id,
+        body: safeBody,
+        attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1 }),
+      });
+
+    console.log("Twilio creó:", msg);
+    // #endregion enviar mensaje a Twilio
+
+    // #region Registro en DB  (pequeño ajuste para N mensajes)
+    const docs = {
+      conversationId: msg.conversationSid,
+      proxyAddress: process.env.TWILIO_FROM_MAI,
+      userId: data._id,
+      sid: msg.sid,
+      author: org_id,
+      body: msg.body || "",
+      status: "pending",
+      direction: "outbound",
+      type: MsgType.Confirmation,
+      index: msg.index,          // 👈 clave para orden estable
+    };
+
+    await Message.insertMany(docs);
+    // #endregion Registro en DB
+
+    // #region  Enviar a Twilio
+
+
+
+
+
+    // #ebndregion  Enviar a Twilio
+
+
+    return res.status(200).json({
+      success: true,
+      docs,
+    });
+  } catch (err) {
+    if (!committed) {
+      try { await session.abortTransaction(); } catch { }
+    }
+    console.error('❌ Error in /sendMessageAsk:', err?.response?.data || err.message);
+    return res.status(500).json({ error: err?.response?.data || err?.message || 'Internal Server Error' });
+  } finally {
+    session.endSession();
+  }
+});
+
 router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) => {
   console.log("➡️ req.body:", req.body);   // campos de texto
   console.log("➡️ req.files:", req.files); // array de archivos enviados
@@ -277,7 +424,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
 
       // Para mapear 1 a 1 archivo->mensaje en tu DB
       savedPerFile.push({
-        proxyAddress:process.env.TWILIO_FROM_MAIN,
+        proxyAddress: process.env.TWILIO_FROM_MAIN,
         url: signedUrl,
         signedUrl,
         type: file.mimetype,
@@ -333,7 +480,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
     // #region Registro en DB  (pequeño ajuste para N mensajes)
     const docs = messagesCreated.map(({ msg, mediaInfo }) => ({
       conversationId: msg.conversationSid,
-      proxyAddress:process.env.TWILIO_FROM_MAIN,
+      proxyAddress: process.env.TWILIO_FROM_MAIN,
       sid: msg.sid,
       author: org_id,
       body: msg.body || "",
@@ -372,124 +519,222 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
 
 
 
-router.post('/webhook2', express.urlencoded({ extended: false }), async (req, res, next) => {
+router.post("/webhook2", express.urlencoded({ extended: false }), async (req, res) => {
   try {
+    const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+    console.log("🔍 cleanUrl:", JSON.stringify(url.trim()));
 
-    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-    const cleanUrl = url.trim();  // quita espacios ocultos
-    console.log("🔍 cleanUrl:", JSON.stringify(cleanUrl));
-
-
-    // ✅ TWILIO → Validar X-Twilio-Signature
-    const signature = req.headers['x-twilio-signature'];
+    // ✅ Validar firma Twilio
+    const signature = req.headers["x-twilio-signature"];
     const valid = twilio.validateRequest(
       process.env.TWILIO_AUTH_TOKEN,
       signature,
       url,
       req.body
     );
-
     if (!valid) {
-      console.warn('❌ Firma de Twilio inválida');
-      // return res.status(403).json({ error: 'Invalid Twilio signature' });
+      console.warn("❌ Firma de Twilio inválida");
+      // Si quieres cortar: return res.status(403).json({ error: "Invalid Twilio signature" });
     }
 
     const payload = req.body;
-    console.log("se entró")
-    console.log("payload", payload)
-    //Obteniendo Proxi
-    const { address, proxyAddress } = await getSmsBindingFromWebhookPayload(req.body);
-    console.log("proxyAddress", proxyAddress)
-    //
-    const isInbound = payload.Author && payload.Author.startsWith("+"); // ej: +61, +56, etc.
-    //obtener org_id
-    const data = await Appointment.updateOne(
+    console.log("➡️ payload", payload);
+
+    // Obtener binding (número del paciente y proxy de Twilio)
+    const { address, proxyAddress } = await getSmsBindingFromWebhookPayload(payload);
+    console.log("proxyAddress:", proxyAddress, "address:", address);
+
+    const isInbound = payload.Author && payload.Author.startsWith("+"); // ej: +61...
+    const orgId = (process.env.TWILIO_ORG_ID || "").toLowerCase();
+
+    // Upsert mínimo del Appointment si no existe
+    await Appointment.updateOne(
       { sid: payload.ConversationSid },
       {
-        $setOnInsert:
-        {
+        $setOnInsert: {
+          proxyAddress,
           nameInput: payload.Author,
           phoneInput: payload.Author,
           sid: payload.ConversationSid,
           unknown: true,
-        }
+        },
       },
-
       { upsert: true }
+    );
 
-    )
-    const org_id = process.env.TWILIO_ORG_ID;
-    const orgId = org_id.toLowerCase()
-    console.log("orgId",orgId)
-
-
-    // #region Gestion de estado de mensajes
+    // ==================================================================
+    // Eventos Twilio
+    // ==================================================================
     if (payload.EventType === "onMessageAdded") {
+      const now = new Date();
       const status = isInbound ? "sent" : (payload.Status || "pending");
 
-      // #region de existir media, subirla a la cloud y obtener la url
+
+      // 1) Si hay media entrante, súbela a tu storage y obtén URLs firmadas
       const uploadedUrls = [];
-
-
       if (isInbound && payload.Media && payload.Media.length > 0) {
-
+        let mediaArray = [];
         if (typeof payload.Media === "string") {
           try {
-            mediaArray = JSON.parse(payload.Media); // lo convierte en array de objetos
+            mediaArray = JSON.parse(payload.Media);
           } catch (err) {
             console.error("Error al parsear Media:", err);
           }
         } else {
-          mediaArray = payload.Media; // ya es array
+          mediaArray = payload.Media;
         }
-        console.log("payload.Media", mediaArray)
+
         for (const file of mediaArray) {
-          const url = await aws.getDirectMediaUrl(payload.ChatServiceSid, file.Sid)
-          console.log("url---------------------------------->", url, org_id)
-          const key = await aws.uploadImageFromUrl(url, org_id, {
-            folderName: org_id,
-            contentType: file.mimetype,
-            originalName: file.originalname,
-            fieldName: file.fieldname,
+          const directUrl = await aws.getDirectMediaUrl(payload.ChatServiceSid, file.Sid);
+          const key = await aws.uploadImageFromUrl(directUrl, orgId, {
+            folderName: orgId,
+            contentType: file.mimetype || file.ContentType,
+            originalName: file.originalname || file.Filename,
+            fieldName: file.fieldname || "media",
           });
-          console.log("key---------------------------------->", key, org_id)
-          let signedUrl = null;
-          try {
-            signedUrl = await aws.getSignedUrl(key);
-            console.log("signedUrl---------------------->", signedUrl)
-          }
-          catch (err) {
-            console.log(err)
-            throw new Error("The URL wasn't signed", err)
-
-          }
-          uploadedUrls.push({ url: signedUrl, type: file.mimetype, size: file.filesize });
+          const signedUrl = await aws.getSignedUrl(key);
+          uploadedUrls.push({
+            url: signedUrl,
+            type: file.mimetype || file.ContentType,
+            size: file.filesize || file.Size,
+          });
         }
-
       }
 
+      // 2) Guardar el mensaje ANTES de correlacionar
+      const updateDoc = {
+        conversationId: payload.ConversationSid,
+        proxyAddress,
+        sid: payload.MessageSid,
+        author: payload.Author,
+        body: payload.Body ? helpers.sanitizeInput(payload.Body) : "",
+        media: uploadedUrls,
+        status,
+        direction: isInbound ? "inbound" : "outbound",
+      };
 
-      // #endregion
-      // 🔹 Mensaje nuevo confirmado en Twilio
+      // Index numérico si es posible
+      const idx =
+        typeof payload.Index === "number"
+          ? payload.Index
+          : parseInt(payload.Index, 10);
+
+      console.log("idx", idx, payload.Index)
+      if (!Number.isNaN(idx)) updateDoc.index = idx;
+
       const saved = await Message.findOneAndUpdate(
         { sid: payload.MessageSid },
-        {
-          conversationId: payload.ConversationSid,
-          proxyAddress,
-          sid: payload.MessageSid,
-          author: payload.Author,
-          body: payload.Body ? helpers.sanitizeInput(payload.Body) : "",
-          media: uploadedUrls || [],
-          status: status,
-          index: payload.index,          // 👈 clave para orden estable
-          direction: isInbound ? "inbound" : "outbound"
-        },
-        { upsert: true, new: true } // inserta si no existe
+        updateDoc,
+        { upsert: true, new: true }
       );
-      console.log("saved", saved)
+
+      // 3) Correlación SOLO para inbound: ver si responde a la última Confirmation outbound
+      if (isInbound) {
+        const prev = await findPrevOutboundConfirmation({
+          Message,
+          conversationId: payload.ConversationSid,
+          nowIndex: saved.index,
+          nowCreatedAt: saved.createdAt,
+        });
+        console.log("prev", prev, {
+          Message,
+          conversationId: payload.ConversationSid,
+          nowIndex: saved.index,
+          nowCreatedAt: saved.createdAt,
+        }, saved)
+        if (prev) {
+          console.log("preDesition: ", saved.body)
+          const decision = decideFromBody(saved.body || "");
+          console.log("esta es la decision", decision)
+          const q = await Appointment.findOne({ sid: payload.ConversationSid, unknown: { $ne: true } }, // excluye unknown:true
+            { selectedAppDates: 1, nameInput: 1, lastNameInput: 1 }
+          )
+          // Enlazar INBOUND -> OUTBOUND y cerrar OUTBOUND
+          await Message.updateOne({ sid: saved.sid }, { $set: { respondsTo: prev.sid } });
+          await Message.updateOne(
+            { sid: prev.sid, $or: [{ resolvedBySid: null }, { resolvedBySid: { $exists: false } }] },
+            { $set: { resolvedBySid: saved.sid } }
+          );
+
+          // Elegir el slot activo dentro de selectedAppDates (array)
+          const slotId = await pickActiveSlotId({
+            Appointment,
+            conversationId: payload.ConversationSid,
+          });
+          console.log("slotId", slotId)
+
+          if (slotId) {
+            const arrayFilters = [{ "slot._id": new mongoose.Types.ObjectId(slotId) }];
+
+            if (decision === "confirmed") {
+              console.log("está en confirmated", q.selectedAppDates[0].proposed.startDate, q.selectedAppDates[0].proposed.endDate)
+              await Appointment.updateOne(
+                { sid: payload.ConversationSid, unknown: { $ne: true } }, // excluye unknown:true
+                {
+                  $set: {
+                    "selectedAppDates.$[slot].status": "Confirmed",
+                    "selectedAppDates.$[slot].rescheduleRequested": false,
+                    "selectedAppDates.$[slot].confirmation.decision": "confirmed",
+                    "selectedAppDates.$[slot].confirmation.decidedAt": now,
+                    "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
+                    "selectedAppDates.$[slot].startDate": q.selectedAppDates[0].proposed.startDate,
+                    "selectedAppDates.$[slot].endDate": q.selectedAppDates[0].proposed.endDate,
+                    reschedule: true
+                  },
+                },
+                { arrayFilters }
+              );
+            } else if (decision === "declined") {
+              await Appointment.updateOne(
+                { sid: payload.ConversationSid },
+                {
+                  $set: {
+                    "selectedAppDates.$[slot].status": "Rejected",
+                    "selectedAppDates.$[slot].rescheduleRequested": false,
+                    "selectedAppDates.$[slot].confirmation.decision": "declined",
+                    "selectedAppDates.$[slot].confirmation.decidedAt": now,
+                    "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
+                  },
+                  $unset: { "selectedAppDates.$[slot].proposed": "" },
+                },
+                { arrayFilters }
+              );
+            } else if (decision === "reschedule") {
+              await Appointment.updateOne(
+                { sid: payload.ConversationSid },
+                {
+                  $set: {
+                    "selectedAppDates.$[slot].status": "Pending",
+                    "selectedAppDates.$[slot].rescheduleRequested": true,
+                    "selectedAppDates.$[slot].confirmation.decision": "reschedule",
+                    "selectedAppDates.$[slot].confirmation.decidedAt": now,
+                    "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
+                  },
+                },
+                { arrayFilters }
+              );
+            }
+          }
+
+          // Notificar a la UI
+          req.io.to(orgId).emit("confirmationResolved", {
+            conversationId: payload.ConversationSid,
+            respondsTo: prev.sid,
+            decision,
+            notification: true, // 👈 para que tu frontend lo acepte
+            from: payload.Author,
+            name: `${q.nameInput} ${q.lastNameInput}`,
+            body: decision, // opcional, solo para debug
+            date: new Date().toISOString(),
+            receivedAt: new Date(),
+          });
+        }
+      }
+
+      // 4) Emitir el newMessage a la organización
       req.io.to(orgId).emit("newMessage", {
         sid: saved.sid,
-        index: payload.index,
+        index: saved.index,
         conversationId: saved.conversationId,
         author: saved.author,
         body: saved.body,
@@ -500,37 +745,58 @@ router.post('/webhook2', express.urlencoded({ extended: false }), async (req, re
         updatedAt: saved.updatedAt,
       });
 
-      console.log("y con un payload.conversationId= ", payload.ConversationSid)
+      console.log("✅ onMessageAdded →", payload.ConversationSid);
     }
 
+    // ------------------------------------------------------------------
 
     if (payload.EventType === "onDeliveryUpdated") {
-      const status = payload.Status;
-
       const updated = await Message.findOneAndUpdate(
         { sid: payload.MessageSid },
-        { status },
+        { status: payload.Status },
         { new: true }
       );
+
       if (updated) {
         req.io.to(orgId).emit("messageUpdated", {
           sid: updated.sid,
-          conversationId: updated.conversationId, // 👈 NECESARIO
+          conversationId: updated.conversationId,
           status: updated.status,
         });
+        console.log("📤 messageUpdated:", updated.sid, updated.status);
 
-        console.log("📤 Emitido messageUpdated:", updated.sid, updated.status);
+        // (Opcional) reflejar Contacted/Failed en el slot activo
+        const slotId = await pickActiveSlotId({
+          Appointment,
+          conversationId: updated.conversationId,
+        });
+
+        if (slotId) {
+          const arrayFilters = [{ "slot._id": new mongoose.Types.ObjectId(slotId) }];
+
+          if (updated.status === "delivered") {
+            await Appointment.updateOne(
+              { sid: updated.conversationId },
+              { $set: { "selectedAppDates.$[slot].status": "Contacted" } },
+              { arrayFilters }
+            );
+          } else if (updated.status === "failed" || updated.status === "undelivered") {
+            await Appointment.updateOne(
+              { sid: updated.conversationId },
+              { $set: { "selectedAppDates.$[slot].status": "Failed" } },
+              { arrayFilters }
+            );
+          }
+        }
       }
     }
-    //emmpujar socket
 
-
-    // #endregion
+    // ------------------------------------------------------------------
 
     res.sendStatus(200);
   } catch (error) {
-    console.error('❌ Error en POST /webhook2:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    console.error("❌ Error en POST /webhook2:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -681,7 +947,7 @@ router.get('/messages/:conversationId', async (req, res) => {
 
     const messages = await Message.find({ conversationId })
       .sort({ createdAt: -1 }) // últimos primero
-      .skip(skip)   
+      .skip(skip)
       .limit(limit)
       .lean();
 
@@ -693,7 +959,7 @@ router.get('/messages/:conversationId', async (req, res) => {
     const total = await Message.countDocuments({ conversationId });
     console.log("total", total)
     res.json({
-      messages:ordered,
+      messages: ordered,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -716,7 +982,13 @@ router.get("/conversations", async (req, res) => {
     const { org_id } = await helpers.getTokenInfo(authHeader);
     if (!org_id) return res.status(400).json({ error: "No org_id found in request" });
 
+    const fromMain = process.env.TWILIO_FROM_MAIN;
+    if (!fromMain) return res.status(500).json({ error: "TWILIO_FROM_MAIN not configured" });
+
     const conversations = await Message.aggregate([
+      // 0) Filtrar por número/proxy de Twilio específico
+      { $match: { proxyAddress: fromMain } },
+
       // 1) Tomar el último mensaje por conversación
       { $sort: { createdAt: -1 } },
       {
@@ -726,23 +998,30 @@ router.get("/conversations", async (req, res) => {
         },
       },
 
-      // 2) Join con appointments + filtro por organización (dentro del lookup)
+      // 2) Join con appointments + filtro por organización y eliminar duplicados
       {
         $lookup: {
           from: "appointments",
-          let: { convId: "$_id", wantedOrg: org_id },
+          let: { convId: "$_id" },
           pipeline: [
             {
               $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ["$sid", "$$convId"] },
-                    // Soporta org_id como string u ObjectId en la colección
-                    { $eq: [{ $toString: "$org_id" }, "$$wantedOrg"] },
-                  ],
-                },
+                $expr: { $eq: ["$sid", "$$convId"] },
               },
             },
+            // ordenar para priorizar el que NO tenga unknown o sea false
+            {
+              $sort: {
+                unknown: 1, // false (0) primero, true (1) después
+              },
+            },
+            {
+              $group: {
+                _id: "$sid", // asegurar 1 appointment por sid
+                doc: { $first: "$$ROOT" },
+              },
+            },
+            { $replaceRoot: { newRoot: "$doc" } },
             {
               $project: {
                 _id: 1,
@@ -758,9 +1037,9 @@ router.get("/conversations", async (req, res) => {
           as: "appointment",
         },
       },
-      { $unwind: "$appointment" }, // descarta convos sin appointment o de otra org
+      { $unwind: "$appointment" },
 
-      // 3) Proyección (dejamos proxyAddress por si lo usas en el front, pero ya no filtra)
+      // 3) Proyección
       {
         $project: {
           conversationId: "$_id",
@@ -798,6 +1077,7 @@ router.get("/conversations", async (req, res) => {
     res.status(500).json({ error: "Error fetching conversations" });
   }
 });
+
 
 
 

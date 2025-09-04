@@ -1,18 +1,13 @@
-import CustomCalendar from "@/Components/Scheduler/CustomCalendar";
 import useEventSelection from "@/Hooks/Handles/useEventSelection";
 import { DateRange, MarkedEvents } from "@/Hooks/Handles/useSlotSelection";
-import { Box, Grid, Text, useDisclosure } from "@chakra-ui/react";
+import { Box, Grid, useDisclosure } from "@chakra-ui/react";
 import { useEffect, useState } from "react";
 import { SlotInfo } from "react-big-calendar";
 
-import CustomButtonGroup from "@/Components/Form/CustomButtonGroup";
 import { usePriorityTreatments } from "@/Hooks/Query/usePriorityTreatments";
-import { useTreatments } from "@/Hooks/Query/useTreatments";
-import CustomEventContent from "@/Components/Scheduler/CustomEventContent";
 import CustomEventContentFlex from "@/Components/Scheduler/CustomEventContentFlex";
-import { AppointmentGroup, BackendEvent, Patients } from "@/types";
+import { AppointmentGroup, Patients } from "@/types";
 import CustomModal from "@/Components/Modal/CustomModal";
-import AvailabilityDates2 from "@/Components/CustomTemplates/AvailabilityDates2";
 import CustomCalendarv2 from "@/Components/Scheduler/CustomCalendarv2";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 
@@ -24,8 +19,8 @@ function PriorityList() {
   const [_selectedDates, setSelectedDates] = useState<DateRange[]>([]);
   const [markedEvents, setMarkedEvents] = useState<MarkedEvents>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [customEvents, setCustomEvents] = useState<MarkedEvents>([])
-  const [customEventsFlex, setCustomEventsFlex] = useState<Patients>()
+  const [, setCustomEvents] = useState<MarkedEvents>([])
+  const [, setCustomEventsFlex] = useState<Patients>()
   const { handleSelectEvent } = useEventSelection(setSelectedDates, setMarkedEvents, markedEvents, setCustomEvents);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
@@ -44,11 +39,11 @@ function PriorityList() {
   //console.log(catSelected)
   const start = range?.startDate
   const end = range?.endDate
-  const { data: data2, isFetching: isF, refetch: rfch } = usePriorityTreatments(range?.startDate, range?.endDate, catSelected, false)
+  const { data: data2, isFetching: isF } = usePriorityTreatments(range?.startDate, range?.endDate, catSelected, false)
   const query = {};
   const limit = 20;
   const params = { start, end } // solo frontend
-  const { data: options, isSuccess, isFetching } = useGetCollection<AppointmentGroup[]>("PriorityList", { query, limit, params });
+  const { data: options } = useGetCollection<AppointmentGroup[]>("PriorityList", { query, limit, params });
   console.log("option", options)
   console.log("data2", data2)
 

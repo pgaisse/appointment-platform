@@ -9,12 +9,21 @@ const ContactStatus = {
   Confirmed: "Confirmed",
   Contacted: 'Contacted',
   Failed: 'Failed',
-  NoContacted: 'No Contacted',
-  NotStarted:'Not started'
+  NoContacted: 'NoContacted',
+  NotStarted:'NoStarted'
 };
 
+const MsgType={
+  Message:'Message',
+  Confirmation:'Confirmation'
+}
+
 /**
- * @typedef {keyof typeof ContactStatus} ContactStatusType
+ * @typedef {keyof typeof ContactStatus, keyof typeof MsgType} ContactStatusType
  */
 
-module.exports = { ContactStatus };
+/**
+ * @typedef {keyof typeof MsgType} MsgTypeType
+ */
+
+module.exports = { ContactStatus, MsgType };

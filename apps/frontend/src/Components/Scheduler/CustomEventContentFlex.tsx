@@ -12,31 +12,21 @@ import {
   Icon,
   Tag,
   Tooltip,
-  TagLabel,
-  TagRightIcon,
   Button,
   useToast,
-  VStack,
   Spinner,
 } from "@chakra-ui/react";
 import { useState, useRef, useEffect } from "react";
-import { formatDateWS } from "@/Functions/FormatDateWS";
 import { AppointmentGroup } from "@/types";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import {
   PhoneIcon,
   RepeatIcon,
-  CheckCircleIcon,
-  InfoIcon,
-  WarningIcon,
-  StarIcon,
 } from "@chakra-ui/icons";
 import { CiUser } from "react-icons/ci";
-import { MdDateRange } from "react-icons/md";
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion, animate } from "framer-motion";
-import { IconType } from "react-icons";
+import { motion } from "framer-motion";
 import { getMatchLevelIcon } from "@/Functions/getMatchLevelIcon";
 import { useNavigate } from "react-router-dom";
 import { useSendAppointmentSMS } from "@/Hooks/Query/useSendAppointmentSMS";
@@ -57,7 +47,7 @@ interface Props {
 
 const CustomEventContent: React.FC<Props> = ({ event }) => {
   const { mutate, isPending } = useUpdateItems();
-  const { mutate: sendSMS, error: errorSending } = useSendAppointmentSMS();
+  const { mutate: sendSMS } = useSendAppointmentSMS();
   const toast = useToast();
   const queryClient = useQueryClient();
   const group = event?.[0];
@@ -121,8 +111,8 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
         id_field: "_id",
         id_value: id ?? "",
         data: {
-          "selectedAppDates.0.propStartDate": start,
-          "selectedAppDates.0.propEndDate": end,
+          "selectedAppDates.0.proposed.startDate": start,
+          "selectedAppDates.0.proposed.endDate": end,
         },
       },
 

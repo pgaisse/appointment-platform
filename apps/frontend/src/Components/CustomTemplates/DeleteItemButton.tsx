@@ -53,6 +53,7 @@ export default function DeleteItemButton({
             searchRef?.current?.clearInput();
             queryClient.invalidateQueries({ queryKey: [modelName] });
             queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+            queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["Appointment"] });
             queryClient.invalidateQueries({ queryKey: ["conversations"] });
             setFilteredItems?.(null);

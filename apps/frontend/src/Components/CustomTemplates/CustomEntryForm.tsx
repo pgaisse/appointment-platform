@@ -248,6 +248,7 @@ function CustomEntryForm({ children, dates,
           reset();
 
           queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+          queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["Appointment"] });
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
           if (conversationId) { queryClient.invalidateQueries({ queryKey: ["messages", conversationId] }); }
@@ -295,6 +296,7 @@ function CustomEntryForm({ children, dates,
             if (onClose_1) onClose_1()
             console.log("conversationId", conversationId)
             queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+            queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["Appointment"] });
             queryClient.invalidateQueries({ queryKey: ["conversations"] });
             if (conversationId) {

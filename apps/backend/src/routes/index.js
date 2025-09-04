@@ -18,6 +18,7 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const client = require('twilio')(accountSid, authToken);
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { findConversationByPhoneTwilioOnly } = require("../helpers/findConversationByPhoneSafely");
 
 const DOMPurify = require('isomorphic-dompurify');
 const { exist } = require('joi');
@@ -279,7 +280,13 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
       // - Si el doc ya tiene org_id, debe coincidir con el del token.
       // - Si el doc no tiene org_id, permitimos la actualización y le añadimos org_id.
       const filter = org_id
-        ? { [id_field]: id_value, $or: [{ org_id: { $exists: false } }, { org_id }] }
+        ? {
+          [id_field]: id_value,
+          $or: [
+            { org_id: { $exists: false }, proxyAddress: process.env.TWILIO_FROM_MAIN },
+            { org_id, proxyAddress: process.env.TWILIO_FROM_MAIN },
+          ],
+        }
         : { [id_field]: id_value };
 
       const updatedDoc = await Model.findOneAndUpdate(
@@ -486,7 +493,7 @@ router.post('/add', jwtCheck, async (req, res) => {
     }
 
     const { modelName, data } = req.body;
-    let sid;
+
     // ✅ Validaciones básicas
     if (!modelName || typeof modelName !== 'string') {
       return res.status(400).json({ error: 'modelName is required and must be a string' });
@@ -495,11 +502,16 @@ router.post('/add', jwtCheck, async (req, res) => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return res.status(400).json({ error: 'data must be a valid object' });
     }
+    let sid;
+    const proxyAddress = process.env.TWILIO_FROM_MAIN
     //asociar conversación con nuevo contacto creado
     if (modelName == models.Appointment.modelName) {
       const formattedPhone = helpers.localToE164AU(data.phoneInput);
       //Buscar si es que el numero del nuevo contacto ya tiene una conversación asignada
-      const existingSid = await sms.findConversationByPhoneSafely(formattedPhone)
+      console.log("formattedPhone", formattedPhone)
+      //const existingSid = await findConversationByPhoneSafely(formattedPhone)
+      const existingSid = await findConversationByPhoneTwilioOnly(formattedPhone);
+      console.log("existingSid", existingSid)
       //no->crear una nueva conversacion con atributos personalizados
       const meta = {
         phone: data.phoneInput,
@@ -508,7 +520,7 @@ router.post('/add', jwtCheck, async (req, res) => {
         org_id: org_id,
       };
       sid = !existingSid
-        ? await sms.createConversationAndAddParticipant(formattedPhone, "+61482088223", meta)
+        ? await sms.createConversationAndAddParticipant(formattedPhone, proxyAddress, meta)
         //si->unirlo
         : existingSid
       // await sms.addSmsParticipantToConversation(existingSid,formattedPhone, "+61482088223")
@@ -523,6 +535,7 @@ router.post('/add', jwtCheck, async (req, res) => {
       ...data,
       org_id,
       ...(sid && { sid }), // ← esto agrega `sid` solo si existe
+      ...(proxyAddress && { proxyAddress }), // agrega `proxyAddress` solo si existe
       lastMessage: new Date(),
       org_name: orgName,
       createdBy: sub,
@@ -547,6 +560,7 @@ router.post('/add', jwtCheck, async (req, res) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 router.delete("/:id", jwtCheck, async (req, res) => {
   try {

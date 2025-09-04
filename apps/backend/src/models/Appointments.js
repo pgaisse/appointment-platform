@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { ContactStatus } = require("../constants");
+const { ContactStatus, MsgType } = require("../constants");
 const { boolean } = require('joi');
 // Priority Schema (subdocumento)
 const PrioritySchema = new mongoose.Schema({
@@ -37,9 +37,53 @@ const PrioritySchema = new mongoose.Schema({
 // Appointment Priority Schema (colección independiente)
 
 
+
+// OPCIONAL: contenedor para propuestas al reagendar
+const ProposedAppDateSchema = new mongoose.Schema(
+  {
+    startDate: { type: Date },
+    endDate: { type: Date },
+    proposedBy: { type: String, enum: ["clinic", "patient", "system"], default: "clinic" },
+    reason: { type: String },
+    createdAt: { type: Date },
+  },
+  { _id: false }
+);
+
+const ConfirmationSchema = new mongoose.Schema(
+  {
+    decision: {
+      type: String,
+      enum: ["confirmed", "declined", "reschedule", "unknown"],
+      default: "unknown",
+    },
+    decidedAt: { type: Date },
+    byMessageSid: { type: String }, // SID del INBOUND que resolvió
+    lateResponse: { type: Boolean, default: false }, // si respondió después del startDate
+  },
+  { _id: false }
+);
+
+const SelectedAppDateSchema = new mongoose.Schema({
+  startDate: { type: Date },
+  endDate: { type: Date },
+  status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NoContacted },
+  rescheduleRequested: { type: Boolean, default: false },
+  // Propuesta opcional para este slot
+  proposed: {
+    startDate: { type: Date },
+    endDate: { type: Date },
+    proposedBy: { type: String, enum: ["clinic", "patient", "system"], default: "clinic" },
+    reason: { type: String },
+    createdAt: { type: Date },
+  },
+  confirmation: { type: ConfirmationSchema, default: undefined },
+}, { _id: true });
+
 // Appointment Schema
 const AppointmentsSchema = new mongoose.Schema({
-  unknown:Boolean,
+  proxyAddress: String,
+  unknown: Boolean,
   sid: String,
   lastMessage: Date,
   lastMessageInteraction: { type: String, default: "" },
@@ -70,18 +114,11 @@ const AppointmentsSchema = new mongoose.Schema({
       }
     ]
   },
-  selectedAppDates: [
-    {
-      status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NoContacted },
-      contact: { type: mongoose.Schema.Types.ObjectId, ref: 'ContactAppointment' },
-      startDate: { type: Date },
-      endDate: { type: Date },
-      propStartDate: { type: Date },
-      propEndDate: { type: Date },
-
-    }
-  ]
+  selectedAppDates: { type: [SelectedAppDateSchema], default: [] },
 });
+
+
+
 const CategoriesSchema = new mongoose.Schema({
   name: String,
   description: String,
@@ -148,23 +185,23 @@ const MessageSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-    index: {
-      type:String,
-      index:true
-    },
+    index: { type: Number, index: true, set: v => typeof v === "string" ? parseInt(v, 10) : v },
     sid: {
       type: String,   // Twilio Message SID (ej: "IMXXXX")
       required: true,
       index: true
     },
+    userId:{
+      type: String,  
+    },
     author: {
       type: String,   // "patient" | "clinic"
       required: true
     },
-    proxyAddress:{
-      type:String
+    proxyAddress: {
+      type: String
     },
-
+    type: { type: String, enum: Object.values(MsgType), default: MsgType.Message },
     // Contenido del mensaje
     body: {
       type: String    // Puede ser null si es solo multimedia
@@ -187,7 +224,9 @@ const MessageSchema = new mongoose.Schema(
       type: String,
       enum: ["inbound", "outbound"], // recibido o enviado
       required: true
-    }
+    },
+    resolvedBySid: { type: String, index: true }, // se setea en el OUTBOUND cuando alguien respondió
+    respondsTo: { type: String, index: true }, // se setea en el INBOUND apuntando al OUTBOUND Confirmatio
   },
   { timestamps: true } // agrega createdAt y updatedAt
 );

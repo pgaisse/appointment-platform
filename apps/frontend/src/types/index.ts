@@ -267,7 +267,7 @@ export type SendChatMessageResponse =
 
 export type GroupedAppointments = AppointmentGroup[];
 
-export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'No Contacted';
+export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted';
 
 export interface ContactAppointment {
   _id?: string; // asignado por MongoDB
@@ -300,6 +300,7 @@ export interface Appointment {
   reschedule: boolean;
   selectedDates: SelectedDates;
   selectedAppDates: Array<{
+    rescheduleRequested:boolean
     contact: ContactAppointment;
     startDate: Date;
     endDate: Date;

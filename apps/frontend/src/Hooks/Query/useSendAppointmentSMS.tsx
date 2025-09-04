@@ -36,7 +36,7 @@ export const useSendAppointmentSMS = () => {
       };
 
       const res = await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/webhook2`,
+        `${import.meta.env.VITE_BASE_URL}/sendMessageAsk`,
         bodyWithSource,
         {
           headers: {
