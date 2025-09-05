@@ -10,6 +10,7 @@ const qs = require('qs');
 
 const Routes = require('./routes/index');
 const SMS = require('./routes/sms');
+const Topics = require('./routes/topics.routes');
 const Socket = require('./routes/socket');
 const mongoConnect = require('./config/db');
 const setupSocket = require('./config/setupSocket');
@@ -45,6 +46,7 @@ app.use((req, res, next) => { req.io = io; next(); });
 // -------- Rutas --------
 app.use("/api",SMS);
 app.use("/api",Routes);
+app.use("/api",Topics);
 app.use("/api/socket.io",Socket);
 app.enable("trust proxy");
 

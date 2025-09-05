@@ -5,17 +5,17 @@
  */
 const ContactStatus = {
   Pending: 'Pending',
-  Rejected:'Rejected',
+  Rejected: 'Rejected',
   Confirmed: "Confirmed",
   Contacted: 'Contacted',
   Failed: 'Failed',
   NoContacted: 'NoContacted',
-  NotStarted:'NoStarted'
+  NotStarted: 'NoStarted'
 };
 
-const MsgType={
-  Message:'Message',
-  Confirmation:'Confirmation'
+const MsgType = {
+  Message: 'Message',
+  Confirmation: 'Confirmation'
 }
 
 /**
@@ -26,4 +26,4 @@ const MsgType={
  * @typedef {keyof typeof MsgType} MsgTypeType
  */
 
-module.exports = { ContactStatus, MsgType };
+module.exports = { ContactStatus, MsgType, DEFAULT_RANK_STEP: 10 };
