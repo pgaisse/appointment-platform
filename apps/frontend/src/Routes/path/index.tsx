@@ -11,6 +11,7 @@ const paths = {
   appointmentList: "/appointments/priority-list",
   patientFinder: "/appointments/patient-finder",
   assignedAppointments: "/appointments/assigned-appointments",
+  organizer: "/organizer",
   settings: "/settings",
   logout: "/logout",
 };
