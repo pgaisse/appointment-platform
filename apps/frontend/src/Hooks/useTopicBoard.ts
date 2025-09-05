@@ -38,13 +38,17 @@ async function moveCardReq(token: string, payload: MoveCardArgs) {
   return data;
 }
 async function updateCardReq(token: string, cardId: string, patch: any) {
-  const { data } = await axios.patch(
-    `${BASE}/cards/${cardId}`,
-    patch,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+  const payload: any = { ...patch };
+  if (Array.isArray(patch?.labels)) {
+    // Mandamos solo ids (separación “asignados” vs “creados”)
+    payload.labels = patch.labels.map((l: any) => typeof l === 'string' ? l : l?.id).filter(Boolean);
+  }
+  const { data } = await axios.patch(`${BASE}/cards/${cardId}`, payload, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return data;
 }
+
 
 export function useTopicBoard(topicId: string) {
   const qc = useQueryClient();

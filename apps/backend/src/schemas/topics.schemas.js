@@ -1,51 +1,63 @@
+// backend/src/schemas/topics.schemas.js
 const Joi = require('joi');
 
-const createTopic = Joi.object({
+const labelDef = Joi.object({
+  id: Joi.string().optional(),
+  name: Joi.string().required(),
+  color: Joi.string().valid(
+    'green', 'yellow', 'orange', 'red', 'purple', 'blue', 'lime', 'sky', 'pink', 'gray', 'black'
+  ).required()
+});
+
+exports.createTopic = Joi.object({
   title: Joi.string().min(1).required(),
-  key: Joi.string().allow('', null),
-  meta: Joi.object().default({}),
+  key: Joi.string().optional()
 });
 
-const createColumn = Joi.object({
+exports.createColumn = Joi.object({
+  title: Joi.string().min(1).required()
+});
+exports.createTopicLabel = Joi.object({
+  name: Joi.string().min(1).required(),
+  color: Joi.string().valid(
+    'green', 'yellow', 'orange', 'red', 'purple', 'blue', 'lime', 'sky', 'pink', 'gray', 'black'
+  ).required()
+});
+exports.createCard = Joi.object({
   title: Joi.string().min(1).required(),
-  meta: Joi.object().default({}),
+  columnId: Joi.string().required()
 });
 
-const createCard = Joi.object({
-  columnId: Joi.string().required(),
-  title: Joi.string().required(),
-  description: Joi.string().allow(''),
-  labels: Joi.array().items(Joi.string()).default([]),
-  members: Joi.array().items(Joi.string()).default([]),
-  dueDate: Joi.date().allow(null),
-  coverUrl: Joi.string().uri().allow('', null),
-  checklist: Joi.array().items(
-    Joi.object({ id: Joi.string().required(), text: Joi.string().required(), done: Joi.boolean().default(false) })
-  ).default([]),
-  attachments: Joi.array().items(
-    Joi.object({ id: Joi.string().required(), url: Joi.string().uri().required(), name: Joi.string().allow(''), mime: Joi.string().allow(''), size: Joi.number() })
-  ).default([]),
-  comments: Joi.array().items(
-    Joi.object({ id: Joi.string().required(), authorId: Joi.string().allow(''), authorName: Joi.string().allow(''), text: Joi.string().required(), createdAt: Joi.date() })
-  ).default([]),
-});
-
-const updateCard = Joi.object({
-  title: Joi.string(),
-  description: Joi.string().allow(''),
-  labels: Joi.array().items(Joi.string()),
-  members: Joi.array().items(Joi.string()),
-  dueDate: Joi.date().allow(null),
-  coverUrl: Joi.string().uri().allow('', null),
-  checklist: Joi.array().items(
-    Joi.object({ id: Joi.string().required(), text: Joi.string().required(), done: Joi.boolean().default(false) })
-  ),
-  attachments: Joi.array().items(
-    Joi.object({ id: Joi.string().required(), url: Joi.string().uri().required(), name: Joi.string().allow(''), mime: Joi.string().allow(''), size: Joi.number() })
-  ),
-  comments: Joi.array().items(
-    Joi.object({ id: Joi.string().required(), authorId: Joi.string().allow(''), authorName: Joi.string().allow(''), text: Joi.string().required(), createdAt: Joi.date() })
-  ),
+exports.updateTopicLabel = Joi.object({
+  name: Joi.string().min(1).optional(),
+  color: Joi.string().valid(
+    'green','yellow','orange','red','purple','blue','lime','sky','pink','gray','black'
+  ).optional()
 }).min(1);
 
-module.exports = { createTopic, createColumn, createCard, updateCard };
+exports.updateCard = Joi.object({
+  title: Joi.string(),
+  description: Joi.string().allow(''),
+  // ⬇️ acepta ambas formas
+  labels: Joi.alternatives().try(
+    Joi.array().items(Joi.string()),
+    Joi.array().items(labelDef)
+  ),
+  members: Joi.array().items(Joi.string()),
+  dueDate: Joi.date().allow(null),
+  checklist: Joi.array().items(Joi.object({
+    id: Joi.string().required(),
+    text: Joi.string().required(),
+    done: Joi.boolean().required()
+  })),
+  attachments: Joi.array().items(Joi.object({
+    id: Joi.string().required(),
+    url: Joi.string().uri().required(),
+    name: Joi.string().allow('')
+  })),
+  comments: Joi.array().items(Joi.object({
+    id: Joi.string().required(),
+    text: Joi.string().required(),
+    createdAt: Joi.date().iso().optional()
+  }))
+}).min(1);

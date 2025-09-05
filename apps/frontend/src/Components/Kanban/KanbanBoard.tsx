@@ -38,6 +38,7 @@ import { SmallCloseIcon } from '@chakra-ui/icons';
 
 import type { KanbanBoardProps, Column, Card } from '@/types/kanban';
 import { between } from '@/Helpers/between';
+import LabelChip from './LabelChip';
 
 type CardId = string;
 const colDroppableId = (colId: string) => `col-${colId}`;
@@ -47,9 +48,24 @@ const parseColId = (droppableId: string) => String(droppableId).replace(/^col-/,
 
 const DefaultCard: React.FC<{ card: Card }> = ({ card }) => (
   <Box p={3} bg="gray.700" rounded="md" borderWidth="1px">
-    {card.title}
+    {/* Chips arriba */}
+    {card.labels?.length ? (
+      <HStack spacing={1} mb={2} flexWrap="wrap">
+        {card.labels.map((l) => (
+          <LabelChip key={(l as any).id ?? String(l)} label={l as any} />
+        ))}
+      </HStack>
+    ) : null}
+
+    <Text fontWeight="semibold">{card.title}</Text>
+    {card.description && (
+      <Text fontSize="sm" color="gray.300" noOfLines={3}>
+        {card.description}
+      </Text>
+    )}
   </Box>
 );
+
 
 /** Tarjeta sortable */
 function SortableCard({

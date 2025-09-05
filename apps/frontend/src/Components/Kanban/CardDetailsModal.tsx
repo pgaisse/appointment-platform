@@ -3,10 +3,16 @@ import React, { useEffect, useState } from 'react';
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
   ModalCloseButton, Box, HStack, VStack, Text, Input, Textarea, Button,
-  Tag, TagLabel, Wrap, WrapItem, IconButton, Checkbox, useToast,
+  Tag, TagLabel, Wrap, WrapItem, IconButton, Checkbox, useToast, useDisclosure,
 } from '@chakra-ui/react';
 import { SmallCloseIcon } from '@chakra-ui/icons';
-import type { Card } from '@/types/kanban';
+
+import LabelChip from '@/Components/Kanban/LabelChip';
+import LabelAssigner from '@/Components/Kanban/LabelAssigner';
+import TopicLabelManager from '@/Components/Kanban/TopicLabelManager';
+import { useTopicLabels } from '@/Hooks/useTopicLabels';
+
+import type { Card, LabelDef } from '@/types/kanban';
 
 type ChecklistItem = { id: string; text: string; done: boolean };
 type Attachment = { id: string; url: string; name?: string };
@@ -17,6 +23,7 @@ type Props = {
   card: Card | null;
   onClose: () => void;
   onUpdate: (cardId: string, patch: Partial<Card>) => Promise<void> | void;
+  topicId: string;
 };
 
 const uid = () =>
@@ -24,13 +31,14 @@ const uid = () =>
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
 
-// comparación simple (suficiente para nuestro caso)
 const isEqual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) => {
+const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, topicId }) => {
   const toast = useToast();
+  const { isOpen: mgrOpen, onOpen: openMgr, onClose: closeMgr } = useDisclosure();
+  const { labels: topicLabelsQ } = useTopicLabels(topicId);
+
   const [local, setLocal] = useState<Card | null>(null);
-  const [newLabel, setNewLabel] = useState('');
   const [memberText, setMemberText] = useState('');
   const [checkText, setCheckText] = useState('');
   const [attachUrl, setAttachUrl] = useState('');
@@ -38,23 +46,17 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
 
   useEffect(() => {
     setLocal(card ? (JSON.parse(JSON.stringify(card)) as Card) : null);
-    setNewLabel('');
-    setMemberText('');
-    setCheckText('');
-    setAttachUrl('');
-    setAttachName('');
+    setMemberText(''); setCheckText(''); setAttachUrl(''); setAttachName('');
   }, [card, isOpen]);
 
   if (!card || !local) return null;
 
-  /** Guarda solo los campos que realmente cambiaron (evita toast “Guardado” sin cambios) */
   const savePatch = async (patch: Partial<Card>) => {
-    // filtra claves que no cambiaron respecto al `card` original
     const filteredEntries = Object.entries(patch).filter(([key, val]) => {
       const original = (card as any)[key];
       return !isEqual(original, val);
     });
-    if (filteredEntries.length === 0) return; // no hay cambios → no llamamos backend ni mostramos toast
+    if (filteredEntries.length === 0) return;
 
     const filteredPatch = Object.fromEntries(filteredEntries) as Partial<Card>;
     try {
@@ -64,18 +66,6 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
       const msg = e instanceof Error ? e.message : 'Error';
       toast({ status: 'error', title: 'No se pudo guardar', description: msg });
     }
-  };
-
-  // Labels
-  const addLabel = () => {
-    const l = newLabel.trim();
-    if (!l) return;
-    const labels = Array.from(new Set([...(local.labels ?? []), l]));
-    setLocal({ ...local, labels });
-    setNewLabel('');
-  };
-  const removeLabel = (l: string) => {
-    setLocal({ ...local, labels: (local.labels ?? []).filter((x: string) => x !== l) });
   };
 
   // Members
@@ -99,6 +89,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
       { id: uid(), text: t, done: false },
     ];
     setLocal({ ...local, checklist: checklist as unknown as Card['checklist'] });
+    setCheckText('');
   };
   const toggleChecklist = (id: string) => {
     const checklist: ChecklistItem[] = ((local.checklist as ChecklistItem[] | undefined) ?? [])
@@ -120,8 +111,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
       { id: uid(), url, name: attachName.trim() || undefined },
     ];
     setLocal({ ...local, attachments: attachments as unknown as Card['attachments'] });
-    setAttachUrl('');
-    setAttachName('');
+    setAttachUrl(''); setAttachName('');
   };
   const removeAttachment = (id: string) => {
     const attachments: Attachment[] = ((local.attachments as Attachment[] | undefined) ?? [])
@@ -140,6 +130,8 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
     setLocal({ ...local, comments: comments as unknown as Card['comments'] });
   };
 
+  const topicLabels: LabelDef[] = topicLabelsQ.data ?? [];
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl">
       <ModalOverlay />
@@ -153,10 +145,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
             onChange={(e) => setLocal({ ...local, title: e.target.value })}
             onBlur={() => {
               const newTitle = local.title.trim();
-              // solo guarda si cambió respecto al original
-              if (!isEqual(card.title, newTitle)) {
-                void savePatch({ title: newTitle });
-              }
+              if (!isEqual(card.title, newTitle)) void savePatch({ title: newTitle });
             }}
           />
         </ModalHeader>
@@ -166,13 +155,27 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
           <HStack align="start" spacing={6}>
             {/* IZQUIERDA */}
             <VStack align="stretch" flex={2} spacing={6}>
+              {/* Acciones de labels: asignar vs gestionar catálogo */}
               <HStack spacing={3} flexWrap="wrap">
-                <Button size="sm" onClick={addLabel}>+ Add</Button>
-                <Button size="sm" onClick={() => savePatch({ labels: local.labels ?? [] })}>Labels</Button>
-                <Button size="sm" onClick={() => savePatch({ dueDate: local.dueDate ?? null })}>Dates</Button>
-                <Button size="sm" onClick={() => savePatch({ checklist: (local.checklist ?? []) as Card['checklist'] })}>Checklist</Button>
-                <Button size="sm" onClick={() => savePatch({ attachments: (local.attachments ?? []) as Card['attachments'] })}>Attachment</Button>
+                <LabelAssigner
+                  topicLabels={topicLabels}
+                  value={(local.labels ?? []) as LabelDef[]}
+                  onChange={(next) => setLocal({ ...local, labels: next as any })}
+                />
+                <Button size="sm" onClick={() => savePatch({ labels: (local.labels ?? []) as any })}>
+                  Guardar labels
+                </Button>
+                <Button size="sm" variant="outline" onClick={openMgr}>
+                  Gestionar labels
+                </Button>
               </HStack>
+
+              {/* Chips visibles */}
+              {(local.labels?.length ?? 0) > 0 ? (
+                <HStack spacing={1} flexWrap="wrap">
+                  {(local.labels as LabelDef[]).map((l) => <LabelChip key={l.id} label={l} />)}
+                </HStack>
+              ) : null}
 
               {/* Members */}
               <Box>
@@ -252,7 +255,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
                     </HStack>
                   ))}
                 </VStack>
-                <Button mt={2} size="sm" onClick={() => savePatch({ checklist: (local.checklist ?? []) as Card['checklist'] })}>
+                <Button mt={2} size="sm" onClick={() => savePatch({ checklist: (local.checklist ?? []) as any })}>
                   Save checklist
                 </Button>
               </Box>
@@ -279,7 +282,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
                     </HStack>
                   ))}
                 </VStack>
-                <Button mt={2} size="sm" onClick={() => savePatch({ attachments: (local.attachments ?? []) as Card['attachments'] })}>
+                <Button mt={2} size="sm" onClick={() => savePatch({ attachments: (local.attachments ?? []) as any })}>
                   Save attachments
                 </Button>
               </Box>
@@ -313,7 +316,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
                     </Box>
                   ))}
               </VStack>
-              <Button size="sm" onClick={() => savePatch({ comments: (local.comments ?? []) as Card['comments'] })}>
+              <Button size="sm" onClick={() => savePatch({ comments: (local.comments ?? []) as any })}>
                 Save comments
               </Button>
             </VStack>
@@ -321,41 +324,12 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
         </ModalBody>
 
         <ModalFooter>
-          {/* Labels quick add */}
-          <HStack w="100%" justify="space-between">
-            <HStack>
-              <Input
-                size="sm"
-                placeholder="add label"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') addLabel(); }}
-              />
-              <Button size="sm" onClick={addLabel}>Add</Button>
-              {(local.labels ?? []).length > 0 && (
-                <Wrap>
-                  {(local.labels ?? []).map((l: string) => (
-                    <WrapItem key={l}>
-                      <Tag>
-                        <TagLabel>{l}</TagLabel>
-                        <IconButton
-                          aria-label="remove"
-                          size="xs"
-                          variant="ghost"
-                          icon={<SmallCloseIcon />}
-                          onClick={() => removeLabel(l)}
-                        />
-                      </Tag>
-                    </WrapItem>
-                  ))}
-                </Wrap>
-              )}
-            </HStack>
-            <HStack>
-              <Button variant="ghost" onClick={onClose}>Close</Button>
-              <Button
-                colorScheme="blue"
-                onClick={() => savePatch({
+          <HStack w="100%" justify="flex-end">
+            <Button variant="ghost" onClick={onClose}>Close</Button>
+            <Button
+              colorScheme="blue"
+              onClick={() =>
+                savePatch({
                   title: local.title,
                   description: local.description,
                   labels: local.labels,
@@ -364,14 +338,17 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate }) 
                   checklist: local.checklist,
                   attachments: local.attachments,
                   comments: local.comments,
-                })}
-              >
-                Save all
-              </Button>
-            </HStack>
+                })
+              }
+            >
+              Save all
+            </Button>
           </HStack>
         </ModalFooter>
       </ModalContent>
+
+      {/* Drawer para gestionar el catálogo de labels del tópico */}
+      <TopicLabelManager isOpen={mgrOpen} onClose={closeMgr} topicId={topicId} />
     </Modal>
   );
 };

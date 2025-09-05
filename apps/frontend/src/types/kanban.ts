@@ -7,6 +7,16 @@ export interface Topic {
   meta?: Record<string, unknown>;
 }
 
+export type LabelColor =
+  | 'green' | 'yellow' | 'orange' | 'red' | 'purple' | 'blue'
+  | 'lime' | 'sky' | 'pink' | 'gray' | 'black';
+
+export interface LabelDef {
+  id: string;
+  name: string;
+  color: LabelColor;
+}
+
 export interface ChecklistItem { id: string; text: string; done: boolean }
 export interface Attachment { id: string; url: string; name?: string; mime?: string; size?: number }
 export interface Comment { id: string; authorId?: string; authorName?: string; text: string; createdAt?: string }
@@ -19,7 +29,6 @@ export interface Card {
   columnId: Id;
   title: string;
   description?: string;
-  labels?: string[];
   members?: string[];
   dueDate?: string | null;
   coverUrl?: string | null;
@@ -27,6 +36,7 @@ export interface Card {
   attachments?: Attachment[];
   comments?: Comment[];
   params?: CardParam[];
+  labels?: LabelDef[]; 
   sortKey: string;
   createdAt?: string; updatedAt?: string;
 }

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-
+const mongoose = require('mongoose');
 const svc = require('../helpers/topics.service');
 const schemas = require('../schemas/topics.schemas');
 const { validate } = require('../middleware/validate');
@@ -34,6 +34,45 @@ router.patch('/cards/:cardId/move', async (req, res, next) => {
     const { cardId } = req.params;
     const { toColumnId, before, after } = req.body;
     res.json(await svc.moveCard({ cardId, toColumnId, before, after }, {}));
+  } catch (e) { next(e); }
+});
+// backend/src/routes/topics.routes.js
+// Listar labels del tópico
+router.get('/topics/:topicId/labels', async (req, res, next) => {
+  try {
+    const { topicId } = req.params;
+    if (!mongoose.isValidObjectId(topicId)) {
+      return res.status(400).json({ error: 'Invalid topicId' });
+    }
+    res.json(await svc.listTopicLabels(topicId));
+  } catch (e) { next(e); }
+});
+
+router.post('/topics/:topicId/labels', validate(schemas.createTopicLabel), async (req, res, next) => {
+  try {
+    const { topicId } = req.params;
+    if (!mongoose.isValidObjectId(topicId)) {
+      return res.status(400).json({ error: 'Invalid topicId' });
+    }
+    const label = await svc.createTopicLabel(topicId, req.body);
+    res.json({ label });
+  } catch (e) { next(e); }
+});
+
+router.patch('/topics/:topicId/labels/:labelId', async (req, res, next) => {
+  try {
+    const { topicId, labelId } = req.params;
+    if (!mongoose.isValidObjectId(topicId)) return res.status(400).json({ error: 'Invalid topicId' });
+    res.json({ label: await svc.updateTopicLabel(topicId, labelId, req.body) });
+  } catch (e) { next(e); }
+});
+
+router.delete('/topics/:topicId/labels/:labelId', async (req, res, next) => {
+  try {
+    const { topicId, labelId } = req.params;
+    if (!mongoose.isValidObjectId(topicId)) return res.status(400).json({ error: 'Invalid topicId' });
+    await svc.deleteTopicLabel(topicId, labelId);
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 

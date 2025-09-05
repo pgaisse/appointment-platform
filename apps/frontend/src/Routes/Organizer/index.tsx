@@ -18,7 +18,7 @@ import KanbanBoard from '@/Components/Kanban/KanbanBoard';
 import { useTopics } from '@/Hooks/useTopics';
 import { useTopicBoard } from '@/Hooks/useTopicBoard';
 import type { Card } from '@/types/kanban';
-import CardDetailsModal from '@/Components/Kanban/CardDetailModal';
+import CardDetailsModal from '@/Components/Kanban/CardDetailsModal';
 
 export default function App() {
   const toast = useToast();
@@ -147,17 +147,17 @@ export default function App() {
             createCard.mutateAsync({ columnId: colId, title })
           }
           onOpenCard={(c) => setOpenCardId(c.id)}
-          // puedes personalizar cómo se ve cada card:
-          // renderCard={(card) => (
-          //   <Box p={3} rounded="md" borderWidth="1px" bg="gray.700">
-          //     <Text fontWeight="semibold">{card.title}</Text>
-          //     {card.description && (
-          //       <Text fontSize="sm" color="gray.300" noOfLines={3}>
-          //         {card.description}
-          //       </Text>
-          //     )}
-          //   </Box>
-          // )}
+        // puedes personalizar cómo se ve cada card:
+        // renderCard={(card) => (
+        //   <Box p={3} rounded="md" borderWidth="1px" bg="gray.700">
+        //     <Text fontWeight="semibold">{card.title}</Text>
+        //     {card.description && (
+        //       <Text fontSize="sm" color="gray.300" noOfLines={3}>
+        //         {card.description}
+        //       </Text>
+        //     )}
+        //   </Box>
+        // )}
         />
       ) : (
         <Box p={6} rounded="md" borderWidth="1px">
@@ -174,6 +174,7 @@ export default function App() {
         isOpen={!!openCardId}
         card={selectedCard}
         onClose={() => setOpenCardId(null)}
+        topicId={selectedTopic ?? ''} // <-- debe ser un id válido (no vacío)
         onUpdate={async (cardId, patch) => {
           await updateCard.mutateAsync({ cardId, patch });
         }}
