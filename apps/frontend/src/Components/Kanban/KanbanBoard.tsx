@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  SimpleGrid,
   VStack,
   Box,
   Spinner,
@@ -47,7 +46,7 @@ const isColDroppable = (id: string | number | undefined) =>
 const parseColId = (droppableId: string) => String(droppableId).replace(/^col-/, '');
 
 const DefaultCard: React.FC<{ card: Card }> = ({ card }) => (
-  <Box p={3} bg="gray.700" rounded="md" borderWidth="1px">
+  <Box p={3} bg="gray.600" rounded="md">
     {/* Chips arriba */}
     {card.labels?.length ? (
       <HStack spacing={1} mb={2} flexWrap="wrap">
@@ -65,7 +64,6 @@ const DefaultCard: React.FC<{ card: Card }> = ({ card }) => (
     )}
   </Box>
 );
-
 
 /** Tarjeta sortable */
 function SortableCard({
@@ -210,7 +208,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
-  const handleDragOver = (_e: DragOverEvent) => {};
+  const handleDragOver = (_e: DragOverEvent) => { };
 
   const handleDragEnd = async (e: DragEndEvent) => {
     const { active, over } = e;
@@ -296,7 +294,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
       <Center py={10}>
         <Alert status="warning" variant="subtle" rounded="md">
           <AlertIcon />
-          No hay columnas. Crea una columna desde el menú del tópico o usa la API.
+          No columns. Create one from the topic menu or use the API.
         </Alert>
       </Center>
     );
@@ -310,7 +308,20 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <SimpleGrid columns={[1, 2, 3, 4]} spacing={4} alignItems="start">
+      {/* ===== CONTENEDOR HORIZONTAL SIN WRAP ===== */}
+      <Box
+        w="full"        // <-- ocupa 100%
+        minW={0}        // <-- permite que el contenido se contraiga sin overflow
+        display="flex"
+        flexDir="row"
+        alignItems="flex-start"
+        gap={4}
+        flexWrap="nowrap"
+        overflowX="auto"
+        overflowY="hidden"
+        py={2}
+        px={1}
+      >
         {columns.map((col: Column) => {
           const cards = cardsByColumn[col.id] ?? [];
           const items: string[] = cards.map((c) => c.id);
@@ -325,6 +336,11 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
               bg="gray.800"
               p={3}
               rounded="lg"
+              borderWidth="1px"
+              // columna de ancho fijo: no se encoge
+              flex="0 0 320px"
+              minW="320px"
+              maxW="320px"
             >
               {/* Header */}
               <Box>
@@ -332,7 +348,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   renderColumnHeader(col)
                 ) : (
                   <HStack justify="space-between">
-                    <Text fontWeight="bold">{col.title}</Text>
+                    <Text fontWeight="bold" color="white">
+                      {col.title}
+                    </Text>
                   </HStack>
                 )}
               </Box>
@@ -342,24 +360,24 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 <SortableContext
                   id={colDroppableId(col.id)}
                   items={items}
-                  strategy={rectSortingStrategy}
+                  strategy={rectSortingStrategy} // vertical dentro de la columna
                 >
                   {items.length === 0
                     ? renderEmptyColumn
                       ? renderEmptyColumn(col)
-                      : <Box color="gray.400">Sin tarjetas</Box>
+                      : <Box color="gray.400">No cards</Box>
                     : items.map((cardId) => {
-                        const card = cards.find((c) => c.id === cardId)!;
-                        return (
-                          <SortableCard
-                            key={card.id}
-                            card={card}
-                            columnId={col.id}
-                            renderCard={renderCard}
-                            onOpenCard={onOpenCard}
-                          />
-                        );
-                      })}
+                      const card = cards.find((c) => c.id === cardId)!;
+                      return (
+                        <SortableCard
+                          key={card.id}
+                          card={card}
+                          columnId={col.id}
+                          renderCard={renderCard}
+                          onOpenCard={onOpenCard}
+                        />
+                      );
+                    })}
                 </SortableContext>
               </ColumnDroppable>
 
@@ -368,6 +386,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 <Button
                   size="sm"
                   variant="ghost"
+                  colorScheme="whiteAlpha"
                   onClick={() => startAdd(col.id)}
                   justifyContent="flex-start"
                 >
@@ -416,7 +435,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
             </VStack>
           );
         })}
-      </SimpleGrid>
+      </Box>
 
       {/* Overlay sin borde extra */}
       <DragOverlay>

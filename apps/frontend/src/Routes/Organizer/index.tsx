@@ -2,56 +2,42 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
-  Button,
   Container,
   Heading,
   HStack,
   Select,
   Spacer,
-  Input,
+  Skeleton,
+  Text,
   useToast,
   VStack,
-  Text,
-  Skeleton,
 } from '@chakra-ui/react';
 import KanbanBoard from '@/Components/Kanban/KanbanBoard';
 import { useTopics } from '@/Hooks/useTopics';
 import { useTopicBoard } from '@/Hooks/useTopicBoard';
-import type { Card } from '@/types/kanban';
+import type { Card, Topic } from '@/types/kanban';
 import CardDetailsModal from '@/Components/Kanban/CardDetailsModal';
+import NewTopicButton from '@/Components/Topics/NewTopicButton';
+import NewColumnButton from '@/Components/Kanban/NewColumnButton';
+import CardView from '@/Components/Kanban/CardView';
 
 export default function App() {
   const toast = useToast();
 
-  /** ===== 1) Tópicos (lista + crear) ===== */
-  const { topics, createTopic } = useTopics();
-  const topicsList = topics.data ?? [];
+  /** ===== 1) Topics (list) ===== */
+  const { topics } = useTopics();
+  const topicsList: Topic[] = topics.data ?? [];
 
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
-  const [newTopicTitle, setNewTopicTitle] = useState('');
 
-  // seleccionar automáticamente el primer tópico disponible
+  // Auto-select first topic when available
   useEffect(() => {
     if (!selectedTopic && topicsList.length > 0) {
       setSelectedTopic(topicsList[0].id as string);
     }
   }, [topicsList, selectedTopic]);
 
-  const handleCreateTopic = async () => {
-    const title = newTopicTitle.trim();
-    if (!title) return;
-    try {
-      const created = await createTopic.mutateAsync({ title });
-      setNewTopicTitle('');
-      // seleccionar el recién creado
-      setSelectedTopic((created as any)?._id ?? null);
-      toast({ status: 'success', title: 'Tópico creado' });
-    } catch (e) {
-      toast({ status: 'error', title: 'No se pudo crear el tópico' });
-    }
-  };
-
-  /** ===== 2) Tablero por tópico ===== */
+  /** ===== 2) Board by topic ===== */
   const {
     board,
     createColumn,
@@ -62,7 +48,7 @@ export default function App() {
 
   const data = board.data ?? { columns: [], cardsByColumn: {} };
 
-  /** ===== 3) Modal de tarjeta ===== */
+  /** ===== 3) Card modal ===== */
   const [openCardId, setOpenCardId] = useState<string | null>(null);
   const flatCards: Card[] = useMemo(
     () => Object.values(data.cardsByColumn ?? {}).flat(),
@@ -72,18 +58,17 @@ export default function App() {
     openCardId ? flatCards.find((c) => c.id === openCardId) ?? null : null;
 
   /** ===== 4) UI ===== */
-  const creatingTopic = createTopic.isPending;
   const creatingColumn = createColumn.isPending;
 
   return (
-    <Container maxW="7xl" py={6}>
+    <Container maxW="full" py={6}>
       {/* Header */}
       <VStack align="stretch" spacing={4} mb={4}>
         <HStack>
           <Heading size="md">Kanban</Heading>
           <Spacer />
 
-          {/* Selector de tópico */}
+          {/* Topic selector + New topic + New column (labeled "New Card" by request) */}
           {topics.isLoading ? (
             <Skeleton height="32px" width="260px" rounded="md" />
           ) : topicsList.length > 0 ? (
@@ -93,50 +78,42 @@ export default function App() {
                 width="260px"
                 value={selectedTopic ?? ''}
                 onChange={(e) => setSelectedTopic(e.target.value || null)}
+                placeholder="Select a topic"
               >
-                {topicsList.map((t: any) => (
+                {topicsList.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.title ?? t.key ?? t.id}
                   </option>
                 ))}
               </Select>
-              <Button
-                size="sm"
-                onClick={async () => {
-                  const title = prompt('Nombre de la nueva columna')?.trim();
-                  if (!title) return;
-                  try {
-                    await createColumn.mutateAsync(title);
-                    toast({ status: 'success', title: 'Columna creada' });
-                  } catch {
-                    toast({ status: 'error', title: 'No se pudo crear la columna' });
-                  }
-                }}
-                isLoading={creatingColumn}
-              >
-                + Columna
-              </Button>
-            </HStack>
-          ) : null}
-        </HStack>
 
-        {/* Crear tópico cuando no hay */}
-        {topicsList.length === 0 && !topics.isLoading && (
-          <HStack>
-            <Input
-              placeholder="Nombre del tópico"
-              size="sm"
-              value={newTopicTitle}
-              onChange={(e) => setNewTopicTitle(e.target.value)}
-            />
-            <Button size="sm" onClick={handleCreateTopic} isLoading={creatingTopic}>
-              Crear tópico
-            </Button>
-          </HStack>
-        )}
+              <NewTopicButton
+                buttonText="New topic"
+                onCreated={(t) => setSelectedTopic(t.id)}
+              />
+
+              <NewColumnButton
+                buttonText="New Card"
+                onCreate={async (title) => {
+                  await createColumn.mutateAsync(title);
+                  toast({ status: 'success', title: 'Card created' });
+                }}
+              />
+            </HStack>
+          ) : (
+            <HStack>
+              <NewTopicButton
+                buttonText="Create your first topic"
+                size="sm"
+                colorScheme="teal"
+                onCreated={(t) => setSelectedTopic(t.id)}
+              />
+            </HStack>
+          )}
+        </HStack>
       </VStack>
 
-      {/* Contenido */}
+      {/* Content */}
       {selectedTopic ? (
         <KanbanBoard
           columns={data.columns}
@@ -147,34 +124,34 @@ export default function App() {
             createCard.mutateAsync({ columnId: colId, title })
           }
           onOpenCard={(c) => setOpenCardId(c.id)}
-        // puedes personalizar cómo se ve cada card:
-        // renderCard={(card) => (
-        //   <Box p={3} rounded="md" borderWidth="1px" bg="gray.700">
-        //     <Text fontWeight="semibold">{card.title}</Text>
-        //     {card.description && (
-        //       <Text fontSize="sm" color="gray.300" noOfLines={3}>
-        //         {card.description}
-        //       </Text>
-        //     )}
-        //   </Box>
-        // )}
+          /** our custom card view with hover completion radio */
+          renderCard={(card) => (
+            <CardView
+              card={card}
+              onOpen={(c) => setOpenCardId(c.id)}
+              onToggleComplete={(id, next) => {
+                // PATCH /cards/:id { completed: boolean }
+                return updateCard.mutateAsync({ cardId: id, patch: { completed: next } });
+              }}
+            />
+          )}
         />
       ) : (
         <Box p={6} rounded="md" borderWidth="1px">
           {topics.isLoading ? (
-            <Text>Cargando tópicos…</Text>
+            <Text>Loading topics…</Text>
           ) : (
-            <Text>Primero crea un tópico para comenzar.</Text>
+            <Text>Create a topic to get started.</Text>
           )}
         </Box>
       )}
 
-      {/* Modal de detalles de tarjeta */}
+      {/* Card details modal */}
       <CardDetailsModal
         isOpen={!!openCardId}
         card={selectedCard}
         onClose={() => setOpenCardId(null)}
-        topicId={selectedTopic ?? ''} // <-- debe ser un id válido (no vacío)
+        topicId={selectedTopic ?? ''} // must be a valid id (non-empty)
         onUpdate={async (cardId, patch) => {
           await updateCard.mutateAsync({ cardId, patch });
         }}

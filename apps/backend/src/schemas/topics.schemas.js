@@ -1,63 +1,56 @@
 // backend/src/schemas/topics.schemas.js
-const Joi = require('joi');
+const z = require('zod');
 
-const labelDef = Joi.object({
-  id: Joi.string().optional(),
-  name: Joi.string().required(),
-  color: Joi.string().valid(
-    'green', 'yellow', 'orange', 'red', 'purple', 'blue', 'lime', 'sky', 'pink', 'gray', 'black'
-  ).required()
+const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid ObjectId');
+
+exports.createTopic = z.object({
+  body: z.object({
+    title: z.string().min(1, 'title required'),
+    key: z.string().trim().max(16).optional(),
+  }),
 });
 
-exports.createTopic = Joi.object({
-  title: Joi.string().min(1).required(),
-  key: Joi.string().optional()
+exports.createColumn = z.object({
+  body: z.object({
+    title: z.string().min(1, 'title required'),
+  }),
 });
 
-exports.createColumn = Joi.object({
-  title: Joi.string().min(1).required()
-});
-exports.createTopicLabel = Joi.object({
-  name: Joi.string().min(1).required(),
-  color: Joi.string().valid(
-    'green', 'yellow', 'orange', 'red', 'purple', 'blue', 'lime', 'sky', 'pink', 'gray', 'black'
-  ).required()
-});
-exports.createCard = Joi.object({
-  title: Joi.string().min(1).required(),
-  columnId: Joi.string().required()
+exports.createCard = z.object({
+  body: z.object({
+    columnId: objectId,
+    title: z.string().min(1),
+    description: z.string().optional(),
+    labels: z.array(z.union([
+      z.string(), // id
+      z.object({ id: z.string(), name: z.string(), color: z.string() }) // objeto
+    ])).optional(),
+    members: z.array(z.string()).optional(),
+    dueDate: z.string().or(z.date()).optional(),
+    completed: z.boolean().optional(),
+  })
 });
 
-exports.updateTopicLabel = Joi.object({
-  name: Joi.string().min(1).optional(),
-  color: Joi.string().valid(
-    'green','yellow','orange','red','purple','blue','lime','sky','pink','gray','black'
-  ).optional()
-}).min(1);
+exports.updateCard = z.object({
+  body: z.object({
+    title: z.string().min(1).optional(),
+    description: z.string().optional(),
+    labels: z.array(z.union([
+      z.string(),
+      z.object({ id: z.string(), name: z.string(), color: z.string() })
+    ])).optional(),
+    members: z.array(z.string()).optional(),
+    dueDate: z.string().or(z.date()).nullable().optional(),
+    checklist: z.any().optional(),
+    attachments: z.any().optional(),
+    comments: z.any().optional(),
+    completed: z.boolean().optional(), // ✅ permitir toggle
+  })
+});
 
-exports.updateCard = Joi.object({
-  title: Joi.string(),
-  description: Joi.string().allow(''),
-  // ⬇️ acepta ambas formas
-  labels: Joi.alternatives().try(
-    Joi.array().items(Joi.string()),
-    Joi.array().items(labelDef)
-  ),
-  members: Joi.array().items(Joi.string()),
-  dueDate: Joi.date().allow(null),
-  checklist: Joi.array().items(Joi.object({
-    id: Joi.string().required(),
-    text: Joi.string().required(),
-    done: Joi.boolean().required()
-  })),
-  attachments: Joi.array().items(Joi.object({
-    id: Joi.string().required(),
-    url: Joi.string().uri().required(),
-    name: Joi.string().allow('')
-  })),
-  comments: Joi.array().items(Joi.object({
-    id: Joi.string().required(),
-    text: Joi.string().required(),
-    createdAt: Joi.date().iso().optional()
-  }))
-}).min(1);
+exports.createTopicLabel = z.object({
+  body: z.object({
+    name: z.string().min(1),
+    color: z.string().min(1),
+  })
+});

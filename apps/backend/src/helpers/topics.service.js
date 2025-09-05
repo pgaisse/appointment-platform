@@ -1,20 +1,34 @@
-const Topic = require('../models/Organizer/Topic');
+// backend/src/helpers/topics.service.js
+const mongoose = require('mongoose');
+const { isValidObjectId } = mongoose;
+
+const Topic  = require('../models/Organizer/Topic');
 const Column = require('../models/Organizer/Column');
 const Card   = require('../models/Organizer/Card');
-const svc = require('../helpers/topics.service'); 
 
+const BASE_GAP = 1000;
+
+// ------------------------ Helpers ------------------------
 function normalizePatch(patch, topic) {
   const out = { ...patch };
+
+  // normaliza labels (guardamos solo IDs)
   if (Array.isArray(patch.labels)) {
-    // guardamos SOLO ids de label
-    out.labels = patch.labels.map(l => {
-      if (typeof l === 'string') return l;             // ya es id
-      if (l && typeof l === 'object' && l.id) return l.id; // objeto -> id
-      // fallback: por name -> id del catálogo
-      const hit = (topic?.labels || []).find(x => x.name === l?.name);
-      return hit ? hit.id : null;
-    }).filter(Boolean);
+    out.labels = patch.labels
+      .map(l => {
+        if (typeof l === 'string') return l;
+        if (l && typeof l === 'object' && l.id) return l.id;
+        const hit = (topic?.labels || []).find(x => x.name === l?.name);
+        return hit ? hit.id : null;
+      })
+      .filter(Boolean);
   }
+
+  // completed: asegurar boolean si viene
+  if (typeof patch.completed !== 'undefined') {
+    out.completed = !!patch.completed;
+  }
+
   return out;
 }
 
@@ -23,16 +37,66 @@ function hydrateCardLabels(cards, topic) {
   const byId = new Map(defs.map(l => [l.id, l]));
   for (const c of cards) {
     const raw = Array.isArray(c.labels) ? c.labels : [];
-    c.labels = raw.map(x => (typeof x === 'string' ? byId.get(x) : x))
-                  .filter(Boolean);
+    c.labels = raw.map(x => (typeof x === 'string' ? byId.get(x) : x)).filter(Boolean);
   }
   return cards;
 }
 
+async function nextSortKeyForColumn(topicId, columnId) {
+  const last = await Card.find({ topicId, columnId }).sort({ sortKey: -1 }).limit(1).lean();
+  return last.length ? (last[0].sortKey || 0) + BASE_GAP : BASE_GAP;
+}
+
+async function renumberColumn(topicId, columnId) {
+  const cards = await Card.find({ topicId, columnId }).sort({ sortKey: 1 }).lean();
+  const ops = cards.map((c, idx) => ({
+    updateOne: {
+      filter: { _id: c._id },
+      update: { $set: { sortKey: (idx + 1) * BASE_GAP } }
+    }
+  }));
+  if (ops.length) await Card.bulkWrite(ops);
+}
+
+// ------------------------ Topics ------------------------
 exports.listTopics = async function listTopics() {
   const topics = await Topic.find().lean();
-  return topics.map(t => ({ id: String(t._id), title: t.title, key: t.key, createdAt: t.createdAt, updatedAt: t.updatedAt }));
+  return topics.map(t => ({
+    id: String(t._id),
+    title: t.title,
+    key: t.key,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt
+  }));
 };
+
+exports.createTopic = async function createTopic({ title, key }) {
+  if (!title || !String(title).trim()) {
+    const err = new Error('title required');
+    err.status = 400;
+    throw err;
+  }
+  const payload = {
+    title: String(title).trim(),
+    labels: [],
+  };
+  if (key && String(key).trim()) payload.key = String(key).trim();
+
+  try {
+    const t = await Topic.create(payload);
+    return { id: String(t._id), title: t.title, key: t.key, createdAt: t.createdAt, updatedAt: t.updatedAt };
+  } catch (e) {
+    // Duplicate key
+    if (e && e.code === 11000) {
+      const err = new Error('duplicated key');
+      err.status = 409;
+      throw err;
+    }
+    throw e;
+  }
+};
+
+// ------------------------ Board read ------------------------
 exports.getTopicBoard = async function getTopicBoard(topicId) {
   const topic = await Topic.findById(topicId).lean();
   if (!topic) throw new Error('Topic not found');
@@ -51,12 +115,13 @@ exports.getTopicBoard = async function getTopicBoard(topicId) {
       title: c.title,
       description: c.description,
       sortKey: c.sortKey,
-      labels: c.labels, // objetos completos (id,name,color)
+      labels: c.labels, // hydrated
       members: c.members,
       dueDate: c.dueDate,
       checklist: c.checklist,
       attachments: c.attachments,
       comments: c.comments,
+      completed: !!c.completed, // ✅ incluir completed
     });
   }
 
@@ -66,19 +131,127 @@ exports.getTopicBoard = async function getTopicBoard(topicId) {
   };
 };
 
+// ------------------------ Columns ------------------------
+async function nextColumnSort(topicId) {
+  const last = await Column.find({ topicId }).sort({ sortKey: -1 }).limit(1).lean();
+  return last.length ? (Number(last[0].sortKey) || 0) + BASE_GAP : BASE_GAP;
+}
+
+exports.createColumn = async function createColumn(topicId, { title }) {
+  if (!topicId) {
+    const e = new Error('topicId required'); e.status = 400; throw e;
+  }
+  if (!title || !String(title).trim()) {
+    const e = new Error('title required'); e.status = 400; throw e;
+  }
+
+  const t = await Topic.findById(topicId).lean();
+  if (!t) { const e = new Error('Topic not found'); e.status = 404; throw e; }
+
+  const sortKey = await nextColumnSort(topicId);
+  const col = await Column.create({
+    topicId,
+    title: String(title).trim(),
+    sortKey,
+  });
+
+  return { id: String(col._id), title: col.title, sortKey: col.sortKey };
+};
+
+exports.reorderColumns = async function reorderColumns(topicId, orderedColumnIds) {
+  if (!Array.isArray(orderedColumnIds)) throw new Error('orderedColumnIds must be an array');
+  const ops = orderedColumnIds.map((id, idx) => ({
+    updateOne: {
+      filter: { _id: id, topicId },
+      update: { $set: { sortKey: (idx + 1) * BASE_GAP } }
+    }
+  }));
+  if (ops.length) await Column.bulkWrite(ops);
+};
+
+// ------------------------ Cards ------------------------
+exports.createCard = async function createCard(topicId, body) {
+  const { columnId, title, description, labels, members, dueDate, completed } = body || {};
+  if (!topicId) throw new Error('topicId required');
+  if (!columnId) throw new Error('columnId required');
+  if (!title || !String(title).trim()) throw new Error('title required');
+
+  const topic = await Topic.findById(topicId).lean();
+  if (!topic) throw new Error('Topic not found');
+
+  const sortKey = await nextSortKeyForColumn(topicId, columnId);
+  const normalized = normalizePatch({ labels, completed }, topic);
+
+  const card = await Card.create({
+    topicId,
+    columnId,
+    title: String(title).trim(),
+    description: description ? String(description) : undefined,
+    sortKey,
+    labels: normalized.labels || [],
+    members: Array.isArray(members) ? members : [],
+    dueDate: dueDate || null,
+    checklist: [],
+    attachments: [],
+    comments: [],
+    completed: !!normalized.completed, // ✅ default false si no viene
+  });
+
+  const [hydrated] = hydrateCardLabels([card.toObject()], topic);
+
+  return {
+    id: String(card._id),
+    title: card.title,
+    description: card.description,
+    sortKey: card.sortKey,
+    labels: hydrated.labels,
+    members: card.members,
+    dueDate: card.dueDate,
+    checklist: card.checklist,
+    attachments: card.attachments,
+    comments: card.comments,
+    completed: !!card.completed,
+  };
+};
+
 exports.updateCard = async function updateCard(cardId, patch) {
+  if (!isValidObjectId(cardId)) throw new Error('Invalid cardId');
+
+  // 1) Cargar card
   const card = await Card.findById(cardId).lean();
   if (!card) throw new Error('Card not found');
-  const topic = await Topic.findById(card.topicId).lean();
 
-  const normalized = normalizePatch(patch, topic);
+  // 2) Intentar cargar topic; si no existe, igual seguimos (no hidrataremos labels)
+  let topic = null;
+  try {
+    topic = await Topic.findById(card.topicId).lean();
+    // si te parece crítico:
+    // if (!topic) throw new Error('Topic not found');
+  } catch {
+    topic = null;
+  }
+
+  // 3) Normalizar patch con/ sin topic
+  const normalized = topic ? normalizePatch(patch, topic) : (() => {
+    const out = { ...patch };
+    if (typeof out.completed !== 'undefined') out.completed = !!out.completed;
+    // evitar cambios de ownership
+    delete out._id; delete out.topicId; delete out.columnId;
+    return out;
+  })();
+
+  // 4) Actualizar
   const updated = await Card.findByIdAndUpdate(
     cardId,
     { $set: normalized },
     { new: true, runValidators: true }
   ).lean();
 
+  if (!updated) throw new Error('Card not found'); // improbable
+
+  // 5) Hidratación segura de labels
   const [hydrated] = hydrateCardLabels([updated], topic);
+
   return {
     id: String(updated._id),
     title: hydrated.title,
@@ -90,10 +263,69 @@ exports.updateCard = async function updateCard(cardId, patch) {
     checklist: hydrated.checklist,
     attachments: hydrated.attachments,
     comments: hydrated.comments,
+    completed: !!updated.completed,
   };
 };
 
-// ---- Gestión del catálogo de labels del tópico ----
+exports.moveCard = async function moveCard({ cardId, toColumnId, before, after }) {
+  if (!isValidObjectId(cardId)) throw new Error('Invalid cardId');
+  const card = await Card.findById(cardId).lean();
+  if (!card) throw new Error('Card not found');
+
+  const topicId = card.topicId;
+  let targetColumnId = card.columnId;
+
+  if (toColumnId) {
+    if (!isValidObjectId(toColumnId)) throw new Error('Invalid toColumnId');
+    const col = await Column.findOne({ _id: toColumnId, topicId }).lean();
+    if (!col) throw new Error('Target column not found in this topic');
+    targetColumnId = col._id;
+  }
+
+  let beforeDoc = null;
+  if (before && isValidObjectId(before)) {
+    beforeDoc = await Card.findById(before).lean();
+    if (beforeDoc && String(beforeDoc.topicId) !== String(topicId)) beforeDoc = null;
+  }
+  let afterDoc = null;
+  if (after && isValidObjectId(after)) {
+    afterDoc = await Card.findById(after).lean();
+    if (afterDoc && String(afterDoc.topicId) !== String(topicId)) afterDoc = null;
+  }
+  if (beforeDoc && String(beforeDoc.columnId) !== String(targetColumnId)) beforeDoc = null;
+  if (afterDoc  && String(afterDoc.columnId)  !== String(targetColumnId)) afterDoc  = null;
+
+  let finalSort;
+  if (!beforeDoc && !afterDoc) {
+    finalSort = await nextSortKeyForColumn(topicId, targetColumnId);
+  } else if (beforeDoc && afterDoc) {
+    finalSort = (Number(beforeDoc.sortKey) + Number(afterDoc.sortKey)) / 2;
+    if (!isFinite(finalSort) || finalSort === beforeDoc.sortKey || finalSort === afterDoc.sortKey) {
+      await renumberColumn(topicId, targetColumnId);
+      beforeDoc = await Card.findById(before).lean();
+      afterDoc  = await Card.findById(after).lean();
+      finalSort = (Number(beforeDoc.sortKey) + Number(afterDoc.sortKey)) / 2;
+    }
+  } else if (beforeDoc && !afterDoc) {
+    finalSort = Number(beforeDoc.sortKey) - 0.5;
+  } else {
+    finalSort = Number(afterDoc.sortKey) + 0.5;
+  }
+
+  if (!isFinite(finalSort)) {
+    await renumberColumn(topicId, targetColumnId);
+    finalSort = await nextSortKeyForColumn(topicId, targetColumnId);
+  }
+
+  await Card.updateOne(
+    { _id: cardId },
+    { $set: { columnId: targetColumnId, sortKey: finalSort } }
+  );
+
+  return { finalSortKey: finalSort };
+};
+
+// ------------------------ Topic Labels ------------------------
 exports.listTopicLabels = async (topicId) => {
   const t = await Topic.findById(topicId).lean();
   if (!t) throw new Error('Topic not found');
@@ -103,13 +335,16 @@ exports.listTopicLabels = async (topicId) => {
 exports.createTopicLabel = async (topicId, body) => {
   const t = await Topic.findById(topicId);
   if (!t) throw new Error('Topic not found');
-  const exists = (t.labels || []).some(l => l.name.toLowerCase() === body.name.trim().toLowerCase());
+  const name = String(body?.name || '').trim();
+  if (!name) throw new Error('name required');
+
+  const exists = (t.labels || []).some(l => l.name.toLowerCase() === name.toLowerCase());
   if (exists) throw new Error('Label name already exists');
 
   const label = {
     id: body.id || (Date.now().toString(36) + Math.random().toString(36).slice(2,8)),
-    name: body.name.trim(),
-    color: body.color
+    name,
+    color: body.color,
   };
   t.labels.push(label);
   await t.save();
@@ -121,7 +356,7 @@ exports.updateTopicLabel = async (topicId, labelId, body) => {
   if (!t) throw new Error('Topic not found');
   const idx = (t.labels || []).findIndex(l => l.id === labelId);
   if (idx === -1) throw new Error('Label not found');
-  if (body.name)  t.labels[idx].name  = body.name.trim();
+  if (body.name)  t.labels[idx].name  = String(body.name).trim();
   if (body.color) t.labels[idx].color = body.color;
   await t.save();
   return t.labels[idx];
@@ -132,6 +367,5 @@ exports.deleteTopicLabel = async (topicId, labelId) => {
   if (!t) throw new Error('Topic not found');
   t.labels = (t.labels || []).filter(l => l.id !== labelId);
   await t.save();
-  // opcional: quitar ese label de todas las cards del tópico
   await Card.updateMany({ topicId }, { $pull: { labels: labelId } });
 };

@@ -1,36 +1,58 @@
+// backend/src/models/Organizer/Card.js
 const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const ChecklistItem = new mongoose.Schema(
-  { id: String, text: String, done: Boolean },
-  { _id: false }
-);
-const Attachment = new mongoose.Schema(
-  { id: String, url: String, name: String },
-  { _id: false }
-);
-const CommentItem = new mongoose.Schema(
-  { id: String, text: String, createdAt: Date },
-  { _id: false }
-);
-
-const CardSchema = new mongoose.Schema(
+const ChecklistItemSchema = new Schema(
   {
-    topicId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', required: true },
-    columnId:  { type: mongoose.Schema.Types.ObjectId, ref: 'Column', required: true },
-    title:     { type: String, required: true },
-    description: { type: String },
-    sortKey:   { type: String, required: true },
-
-    // Para evitar errores 400 ahora mismo, dejamos labels como Mixed (acepta string u objeto)
-    labels:      { type: [mongoose.Schema.Types.Mixed], default: [] },
-    members:     { type: [String], default: [] },
-    dueDate:     { type: Date },
-
-    checklist:   { type: [ChecklistItem], default: [] },
-    attachments: { type: [Attachment], default: [] },
-    comments:    { type: [CommentItem], default: [] },
+    id: { type: String, required: true },
+    text: { type: String, required: true },
+    done: { type: Boolean, default: false },
   },
-  { timestamps: true }
+  { _id: false }
+);
+
+const AttachmentSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    url: { type: String, required: true },
+    name: { type: String },
+  },
+  { _id: false }
+);
+
+const CommentSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    text: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const CardSchema = new Schema(
+  {
+    topicId:  { type: Schema.Types.ObjectId, ref: 'Topic', required: true, index: true },
+    columnId: { type: Schema.Types.ObjectId, ref: 'Column', required: true, index: true },
+
+    title:       { type: String, required: true, trim: true },
+    description: { type: String },
+    sortKey:     { type: Number, required: true, index: true },
+
+    // labels se guardan como IDs (strings) del catálogo del tópico
+    labels:   [{ type: String }],
+    members:  [{ type: String }],
+    dueDate:  { type: Date },
+
+    checklist:   [ChecklistItemSchema],
+    attachments: [AttachmentSchema],
+    comments:    [CommentSchema],
+
+    // ✅ nuevo flag para “completed”
+    completed: { type: Boolean, default: false },
+  },
+  {
+    timestamps: true, // createdAt, updatedAt
+  }
 );
 
 module.exports = mongoose.model('Card', CardSchema);

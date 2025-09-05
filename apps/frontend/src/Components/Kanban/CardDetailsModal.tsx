@@ -27,9 +27,9 @@ type Props = {
 };
 
 const uid = () =>
-  (typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+(typeof crypto !== 'undefined' && 'randomUUID' in crypto
+  ? crypto.randomUUID()
+  : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
 
 const isEqual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -161,12 +161,13 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
                   topicLabels={topicLabels}
                   value={(local.labels ?? []) as LabelDef[]}
                   onChange={(next) => setLocal({ ...local, labels: next as any })}
+                  onCreateRequested={openMgr}
                 />
                 <Button size="sm" onClick={() => savePatch({ labels: (local.labels ?? []) as any })}>
-                  Guardar labels
+                  Save labels
                 </Button>
                 <Button size="sm" variant="outline" onClick={openMgr}>
-                  Gestionar labels
+                  Manage labels
                 </Button>
               </HStack>
 

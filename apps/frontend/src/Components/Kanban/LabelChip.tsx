@@ -1,38 +1,81 @@
-import { Box, Text } from '@chakra-ui/react';
+import React from 'react';
+import { Box, HStack, Text } from '@chakra-ui/react';
 import type { LabelDef, LabelColor } from '@/types/kanban';
 
-const colorMap: Record<LabelColor, { bg: string; text: string; border: string }> = {
-  green:  { bg: 'green.500',  text: 'white', border: 'green.600'  },
-  yellow: { bg: 'yellow.400', text: 'black', border: 'yellow.500' },
-  orange: { bg: 'orange.400', text: 'black', border: 'orange.500' },
-  red:    { bg: 'red.500',    text: 'white', border: 'red.600'    },
-  purple: { bg: 'purple.500', text: 'white', border: 'purple.600' },
-  blue:   { bg: 'blue.500',   text: 'white', border: 'blue.600'   },
-  lime:   { bg: 'lime.400',   text: 'black', border: 'lime.500'   },
-  sky:    { bg: 'cyan.400',   text: 'black', border: 'cyan.500'   },
-  pink:   { bg: 'pink.400',   text: 'black', border: 'pink.500'   },
-  gray:   { bg: 'gray.500',   text: 'white', border: 'gray.600'   },
-  black:  { bg: 'black',      text: 'white', border: 'black'      },
+const COLOR_HEX: Record<LabelColor, string> = {
+  green:  '#22c55e',
+  yellow: '#eab308',
+  orange: '#f97316',
+  red:    '#ef4444',
+  purple: '#a855f7',
+  blue:   '#3b82f6',
+  lime:   '#84cc16',
+  sky:    '#0ea5e9',
+  pink:   '#ec4899',
+  gray:   '#64748b',
+  black:  '#111827',
 };
 
-export default function LabelChip({ label, withText = false }: { label: LabelDef; withText?: boolean }) {
-  const c = colorMap[label.color] ?? colorMap.gray;
+// Perceptual luminance for readable text color
+function textColorFor(bgHex: string) {
+  const hex = bgHex.replace('#', '');
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const L = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return L > 0.58 ? 'black' : 'white';
+}
+
+export default function LabelChip({
+  label,
+  withText = false,
+  size = 'sm',
+}: {
+  label: LabelDef;
+  withText?: boolean;
+  size?: 'sm' | 'md';
+}) {
+  const bg = COLOR_HEX[label.color] ?? '#64748b';
+  const fg = textColorFor(bg);
+  const styles =
+    size === 'sm'
+      ? { h: '20px', fontSize: '11px', px: 2 }
+      : { h: '24px', fontSize: '12px', px: 2.5 };
+
   return (
-    <Box
+    <HStack
       as="span"
-      display="inline-flex"
-      px={withText ? 2 : 0}
-      h="8px"
-      minW={withText ? 'auto' : '40px'}
-      rounded="sm"
-      bg={c.bg}
-      borderWidth="1px"
-      borderColor={c.border}
-      alignItems="center"
-      justifyContent="center"
-      lineHeight="8px"
+      spacing={1.5}
+      bg={bg}
+      color={fg}
+      borderRadius="md"
+      height={styles.h}
+      px={styles.px}
+      lineHeight="1"
+      fontWeight="semibold"
+      whiteSpace="nowrap"
+      maxW="100%"
     >
-      {withText ? <Text fontSize="xs" color={c.text}>{label.name}</Text> : null}
-    </Box>
+      {/* small leading dot for aesthetics */}
+      <Box
+        w="6px"
+        h="6px"
+        borderRadius="full"
+        bg="whiteAlpha.900"
+        opacity={fg === 'white' ? 0.65 : 0.35}
+      />
+      {withText ? (
+        <Text
+          as="span"
+          fontSize={styles.fontSize}
+          noOfLines={1}
+          textOverflow="ellipsis"
+          overflow="hidden"
+          maxW="220px"
+        >
+          {label.name}
+        </Text>
+      ) : null}
+    </HStack>
   );
 }

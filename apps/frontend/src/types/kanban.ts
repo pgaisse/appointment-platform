@@ -23,6 +23,8 @@ export interface Comment { id: string; authorId?: string; authorName?: string; t
 
 export interface CardParam { key: string; value: unknown }
 
+
+
 export interface Card {
   id: Id;
   topicId?: Id;
@@ -36,9 +38,11 @@ export interface Card {
   attachments?: Attachment[];
   comments?: Comment[];
   params?: CardParam[];
-  labels?: LabelDef[]; 
+  labels?: LabelDef[];
   sortKey: string;
-  createdAt?: string; updatedAt?: string;
+  createdAt?: string; 
+  updatedAt?: string;
+  completed?: boolean;
 }
 
 export interface Column {
