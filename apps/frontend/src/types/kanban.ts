@@ -54,15 +54,23 @@ export interface MoveCardArgs {
   provisionalSortKey: string;
 }
 
+// src/types/kanban.ts
+// ... resto de imports y tipos
+
 export interface KanbanBoardProps extends BoardData {
   onMoveCard?: (args: MoveCardArgs) => Promise<void> | void;
   onReorderColumns?: (orderedColumnIds: Id[]) => Promise<void> | void;
   renderColumnHeader?: (c: Column) => React.ReactNode;
-  renderCard?: (card: any) => React.ReactNode;
+  renderCard?: (card: Card) => React.ReactNode;
   renderEmptyColumn?: (c: Column) => React.ReactNode;
   isLoading?: boolean;
   disabled?: boolean;
   virtualization?: boolean;
   maxColumnHeight?: string | number;
   keyboardDnd?: boolean;
+  onCreateCard?: (columnId: Id, title: string) => Promise<void> | void;
+
+  /** Nuevo: abrir detalle de tarjeta */
+  onOpenCard?: (card: Card) => void;
 }
+

@@ -1,17 +1,40 @@
 import React, { useState } from 'react';
 import {
-  SimpleGrid, VStack, Box, Spinner, Text, HStack, Button,
+  SimpleGrid,
+  VStack,
+  Box,
+  Spinner,
+  Text,
+  HStack,
+  Button,
+  Textarea,
+  IconButton,
+  Center,
+  Alert,
+  AlertIcon,
 } from '@chakra-ui/react';
 import {
-  DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor,
-  useSensor, useSensors, KeyboardSensor, closestCenter, Over, DragOverEvent,
-  useDroppable
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  KeyboardSensor,
+  closestCenter,
+  Over,
+  DragOverEvent,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
-  SortableContext, useSortable, sortableKeyboardCoordinates,
-  rectSortingStrategy
+  SortableContext,
+  useSortable,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { SmallCloseIcon } from '@chakra-ui/icons';
 
 import type { KanbanBoardProps, Column, Card } from '@/types/kanban';
 import { between } from '@/Helpers/between';
@@ -22,14 +45,23 @@ const isColDroppable = (id: string | number | undefined) =>
   typeof id === 'string' && id.startsWith('col-');
 const parseColId = (droppableId: string) => String(droppableId).replace(/^col-/, '');
 
+const DefaultCard: React.FC<{ card: Card }> = ({ card }) => (
+  <Box p={3} bg="gray.700" rounded="md" borderWidth="1px">
+    {card.title}
+  </Box>
+);
+
+/** Tarjeta sortable */
 function SortableCard({
   card,
   columnId,
   renderCard,
+  onOpenCard,
 }: {
   card: Card;
   columnId: string;
   renderCard?: (c: Card) => React.ReactNode;
+  onOpenCard?: (c: Card) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -40,22 +72,23 @@ function SortableCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : 1,
+    cursor: 'pointer',
   };
 
   return (
-    <Box ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      {renderCard ? (
-        renderCard(card)
-      ) : (
-        <Box p={3} bg="gray.700" rounded="md" borderWidth="1px">
-          {card.title}
-        </Box>
-      )}
+    <Box
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={() => !isDragging && onOpenCard?.(card)}
+    >
+      {renderCard ? renderCard(card) : <DefaultCard card={card} />}
     </Box>
   );
 }
 
-/** Crea una zona droppable para la columna (necesaria para poder soltar en columnas vacías). */
+/** Zona droppable de la columna (permite soltar en columnas vacías). */
 function ColumnDroppable({
   columnId,
   children,
@@ -73,12 +106,8 @@ function ColumnDroppable({
       ref={setNodeRef}
       align="stretch"
       spacing={2}
-      maxH="70vh"
-      overflowY="auto"
-      // un mínimo de alto para poder soltar en vacío
-      minH="80px"
-      // feedback visual opcional cuando el puntero está encima
-      bg={isOver ? 'gray.750' : undefined}
+      minH="80px"                 // área mínima para soltar
+      bg={isOver ? 'gray.700' : 'transparent'}
       borderColor={isOver ? 'blue.400' : 'transparent'}
       borderWidth={isOver ? '1px' : '0'}
       rounded="md"
@@ -90,15 +119,19 @@ function ColumnDroppable({
 }
 
 const KanbanBoard: React.FC<KanbanBoardProps> = ({
-  columns,
-  cardsByColumn,
+  columns = [],                           // defaults seguros
+  cardsByColumn = {},
   renderColumnHeader,
   renderCard,
   renderEmptyColumn,
   isLoading,
   onMoveCard,
+  onCreateCard,
+  onOpenCard,
 }) => {
   const [activeCard, setActiveCard] = useState<Card | null>(null);
+  const [draftByCol, setDraftByCol] = useState<Record<string, string>>({});
+  const [isAddingByCol, setIsAddingByCol] = useState<Record<string, boolean>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -108,29 +141,23 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const findCard = (id: CardId) => {
     for (const col of columns) {
       const list = cardsByColumn[col.id] || [];
-      const idx = list.findIndex(c => c.id === id);
+      const idx = list.findIndex((c) => c.id === id);
       if (idx > -1) return { card: list[idx], columnId: col.id, index: idx };
     }
     return null;
   };
 
-  const getToColumnAndIndex = (over: Over | null, activeId: CardId) => {
+  const getToColumnAndIndex = (over: Over | null) => {
     if (!over) return null;
     const overId = over.id;
-
-    // Si estamos sobre la zona droppable de la columna (vacía o no), vamos al final.
     if (isColDroppable(overId)) {
       const toColumnId = parseColId(String(overId));
       const toIndex = (cardsByColumn[toColumnId] || []).length;
       return { toColumnId, toIndex };
     }
-
-    // Si estamos sobre otra tarjeta, insertamos en su índice.
     const overInfo = findCard(String(overId));
     if (!overInfo) return null;
-    const toColumnId = overInfo.columnId;
-    const toIndex = overInfo.index;
-    return { toColumnId, toIndex };
+    return { toColumnId: overInfo.columnId, toIndex: overInfo.index };
   };
 
   const computeNeighbors = (
@@ -139,18 +166,14 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
     activeId: string,
     toIndex: number
   ) => {
-    // Clon superficial seguro
     const clone: typeof cardsByColumn = Object.fromEntries(
       Object.entries(cardsByColumn).map(([k, v]) => [k, [...(v || [])]])
     );
-
-    // Remover del origen
     const fromArr = clone[fromColumnId] || [];
-    const activeIdx = fromArr.findIndex(c => c.id === activeId);
+    const activeIdx = fromArr.findIndex((c) => c.id === activeId);
     const [moving] = fromArr.splice(activeIdx, 1);
     clone[fromColumnId] = fromArr;
 
-    // Insertar en destino
     const destArr = clone[toColumnId] || [];
     destArr.splice(toIndex, 0, moving);
     clone[toColumnId] = destArr;
@@ -171,9 +194,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
-  const handleDragOver = (_e: DragOverEvent) => {
-    // opcional: vista previa optimista
-  };
+  const handleDragOver = (_e: DragOverEvent) => {};
 
   const handleDragEnd = async (e: DragEndEvent) => {
     const { active, over } = e;
@@ -181,29 +202,31 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
       setActiveCard(null);
       return;
     }
-
     const from = findCard(String(active.id));
     if (!from) {
       setActiveCard(null);
       return;
     }
-
-    const pos = getToColumnAndIndex(over, String(active.id));
+    const pos = getToColumnAndIndex(over);
     if (!pos) {
       setActiveCard(null);
       return;
     }
     const { toColumnId, toIndex } = pos;
 
-    // Si no cambió posición real, no llamar backend
     const fromArr = cardsByColumn[from.columnId] || [];
-    const currentIdx = fromArr.findIndex(c => c.id === from.card.id);
+    const currentIdx = fromArr.findIndex((c) => c.id === from.card.id);
     if (from.columnId === toColumnId && currentIdx === toIndex) {
       setActiveCard(null);
       return;
     }
 
-    const { beforeSortKey, afterSortKey } = computeNeighbors(from.columnId, toColumnId, from.card.id, toIndex);
+    const { beforeSortKey, afterSortKey } = computeNeighbors(
+      from.columnId,
+      toColumnId,
+      from.card.id,
+      toIndex
+    );
     const provisionalSortKey = between(beforeSortKey, afterSortKey);
 
     await onMoveCard?.({
@@ -219,11 +242,47 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
     setActiveCard(null);
   };
 
+  // Footer estilo Trello
+  const startAdd = (colId: string) => setDraftByCol((p) => ({ ...p, [colId]: '' }));
+  const cancelAdd = (colId: string) =>
+    setDraftByCol((p) => {
+      const next = { ...p };
+      delete next[colId];
+      return next;
+    });
+  const confirmAdd = async (colId: string) => {
+    const title = (draftByCol[colId] ?? '').trim();
+    if (!title || !onCreateCard) return;
+    setIsAddingByCol((p) => ({ ...p, [colId]: true }));
+    try {
+      await onCreateCard(colId, title);
+      setDraftByCol((p) => {
+        const n = { ...p };
+        delete n[colId];
+        return n;
+      });
+    } finally {
+      setIsAddingByCol((p) => ({ ...p, [colId]: false }));
+    }
+  };
+
+  // --- Render ---
   if (isLoading) {
     return (
-      <VStack py={16}>
+      <Center py={16}>
         <Spinner />
-      </VStack>
+      </Center>
+    );
+  }
+
+  if (!columns || columns.length === 0) {
+    return (
+      <Center py={10}>
+        <Alert status="warning" variant="subtle" rounded="md">
+          <AlertIcon />
+          No hay columnas. Crea una columna desde el menú del tópico o usa la API.
+        </Alert>
+      </Center>
     );
   }
 
@@ -235,10 +294,12 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <SimpleGrid columns={[1, 2, 3, 4]} spacing={4}>
+      <SimpleGrid columns={[1, 2, 3, 4]} spacing={4} alignItems="start">
         {columns.map((col: Column) => {
           const cards = cardsByColumn[col.id] ?? [];
           const items: string[] = cards.map((c) => c.id);
+          const isEditing = Object.prototype.hasOwnProperty.call(draftByCol, col.id);
+          const isLoadingAdd = !!isAddingByCol[col.id];
 
           return (
             <VStack
@@ -249,22 +310,28 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
               p={3}
               rounded="lg"
             >
+              {/* Header */}
               <Box>
                 {renderColumnHeader ? (
                   renderColumnHeader(col)
                 ) : (
                   <HStack justify="space-between">
                     <Text fontWeight="bold">{col.title}</Text>
-                    <Button size="xs">+ Tarjeta</Button>
                   </HStack>
                 )}
               </Box>
 
-              {/* Zona droppable de columna (permite soltar en columnas vacías) */}
+              {/* Lista / zona droppable */}
               <ColumnDroppable columnId={col.id}>
-                <SortableContext id={colDroppableId(col.id)} items={items} strategy={rectSortingStrategy}>
+                <SortableContext
+                  id={colDroppableId(col.id)}
+                  items={items}
+                  strategy={rectSortingStrategy}
+                >
                   {items.length === 0
-                    ? (renderEmptyColumn ? renderEmptyColumn(col) : <Box color="gray.400">Sin tarjetas</Box>)
+                    ? renderEmptyColumn
+                      ? renderEmptyColumn(col)
+                      : <Box color="gray.400">Sin tarjetas</Box>
                     : items.map((cardId) => {
                         const card = cards.find((c) => c.id === cardId)!;
                         return (
@@ -273,20 +340,73 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                             card={card}
                             columnId={col.id}
                             renderCard={renderCard}
+                            onOpenCard={onOpenCard}
                           />
                         );
                       })}
                 </SortableContext>
               </ColumnDroppable>
+
+              {/* Footer Trello-like */}
+              {!isEditing ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => startAdd(col.id)}
+                  justifyContent="flex-start"
+                >
+                  + Add card
+                </Button>
+              ) : (
+                <VStack align="stretch" spacing={2}>
+                  <Textarea
+                    value={draftByCol[col.id]}
+                    onChange={(e) =>
+                      setDraftByCol((p) => ({ ...p, [col.id]: e.target.value }))
+                    }
+                    placeholder="Enter a title or paste a link"
+                    rows={2}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        confirmAdd(col.id);
+                      } else if (e.key === 'Escape') {
+                        cancelAdd(col.id);
+                      }
+                    }}
+                  />
+                  <HStack>
+                    <Button
+                      size="sm"
+                      colorScheme="blue"
+                      onClick={() => confirmAdd(col.id)}
+                      isLoading={isLoadingAdd}
+                      isDisabled={!draftByCol[col.id]?.trim()}
+                    >
+                      Add card
+                    </Button>
+                    <IconButton
+                      aria-label="Cancel"
+                      size="sm"
+                      variant="ghost"
+                      icon={<SmallCloseIcon />}
+                      onClick={() => cancelAdd(col.id)}
+                      isDisabled={isLoadingAdd}
+                    />
+                  </HStack>
+                </VStack>
+              )}
             </VStack>
           );
         })}
       </SimpleGrid>
 
+      {/* Overlay sin borde extra */}
       <DragOverlay>
         {activeCard ? (
-          <Box p={3} rounded="lg" borderWidth="1px" bg="gray.700" boxShadow="lg">
-            {renderCard ? renderCard(activeCard) : activeCard.title}
+          <Box pointerEvents="none">
+            {renderCard ? renderCard(activeCard) : <DefaultCard card={activeCard} />}
           </Box>
         ) : null}
       </DragOverlay>
