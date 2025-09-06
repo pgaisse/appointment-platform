@@ -2,12 +2,18 @@
 const z = require('zod');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid ObjectId');
-
+//Topics
 exports.createTopic = z.object({
   body: z.object({
     title: z.string().min(1, 'title required'),
     key: z.string().trim().max(16).optional(),
   }),
+});
+exports.createTopicLabel = z.object({
+  body: z.object({
+    name: z.string().min(1),
+    color: z.string().min(1),
+  })
 });
 
 exports.createColumn = z.object({
@@ -16,19 +22,12 @@ exports.createColumn = z.object({
   }),
 });
 
+
+//Cards
 exports.createCard = z.object({
-  body: z.object({
-    columnId: objectId,
-    title: z.string().min(1),
-    description: z.string().optional(),
-    labels: z.array(z.union([
-      z.string(), // id
-      z.object({ id: z.string(), name: z.string(), color: z.string() }) // objeto
-    ])).optional(),
-    members: z.array(z.string()).optional(),
-    dueDate: z.string().or(z.date()).optional(),
-    completed: z.boolean().optional(),
-  })
+  columnId: z.string().min(1, 'columnId is required'),
+  title: z.string().min(1, 'title is required'),
+  description: z.string().optional(),
 });
 
 exports.updateCard = z.object({
@@ -48,9 +47,15 @@ exports.updateCard = z.object({
   })
 });
 
-exports.createTopicLabel = z.object({
-  body: z.object({
-    name: z.string().min(1),
-    color: z.string().min(1),
-  })
+
+
+//Labels
+exports.createLabel = z.object({
+  name:  z.string().min(1).max(60),
+  color: z.enum(['green','yellow','orange','red','purple','blue','lime','sky','pink','gray','black']),
+});
+
+exports.updateLabel = z.object({
+  name:  z.string().min(1).max(60).optional(),
+  color: z.enum(['green','yellow','orange','red','purple','blue','lime','sky','pink','gray','black']).optional(),
 });

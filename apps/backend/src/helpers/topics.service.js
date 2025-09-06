@@ -7,6 +7,7 @@ const Column = require('../models/Organizer/Column');
 const Card   = require('../models/Organizer/Card');
 
 const BASE_GAP = 1000;
+const CARD_GAP = 1000;
 
 // ------------------------ Helpers ------------------------
 function normalizePatch(patch, topic) {
@@ -170,49 +171,59 @@ exports.reorderColumns = async function reorderColumns(topicId, orderedColumnIds
 };
 
 // ------------------------ Cards ------------------------
+
+
 exports.createCard = async function createCard(topicId, body) {
-  const { columnId, title, description, labels, members, dueDate, completed } = body || {};
-  if (!topicId) throw new Error('topicId required');
-  if (!columnId) throw new Error('columnId required');
-  if (!title || !String(title).trim()) throw new Error('title required');
+  const { columnId, title, description } = body || {};
+
+  if (!topicId || !mongoose.isValidObjectId(topicId)) {
+    const e = new Error('Invalid topicId'); e.status = 400; throw e;
+  }
+  if (!columnId || !mongoose.isValidObjectId(columnId)) {
+    const e = new Error('Invalid columnId'); e.status = 400; throw e;
+  }
+  if (!title || !String(title).trim()) {
+    const e = new Error('title required'); e.status = 400; throw e;
+  }
 
   const topic = await Topic.findById(topicId).lean();
-  if (!topic) throw new Error('Topic not found');
+  if (!topic) { const e = new Error('Topic not found'); e.status = 404; throw e; }
 
-  const sortKey = await nextSortKeyForColumn(topicId, columnId);
-  const normalized = normalizePatch({ labels, completed }, topic);
+  const column = await Column.findOne({ _id: columnId, topicId }).lean();
+  if (!column) { const e = new Error('Column not found in this topic'); e.status = 404; throw e; }
 
-  const card = await Card.create({
+  // sortKey secuencial por columna
+  const last = await Card.find({ topicId, columnId }).sort({ sortKey: -1 }).limit(1).lean();
+  const sortKey = last.length ? (Number(last[0].sortKey) || 0) + CARD_GAP : CARD_GAP;
+
+  const doc = await Card.create({
     topicId,
     columnId,
     title: String(title).trim(),
-    description: description ? String(description) : undefined,
+    description: description ? String(description) : '',
     sortKey,
-    labels: normalized.labels || [],
-    members: Array.isArray(members) ? members : [],
-    dueDate: dueDate || null,
+    labels: [],
+    members: [],
     checklist: [],
     attachments: [],
     comments: [],
-    completed: !!normalized.completed, // ✅ default false si no viene
+    completed: false,
   });
 
-  const [hydrated] = hydrateCardLabels([card.toObject()], topic);
-
   return {
-    id: String(card._id),
-    title: card.title,
-    description: card.description,
-    sortKey: card.sortKey,
-    labels: hydrated.labels,
-    members: card.members,
-    dueDate: card.dueDate,
-    checklist: card.checklist,
-    attachments: card.attachments,
-    comments: card.comments,
-    completed: !!card.completed,
+    id: String(doc._id),
+    title: doc.title,
+    description: doc.description,
+    sortKey: doc.sortKey,
+    labels: doc.labels,
+    members: doc.members,
+    checklist: doc.checklist,
+    attachments: doc.attachments,
+    comments: doc.comments,
+    completed: !!doc.completed,
   };
 };
+
 
 exports.updateCard = async function updateCard(cardId, patch) {
   if (!isValidObjectId(cardId)) throw new Error('Invalid cardId');
@@ -362,10 +373,41 @@ exports.updateTopicLabel = async (topicId, labelId, body) => {
   return t.labels[idx];
 };
 
+
+// ---- Deletes ----
 exports.deleteTopicLabel = async (topicId, labelId) => {
   const t = await Topic.findById(topicId);
   if (!t) throw new Error('Topic not found');
   t.labels = (t.labels || []).filter(l => l.id !== labelId);
   await t.save();
   await Card.updateMany({ topicId }, { $pull: { labels: labelId } });
+};
+
+exports.deleteCard = async function deleteCard(cardId) {
+  const found = await Card.findById(cardId).lean();
+  if (!found) throw new Error('Card not found');
+  await Card.deleteOne({ _id: cardId });
+  return { ok: true };
+};
+
+exports.deleteColumn = async function deleteColumn(columnId) {
+  const col = await Column.findById(columnId).lean();
+  if (!col) throw new Error('Column not found');
+  // borra tarjetas de la columna
+  const { deletedCount: delCards } = await Card.deleteMany({ columnId });
+  await Column.deleteOne({ _id: columnId });
+  return { ok: true, deletedCards: delCards || 0 };
+};
+
+exports.deleteTopic = async function deleteTopic(topicId) {
+  const topic = await Topic.findById(topicId).lean();
+  if (!topic) throw new Error('Topic not found');
+  const cols = await Column.find({ topicId }, { _id: 1 }).lean();
+  const colIds = cols.map(c => c._id);
+
+  const { deletedCount: delCards } = await Card.deleteMany({ topicId });
+  const { deletedCount: delCols }  = await Column.deleteMany({ topicId });
+  await Topic.deleteOne({ _id: topicId });
+
+  return { ok: true, deletedColumns: delCols || colIds.length, deletedCards: delCards || 0 };
 };

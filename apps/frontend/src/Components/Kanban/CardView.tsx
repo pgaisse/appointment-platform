@@ -1,24 +1,24 @@
 // frontend/src/Components/Kanban/CardView.tsx
-import React from 'react';
 import { Box, Text, VStack, HStack, Tooltip } from '@chakra-ui/react';
 import type { Card, LabelColor } from '@/types/kanban';
 import CompletionRadio from '@/Components/Kanban/CompletionRadio';
+import DeleteCardButton from '../Cards/DeleteCardButton';
 
 // Mapea tu LabelColor a tokens de Chakra
 const colorToken = (c?: LabelColor | string) => {
   switch (c) {
-    case 'green':  return 'green.400';
+    case 'green': return 'green.400';
     case 'yellow': return 'yellow.400';
     case 'orange': return 'orange.400';
-    case 'red':    return 'red.400';
+    case 'red': return 'red.400';
     case 'purple': return 'purple.400';
-    case 'blue':   return 'blue.400';
-    case 'lime':   return 'lime.400';
-    case 'sky':    return 'cyan.400';
-    case 'pink':   return 'pink.400';
-    case 'gray':   return 'gray.400';
-    case 'black':  return 'blackAlpha.700';
-    default:       return 'gray.500';
+    case 'blue': return 'blue.400';
+    case 'lime': return 'lime.400';
+    case 'sky': return 'cyan.400';
+    case 'pink': return 'pink.400';
+    case 'gray': return 'gray.400';
+    case 'black': return 'blackAlpha.700';
+    default: return 'gray.500';
   }
 };
 
@@ -45,6 +45,42 @@ export default function CardView({
       cursor="pointer"
       onClick={() => onOpen?.(card)}
     >
+      {/* Botón “X” arriba a la derecha (sin romper estilos ni lógica) */}
+      <Box
+        position="absolute"
+        top="6px"
+        right="6px"
+        zIndex={2}
+        // Forzamos al IconButton interno a verse como una “X”
+        sx={{
+          '[data-card-action="delete"]': {
+            w: '22px',
+            h: '22px',
+            minW: '22px',
+            p: 0,
+            borderRadius: 'full',
+            bg: 'transparent',
+            _hover: { bg: 'whiteAlpha.200' },
+          },
+          '[data-card-action="delete"] svg': { display: 'none' }, // ocultar ícono de trash
+          '[data-card-action="delete"]::after': {
+            content: '"×"',
+            fontWeight: 700,
+            fontSize: '14px',
+            lineHeight: '22px',
+            display: 'inline-block',
+            textAlign: 'center',
+          },
+        }}
+      >
+        <DeleteCardButton
+          cardId={card.id}
+          cardTitle={card.title}
+          size="xs"
+          variant="ghost"
+        />
+      </Box>
+
       <VStack align="stretch" spacing={2}>
         {/* --- Row de labels (barras finas) --- */}
         {labels.length > 0 && (

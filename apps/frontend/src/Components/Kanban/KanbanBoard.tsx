@@ -38,6 +38,7 @@ import { SmallCloseIcon } from '@chakra-ui/icons';
 import type { KanbanBoardProps, Column, Card } from '@/types/kanban';
 import { between } from '@/Helpers/between';
 import LabelChip from './LabelChip';
+import { hairlineFromBg } from '@/Helpers/color';
 
 type CardId = string;
 const colDroppableId = (colId: string) => `col-${colId}`;
@@ -45,8 +46,10 @@ const isColDroppable = (id: string | number | undefined) =>
   typeof id === 'string' && id.startsWith('col-');
 const parseColId = (droppableId: string) => String(droppableId).replace(/^col-/, '');
 
+
 const DefaultCard: React.FC<{ card: Card }> = ({ card }) => (
   <Box p={3} bg="gray.600" rounded="md">
+
     {/* Chips arriba */}
     {card.labels?.length ? (
       <HStack spacing={1} mb={2} flexWrap="wrap">
@@ -95,7 +98,12 @@ function SortableCard({
       style={style}
       {...attributes}
       {...listeners}
-      onClick={() => !isDragging && onOpenCard?.(card)}
+      onClick={(e) => {
+        // Si el click proviene de un botón/acción interno (p.ej. delete), no abrir modal
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-card-action]')) return;
+        if (!isDragging) onOpenCard?.(card);
+      }}
     >
       {renderCard ? renderCard(card) : <DefaultCard card={card} />}
     </Box>
@@ -299,7 +307,15 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
       </Center>
     );
   }
+  const boardBgHex =
+    (typeof window !== 'undefined'
+      ? getComputedStyle(document.querySelector('[style*="--board-bg-color"]') as HTMLElement || document.body)
+        .getPropertyValue('--board-bg-color')
+        .trim()
+      : '') || '#1A202C';
 
+  const baseBorder = hairlineFromBg(boardBgHex);         // normal
+  const hoverBorder = hairlineFromBg(boardBgHex, 0.12, 0.14); // un poco más visible en hover
   return (
     <DndContext
       sensors={sensors}
@@ -337,7 +353,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
               p={3}
               rounded="lg"
               borderWidth="1px"
-              // columna de ancho fijo: no se encoge
+              borderColor={baseBorder}
+              transition="box-shadow .15s ease, border-color .15s ease, transform .15s ease"
+              _hover={{ boxShadow: 'md', borderColor: hoverBorder }}
               flex="0 0 320px"
               minW="320px"
               maxW="320px"
@@ -351,6 +369,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     <Text fontWeight="bold" color="white">
                       {col.title}
                     </Text>
+
                   </HStack>
                 )}
               </Box>
