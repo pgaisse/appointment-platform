@@ -7,6 +7,20 @@ const { jwtCheck, attachUserInfo } = require('../middleware/auth');
 router.use(jwtCheck);
 router.use(attachUserInfo);
 
+router.get('/users', async (_req, res) => {
+  try {
+    const users = await User.find().select('name email').lean();
+    const formatted = users.map((u) => ({
+      id: u._id.toString(),
+      name: u.name,
+      email: u.email,
+    }));
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/users', async (req, res) => {
   try {
     const { email, name } = req.body;
