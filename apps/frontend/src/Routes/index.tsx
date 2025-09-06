@@ -14,6 +14,7 @@ import path from "./path";
 import AppointmentManager from "./Appointments/AppointmentManager";
 import CustomChat from "./Messages/CustomChat";
 import Organizer from "./Organizer";
+import Users from "./Users/Index";
 
 const router = createBrowserRouter([
   {
@@ -75,6 +76,12 @@ const router = createBrowserRouter([
         path: path.settings,
         element: <AuthorizedUsers reqAuth={true} />,
         children: [{ path: "", element: <Settings /> }],
+      },
+
+      {
+        path: path.users,
+        element: <AuthorizedUsers reqAuth={true} />,
+        children: [{ path: "", element: <Users /> }],
       },
 
       {
