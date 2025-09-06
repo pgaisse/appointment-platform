@@ -13,6 +13,7 @@ const paths = {
   assignedAppointments: "/appointments/assigned-appointments",
   organizer: "/organizer",
   settings: "/settings",
+  users: "/users",
   logout: "/logout",
 };
 
