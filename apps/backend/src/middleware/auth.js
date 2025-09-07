@@ -4,56 +4,127 @@ require('dotenv').config();
 
 const DISABLE_AUTH = String(process.env.DISABLE_AUTH || '').toLowerCase() === 'true';
 
-// Si quieres desactivar auth en dev:
-if (DISABLE_AUTH) {
-  console.warn('🔓 Auth deshabilitado (DISABLE_AUTH=true)');
-  module.exports = (req, _res, next) => next();
-  module.exports.attachUserInfo = (_req, _res, next) => next();
-  module.exports.decodeToken = () => ({});
-  return;
-}
+// Normaliza el namespace para que termine en "/"
+let NS = process.env.JWT_CLAIMS_NAMESPACE || 'https://letsmarter.com/';
+if (!NS.endsWith('/')) NS += '/';
 
-// Vars necesarias
-const audience = process.env.AUTH0_AUDIENCE;
-console.log('🔐 Usando AUTH0_AUDIENCE:', audience);
-let issuerBaseURL = process.env.AUTH0_ISSUER_BASE_URL; // Debe ser algo como: https://dev-xxxxx.us.auth0.com/
-console.log('🔐 Usando AUTH0_ISSUER_BASE_URL:', issuerBaseURL);
-// Asegura que termine con '/'
-if (issuerBaseURL && !issuerBaseURL.endsWith('/')) issuerBaseURL += '/';
-
-if (!audience || !issuerBaseURL) {
-  // Falla segura si falta config
-  throw new Error("Faltan AUTH0_AUDIENCE o AUTH0_ISSUER_BASE_URL en el backend");
-}
-
-// ÚNICO middleware de validación de JWT (Auth0 oficial)
-const jwtCheck = auth({
-  audience,
-  issuerBaseURL,           // 👈 clave correcta (camelCase)
-  tokenSigningAlg: 'RS256',
-});
-
-// Adjunta info útil del token
-const attachUserInfo = (req, _res, next) => {
-  if (req.auth && req.auth.payload) {
-    const p = req.auth.payload;
-    req.user = {
-      id: p.sub,
-      role: p['https://letsmarter.com/role'],
-      organization: p['https://letsmarter.com/organization'],
-      org_name: p['https://iconicsmile.com/org_name'],
-      email: p.email,
-      name: p.name,
-    };
-  }
-  next();
-};
-
-// (Opcional) Decodificador simple
+// ---------------------------
+// (Opcional) Decodificador simple (sin verificar firma)
+// ---------------------------
 function decodeToken(token) {
   if (!token || token.split('.').length !== 3) throw new Error('Token inválido');
-  const payloadBase64 = token.split('.')[1];
+  const payloadBase64Url = token.split('.')[1];
+  const payloadBase64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
   return JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
 }
 
-module.exports = { jwtCheck, attachUserInfo, decodeToken };
+// ---------------------------
+// DEV: modo sin auth (bypass)
+// ---------------------------
+if (DISABLE_AUTH) {
+  console.warn('🔓 Auth deshabilitado (DISABLE_AUTH=true)');
+
+  const pass = (_req, _res, next) => next();
+
+  module.exports = {
+    jwtCheck: pass,
+    attachUserInfo: pass,
+    ensureUser: pass,
+    requireAuth: [pass, pass, pass],
+    decodeToken,
+  };
+  return;
+}
+
+// ---------------------------
+// Config Auth0 obligatoria
+// ---------------------------
+const audience = process.env.AUTH0_AUDIENCE;
+let issuerBaseURL = process.env.AUTH0_ISSUER_BASE_URL; // p.ej. https://dev-xxxxx.us.auth0.com
+if (issuerBaseURL && !issuerBaseURL.endsWith('/')) issuerBaseURL += '/';
+if (!audience || !issuerBaseURL) {
+  throw new Error('Faltan AUTH0_AUDIENCE o AUTH0_ISSUER_BASE_URL en el backend');
+}
+if (process.env.NODE_ENV !== 'production') {
+  console.log('🔐 AUTH0_AUDIENCE:', audience);
+  console.log('🔐 AUTH0_ISSUER_BASE_URL:', issuerBaseURL);
+}
+
+// ---------------------------
+// Middleware de validación
+// ---------------------------
+const jwtCheck = auth({
+  audience,
+  issuerBaseURL,
+  tokenSigningAlg: 'RS256',
+  clockTolerance: 5, // tolerancia por skew de reloj (segundos)
+});
+
+// Helper para obtener claims con/sin namespace
+function claim(p, key) {
+  return p?.[NS + key] ?? p?.[key];
+}
+
+// ---------------------------
+// Adjunta info útil del token
+// ---------------------------
+const attachUserInfo = (req, _res, next) => {
+  if (!req.auth || !req.auth.payload) return next();
+  const p = req.auth.payload;
+
+  req.user = {
+    id: p.sub,
+    email: p.email,
+    emailVerified: p.email_verified === true,
+    name: p.name || p.nickname || p.email || null,
+    picture: p.picture || null,
+
+    // Multi-org + autorización desde claims personalizados o top-level
+    org_id: claim(p, 'org_id') || null,
+    orgs: claim(p, 'orgs') || (p.org_id ? [p.org_id] : []),
+
+    roles: claim(p, 'roles') || [],
+    permissions: claim(p, 'permissions') || [],
+
+    // Compatibilidad con claves antiguas/personalizadas
+    role: p[NS + 'role'],
+    organization: p[NS + 'organization'],
+    org_name: p[NS + 'org_name'] || p['https://iconicsmile.com/org_name'],
+  };
+
+  next();
+};
+
+// ---------------------------
+// JIT provisioning en Mongo
+// ---------------------------
+const ensureUser = async (req, _res, next) => {
+  try {
+    if (!req.auth || !req.auth.payload) {
+      console.warn('[ensureUser] NO req.auth.payload');
+      return next();
+    }
+    const p = req.auth.payload;
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[ensureUser] sub=%s email=%s aud=%s', p.sub, p.email, p.aud);
+    }
+
+    const User = require('../models/User/User');
+    const doc = await User.upsertFromClaims(p, NS);
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[ensureUser] UPSERT OK -> _id=%s auth0_id=%s org_id=%s',
+        doc?._id, doc?.auth0_id, doc?.org_id);
+    }
+    req.dbUser = doc;
+    next();
+  } catch (err) {
+    console.error('[ensureUser] ERROR:', err);
+    next();
+  }
+};
+
+// Composición lista para usar en rutas protegidas
+const requireAuth = [jwtCheck, attachUserInfo, ensureUser];
+
+module.exports = { jwtCheck, attachUserInfo, ensureUser, requireAuth, decodeToken };
