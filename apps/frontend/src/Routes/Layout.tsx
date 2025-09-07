@@ -6,7 +6,7 @@ import {
   GridItem
 } from "@chakra-ui/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FaRegCalendarCheck, FaUserCircle } from 'react-icons/fa';
+import { FaRegCalendarCheck, FaUserCircle, FaUsers } from 'react-icons/fa';
 import {
   FiCalendar,
   FiHome
@@ -41,6 +41,7 @@ const Layout = () => {
       ]);
       setLinkSession([
         { name: "Sign in", icon: FaUserCircle, path: paths.signin, color: "pink.300" },
+        { name: "Users", icon: FaUsers, path: paths.users, color: "purple.500" },
       ]);
     } else if (!isLoading && isAuthenticated) {
       //{ name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
@@ -61,6 +62,7 @@ const Layout = () => {
          { name: "Settings", icon: IoSettingsOutline, path: paths.settings, color: "black.500" },
       ])
       setLinkSession([
+        { name: "Users", icon: FaUsers, path: paths.users, color: "purple.500" },
         { name: `${user?.name}`, icon: FaUserCircle, path: "", color: "pink.300" },
         { name: "Log out", icon: FaUserCircle, path: paths.logout, color: "pink.300" },
       ]);
