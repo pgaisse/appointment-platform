@@ -44,13 +44,14 @@ const io = setupSocket(server);
 app.use((req, res, next) => { req.io = io; next(); });
 
 // -------- Rutas --------
-app.use("/api",SMS);
+app.use("/api", SMS);
 app.use('/api', require('./routes/secure'));      // ejemplo
 app.use('/api', require('./routes/auth0-sync'));  // webhook de Action
-app.use("/api",Routes);
-+app.use('/api', require('./routes/debug-auth'));  // 👈 añade esto
-app.use("/api",Topics);
-app.use("/api/socket.io",Socket);
+app.use("/api", Routes);
+app.use('/api', require('./routes/debug-auth'));  // 👈 añade esto
+app.use('/api', require('./routes/users.routes'));
+app.use("/api", Topics);
+app.use("/api/socket.io", Socket);
 app.enable("trust proxy");
 
 // -------- Server + Socket.IO --------

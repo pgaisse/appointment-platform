@@ -6,7 +6,7 @@ import {
   GridItem
 } from "@chakra-ui/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FaRegCalendarCheck, FaUserCircle } from 'react-icons/fa';
+import { FaRegCalendarCheck, FaUserCircle, FaUsers } from 'react-icons/fa';
 import {
   FiCalendar,
   FiHome
@@ -40,7 +40,8 @@ const Layout = () => {
         // { name: "Profile", icon: FiUser, path: paths.profile, color: "cyan.600" },
       ]);
       setLinkSession([
-        { name: "Sign in", icon: FaUserCircle, path: paths.signin, color: "pink.300" },
+        { name: "Sign in", icon: FaUserCircle, path: paths.signin, color: "pink" },
+        { name: "Users", icon: FaUsers, path: paths.users, color: "purple" },
       ]);
     } else if (!isLoading && isAuthenticated) {
       //{ name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
@@ -61,8 +62,9 @@ const Layout = () => {
          { name: "Settings", icon: IoSettingsOutline, path: paths.settings, color: "black.500" },
       ])
       setLinkSession([
-        { name: `${user?.name}`, icon: FaUserCircle, path: "", color: "pink.300" },
-        { name: "Log out", icon: FaUserCircle, path: paths.logout, color: "pink.300" },
+        { name: "Users", icon: FaUsers, path: paths.users, color: "purple" },
+        { name: `${user?.name}`, icon: FaUserCircle, path: "", color: "pink" },
+        { name: "Log out", icon: FaUserCircle, path: paths.logout, color: "pink" },
       ]);
     }
   }, [isAuthenticated, isLoading, user]);

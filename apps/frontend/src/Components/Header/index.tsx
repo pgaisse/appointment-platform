@@ -17,6 +17,7 @@ interface LinkItemProps {
   name: string;
   path: string;
   icon: IconType;
+  color: string;
 }
 
 type Props = {
@@ -77,12 +78,11 @@ export default function Header({ linkItems, linkSession }: Props) {
                 as={Link}
                 to={link.path}
                 key={`${link.name}-${index}`}
+                leftIcon={<link.icon />}
                 fontWeight="medium"
                 fontSize="sm"
-                color="white"
-                bg="pink.400"
-                _hover={{ bg: 'pink.300' }}
-              >
+                colorScheme={link.color}
+                >
                 {link.name}
               </Button>
             ) : (
