@@ -26,6 +26,13 @@ const UserSchema = new Schema(
   }
 );
 
+UserSchema.virtual('profile', {
+  ref: 'UserProfile',
+  localField: '_id',
+  foreignField: 'user',
+  justOne: true,
+});
+
 // --- Helper ---
 async function robustUpsert(model, filter, update) {
   try {

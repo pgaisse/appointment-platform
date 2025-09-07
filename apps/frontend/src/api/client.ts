@@ -35,5 +35,15 @@ export function useApi() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
+    async put(url: string, body: any) {
+      const headers = await authHeaders();
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   };
 }
