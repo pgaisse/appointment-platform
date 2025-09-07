@@ -40,8 +40,10 @@ const Layout = () => {
         // { name: "Profile", icon: FiUser, path: paths.profile, color: "cyan.600" },
       ]);
       setLinkSession([
-        { name: "Sign in", icon: FaUserCircle, path: paths.signin, color: "pink" },
-        { name: "Users", icon: FaUsers, path: paths.users, color: "purple" },
+
+        { name: "Sign in", icon: FaUserCircle, path: paths.signin, color: "pink.300" },
+        { name: "Users", icon: FaUsers, path: paths.users, color: "purple.500" },
+
       ]);
     } else if (!isLoading && isAuthenticated) {
       //{ name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
@@ -62,9 +64,10 @@ const Layout = () => {
          { name: "Settings", icon: IoSettingsOutline, path: paths.settings, color: "black.500" },
       ])
       setLinkSession([
-        { name: "Users", icon: FaUsers, path: paths.users, color: "purple" },
-        { name: `${user?.name}`, icon: FaUserCircle, path: "", color: "pink" },
-        { name: "Log out", icon: FaUserCircle, path: paths.logout, color: "pink" },
+
+        { name: "Users", icon: FaUsers, path: paths.users, color: "purple.500" },
+        { name: `${user?.name}`, icon: FaUserCircle, path: "", color: "pink.300" },
+        { name: "Log out", icon: FaUserCircle, path: paths.logout, color: "pink.300" },
       ]);
     }
   }, [isAuthenticated, isLoading, user]);
