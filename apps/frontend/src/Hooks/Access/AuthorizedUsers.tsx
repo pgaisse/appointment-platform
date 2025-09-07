@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 
 type Props = {
   reqAuth: boolean;
+  roles?: string[];
 };
 
-function AuthorizedUsers({ reqAuth }: Props) {
-  const { isLoading, isAuthenticated, getAccessTokenSilently, logout } = useAuth0();
+function AuthorizedUsers({ reqAuth, roles }: Props) {
+  const { isLoading, isAuthenticated, getAccessTokenSilently, logout, user } = useAuth0();
   const [validToken, setValidToken] = useState(true);
 
   useEffect(() => {
@@ -29,8 +30,13 @@ function AuthorizedUsers({ reqAuth }: Props) {
     if (reqAuth) checkToken();
   }, [reqAuth, getAccessTokenSilently, logout]);
 
+  const userRoles: string[] = (user && (user as any)["https://letsmarter.com/roles"]) || (user as any)?.roles || [];
+
   if (isLoading) return null;
   if ((!isAuthenticated || !validToken) && reqAuth) {
+    return <Navigate to="/" />;
+  }
+  if (reqAuth && roles && !roles.some((r) => userRoles.includes(r))) {
     return <Navigate to="/" />;
   }
 
