@@ -30,12 +30,12 @@ import BackgroundSurface from '@/Components/Appearance/BackgroundSurface';
 import TopicPicker from '@/Components/Topics/TopicPicker';
 
 type Props = {
-  topicId: string;
+  topicId?: string;
   size?: 'sm' | 'md' | 'lg';
   variant?: 'solid' | 'outline' | 'ghost';
 };
 
-export default function App({ topicId }: Props) {
+export default function index({ topicId }: Props) {
   const toast = useToast();
 
   /** ===== 1) Topics (list + create) ===== */
