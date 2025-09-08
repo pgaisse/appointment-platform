@@ -39,22 +39,38 @@ async function robustUpsert(model, filter, update) {
   }
 }
 
-UserSchema.statics.upsertFromClaims = async function (p, ns = 'https://letsmarter.com/') {
+UserSchema.statics.upsertFromClaims = async function upsertFromClaims(p, ns = 'https://letsmarter.com/') {
   if (!p || !p.sub) throw new Error('upsertFromClaims: missing sub in payload');
+
+  const roles = [...new Set([...(p[ns + 'roles'] || []), ...(p.roles || [])])];
+  const permissions = [...new Set([...(p[ns + 'permissions'] || []), ...(p.permissions || [])])];
+
   const up = {
     email: p.email || null,
     emailVerified: Boolean(p.email_verified),
     name: p.name || p.nickname || p.email || null,
     picture: p.picture || null,
+
     org_id: p[ns + 'org_id'] ?? p.org_id ?? null,
-    orgs: p[ns + 'orgs'] ?? (p.org_id ? [p.org_id] : []) ?? [],
-    roles: p[ns + 'roles'] ?? p.roles ?? [],
-    permissions: p[ns + 'permissions'] ?? p.permissions ?? [],
+    orgs:   (p[ns + 'orgs'] && p[ns + 'orgs'].length)
+              ? p[ns + 'orgs']
+              : (p.org_id ? [p.org_id] : []),
+
+    // 👇 ahora sí se guardan aunque uno de los dos venga vacío
+    roles,
+    permissions,
+
     status: p['https://auth0.com/blocked'] ? 'blocked' : 'active',
     lastLoginAt: new Date(),
   };
-  return robustUpsert(this, { auth0_id: p.sub }, { $set: up, $setOnInsert: { auth0_id: p.sub } });
+
+  return this.findOneAndUpdate(
+    { auth0_id: p.sub },
+    { $set: up, $setOnInsert: { auth0_id: p.sub } },
+    { upsert: true, new: true }
+  ).lean(false);
 };
+
 
 UserSchema.statics.upsertFromActionUser = async function (u) {
   if (!u || !u.user_id) throw new Error('upsertFromActionUser: missing user_id');

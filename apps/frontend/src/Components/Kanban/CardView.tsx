@@ -3,6 +3,7 @@ import { Box, Text, VStack, HStack, Tooltip } from '@chakra-ui/react';
 import type { Card, LabelColor } from '@/types/kanban';
 import CompletionRadio from '@/Components/Kanban/CompletionRadio';
 import DeleteCardButton from '../Cards/DeleteCardButton';
+import Gate from '@/auth/Gate';
 
 // Mapea tu LabelColor a tokens de Chakra
 const colorToken = (c?: LabelColor | string) => {
@@ -73,12 +74,14 @@ export default function CardView({
           },
         }}
       >
-        <DeleteCardButton
-          cardId={card.id}
-          cardTitle={card.title}
-          size="xs"
-          variant="ghost"
-        />
+        <Gate requireAnyPerms={["card:delete"]} source="all">
+          <DeleteCardButton
+            cardId={card.id}
+            cardTitle={card.title}
+            size="xs"
+            variant="ghost"
+          />
+        </Gate>
       </Box>
 
       <VStack align="stretch" spacing={2}>
