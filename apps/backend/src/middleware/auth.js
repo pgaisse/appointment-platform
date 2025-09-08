@@ -68,6 +68,22 @@ function claim(p, key) {
 // ---------------------------
 // Adjunta info útil del token
 // ---------------------------
+function mergeArrClaims(p, key) {
+  const a = p?.[NS + key];
+  const b = p?.[key];
+  const arrA = Array.isArray(a) ? a : (a != null ? [a] : []);
+  const arrB = Array.isArray(b) ? b : (b != null ? [b] : []);
+  const seen = new Set();
+  return [...arrA, ...arrB].filter(v => {
+    if (v == null) return false;
+    const s = String(v);
+    if (seen.has(s)) return false;
+    seen.add(s);
+    return true;
+  });
+}
+
+
 const attachUserInfo = (req, _res, next) => {
   if (!req.auth || !req.auth.payload) return next();
   const p = req.auth.payload;
@@ -76,21 +92,26 @@ const attachUserInfo = (req, _res, next) => {
     id: p.sub,
     email: p.email,
     emailVerified: p.email_verified === true,
-    name: p.name || p.nickname || p.email || null,
+    name: p.name || p.nickname || p.email,
     picture: p.picture || null,
 
-    // Multi-org + autorización desde claims personalizados o top-level
-    org_id: claim(p, 'org_id') || null,
-    orgs: claim(p, 'orgs') || (p.org_id ? [p.org_id] : []),
+    org_id: p[NS + 'org_id'] ?? p.org_id ?? null,
+    orgs: (Array.isArray(p[NS + 'orgs']) && p[NS + 'orgs'].length)
+      ? p[NS + 'orgs']
+      : (p.org_id ? [p.org_id] : []),
 
-    roles: claim(p, 'roles') || [],
-    permissions: claim(p, 'permissions') || [],
+    // 👇 AHORA SÍ: merge de ambos orígenes
+    roles: mergeArrClaims(p, 'roles'),
+    permissions: mergeArrClaims(p, 'permissions'),
 
-    // Compatibilidad con claves antiguas/personalizadas
+    // compat opcional con claves antiguas
     role: p[NS + 'role'],
     organization: p[NS + 'organization'],
-    org_name: p[NS + 'org_name'] || p['https://iconicsmile.com/org_name'],
+    org_name: p['https://iconicsmile.com/org_name'],
   };
+
+  // Debug opcional:
+  // console.log('[attachUserInfo] roles=%j perms=%j', req.user.roles, req.user.permissions);
 
   next();
 };
