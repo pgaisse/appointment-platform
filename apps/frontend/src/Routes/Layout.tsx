@@ -53,6 +53,7 @@ const Layout = () => {
         { name: "Appointments", icon: FaRegCalendarCheck, path: paths.assignedAppointments, color: "teal.500" },
         { name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
         { name: "Organizer", icon: TbSortAscendingSmallBig, path: paths.organizer, color: "black.500" },
+         { name: "Settings", icon: TbSortAscendingSmallBig, path: paths.roles, color: "black.500" },
        
         
 

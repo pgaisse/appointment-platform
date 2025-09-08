@@ -14,6 +14,8 @@ import path from "./path";
 import AppointmentManager from "./Appointments/AppointmentManager";
 import CustomChat from "./Messages/CustomChat";
 import Organizer from "./Organizer";
+import Gate from "@/auth/Gate";
+import UsersManager from "./Admin/UsersManager";
 
 const router = createBrowserRouter([
   {
@@ -45,30 +47,50 @@ const router = createBrowserRouter([
         children: [
           { path: "", element: <Appointments /> },
           { path: "priority-list", element: <AppointmentList /> },
-          { path: "Appointment-Manager", element: <AppointmentManager/> },
+          { path: "Appointment-Manager", element: <AppointmentManager /> },
           { path: "patient-finder", element: <PriorityList /> },
           { path: "Assigned-appointments", element: <AssignedAppointments /> },
-           
+
         ],
       },
 
-       {
+      {
         path: path.messages,
         element: <AuthorizedUsers reqAuth={true} />,
         children: [
           { path: "", element: <CustomChat /> },
-          
-           
+
+
         ],
       },
-             {
+      {
         path: path.organizer,
         element: <AuthorizedUsers reqAuth={true} />,
         children: [
           { path: "", element: <Organizer /> },
-          
-           
+
+
         ],
+      },
+
+      {
+        path: path.roles,
+        element: <AuthorizedUsers reqAuth={true} />,
+        children: [
+          {
+            path: "", element: <Gate requireAnyPerms={["dev-admin", "admin:*"]} source="all">
+              <UsersManager />
+            </Gate>
+          },
+
+
+        ],
+      },
+
+      {
+        path: path.logout,
+        element: <AuthorizedUsers reqAuth={true} />,
+        children: [{ path: "", element: <LogOut /> }],
       },
 
       {
@@ -76,6 +98,7 @@ const router = createBrowserRouter([
         element: <AuthorizedUsers reqAuth={true} />,
         children: [{ path: "", element: <Settings /> }],
       },
+
 
       {
         path: path.logout,

@@ -14,6 +14,7 @@ const paths = {
   organizer: "/organizer",
   settings: "/settings",
   logout: "/logout",
+  roles:"/admin/access"
 };
 
 export default paths;

@@ -31,9 +31,15 @@ const { exist } = require('joi');
 router.use(jwtCheck);
 router.use(attachUserInfo); // /send
 
+
+
+
+
 router.get('/', jwtCheck, (req, res) => {
   res.json({ mensaje: "este es el mensaje lbablabla" });
 });
+
+
 
 
 
