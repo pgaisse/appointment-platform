@@ -28,6 +28,7 @@ import CardView from '@/Components/Kanban/CardView';
 import BoardAppearanceModal from '@/Components/Appearance/BoardAppearanceModal';
 import BackgroundSurface from '@/Components/Appearance/BackgroundSurface';
 import TopicPicker from '@/Components/Topics/TopicPicker';
+import Gate from '@/auth/Gate';
 
 type Props = {
   topicId?: string;
@@ -122,8 +123,9 @@ export default function index({ topicId }: Props) {
                   />
 
                   {/* Appearance button (modal/controls) */}
-                  <AppearanceControls topicId={selectedTopic ?? ''} />
-
+                  <Gate requireAnyPerms={["organizer_appearance:edit"]} source="all">
+                    <AppearanceControls topicId={selectedTopic ?? ''} />
+                  </Gate>
                   <NewColumnButton
                     buttonText="New List"
                     onCreate={async (title) => {

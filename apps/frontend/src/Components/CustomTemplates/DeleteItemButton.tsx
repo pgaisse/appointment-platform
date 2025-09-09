@@ -10,6 +10,7 @@ import {
     ModalFooter,
     Button,
     Text,
+    Tooltip,
 } from "@chakra-ui/react";
 import { ImBin } from "react-icons/im";
 import { useQueryClient } from "@tanstack/react-query";
@@ -64,19 +65,20 @@ export default function DeleteItemButton({
 
     return (
         <>
-            <IconButton
-                aria-label="Delete"
-                icon={<ImBin />}
-                size="sm"
-                variant="ghost"
-                colorScheme="red"
-                onClick={(e) => {
-                    e.preventDefault();   // ⛔ previene arrastres
-                    e.stopPropagation();  // ⛔ no deja que se dispare el drag del padre
-                    confirmDelete(id);
-                }}
-            />
-
+            <Tooltip label="Delete" aria-label="A tooltip">
+                <IconButton
+                    aria-label="Delete"
+                    icon={<ImBin />}
+                    size="sm"
+                    variant="ghost"
+                    colorScheme="red"
+                    onClick={(e) => {
+                        e.preventDefault();   // ⛔ previene arrastres
+                        e.stopPropagation();  // ⛔ no deja que se dispare el drag del padre
+                        confirmDelete(id);
+                    }}
+                />
+            </Tooltip>
             {/* Modal de confirmación */}
             <Modal isOpen={isOpen} onClose={onClose} isCentered>
                 <ModalOverlay />

@@ -40,6 +40,7 @@ const CustomTableAppColumnV = () => {
   const [, setSelectedDays] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
 
   const { data: dataAP2, isPlaceholderData } = useDraggableCards();
+  console.log("dataAP2", dataAP2);
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
   const query = {
@@ -70,7 +71,7 @@ const CustomTableAppColumnV = () => {
 
   };
 
-
+console.log( "filteredData", filteredData);
 
   const templateCoumns = {
     base: "repeat(1, minmax(150px, 1fr))",

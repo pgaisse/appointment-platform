@@ -338,8 +338,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
     }
 
     const { org_id, token } = await helpers.getTokenInfo(authHeader);
-    console.log("Token", token)
-    //console.log("Decoded token:", org_name);
+    console.log("Token", token);
     if (!org_id) {
       return res.status(403).json({ error: 'Unauthorized: org_id not found' });
     }
@@ -348,7 +347,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
     if (!start || !end) {
       return res.status(400).json({ error: 'Invalid date range' });
     }
-
+    console.log("org_id", org_id, start, end);
     const result = await models.PriorityList.aggregate([
       {
         $match: { org_id }
@@ -356,7 +355,15 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
       {
         $lookup: {
           from: 'appointments',
-          let: { durationHours: '$durationHours', priorityNum: '$id', priorityId: '$_id', priorityName: '$name', priorityColor: '$color', priorityDescription: '$description', priorityNotes: '$notes' },
+          let: {
+            durationHours: '$durationHours',
+            priorityNum: '$id',
+            priorityId: '$_id',
+            priorityName: '$name',
+            priorityColor: '$color',
+            priorityDescription: '$description',
+            priorityNotes: '$notes'
+          },
           pipeline: [
             {
               $match: {
@@ -370,6 +377,19 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
                 },
               },
             },
+
+            // Restricción: position debe ser numérico y >= 0
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: [{ $type: "$position" }, ["int", "long", "double", "decimal"]] },
+                    { $gte: ["$position", 0] }
+                  ]
+                }
+              }
+            },
+
             { $unwind: { path: "$selectedDates.days", preserveNullAndEmptyArrays: true } },
             {
               $lookup: {
@@ -483,6 +503,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 router.post('/add', jwtCheck, async (req, res) => {
   try {

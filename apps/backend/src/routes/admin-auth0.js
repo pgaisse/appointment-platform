@@ -59,11 +59,19 @@ router.get('/roles', guard, async (_req, res) => {
   res.json({ roles });
 });
 
+// ---------- ROLES DEL USUARIO (tenant-wide u Organization) ----------
 router.get('/users/:userId/roles', guard, async (req, res) => {
   const { userId } = req.params;
-  const roles = await callMgmt(`/users/${encodeURIComponent(userId)}/roles`);
-  res.json({ roles });
+  const org_id = String(req.query.org_id || '').trim();
+
+  const url = org_id
+    ? `/organizations/${encodeURIComponent(org_id)}/members/${encodeURIComponent(userId)}/roles`
+    : `/users/${encodeURIComponent(userId)}/roles`;
+
+  const roles = await callMgmt(url);
+  res.json({ roles, org_id: org_id || null });
 });
+
 
 // Añadir permisos a un rol (en tu API)
 router.post('/roles/:roleId/permissions', guard, async (req, res) => {
@@ -118,16 +126,45 @@ router.get('/roles/:roleId/permissions', guard, async (req, res) => {
 // USUARIOS (búsqueda/paginación)
 // ---------------------------------
 router.get('/users', guard, async (req, res) => {
-  const q = String(req.query.q || '').trim();
+  const q = String(req.query.q || '').trim().toLowerCase();
   const page = Number(req.query.page || 0);
   const per_page = Math.min(Number(req.query.per_page || 20), 100);
+
+  // Si no te pasan org_id, usa la del caller (desde claims unificados en attachUserInfo)
+  const callerOrg = req.user?.org_id || null;
+  const org_id = String(req.query.org_id || callerOrg || '').trim();
+
+  // Si hay org_id => usa Organizations Members API
+  if (org_id) {
+    const base = `per_page=${per_page}&page=${page}&include_totals=true`;
+    const out = await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members?${base}`);
+
+    // El shape típico viene como { members: [...], start, limit, total }
+    const members = Array.isArray(out?.members) ? out.members : Array.isArray(out) ? out : [];
+    const filtered = q
+      ? members.filter(u => {
+          const email = (u.email || '').toLowerCase();
+          const name  = (u.name || '').toLowerCase();
+          const id    = (u.user_id || '').toLowerCase();
+          return email.includes(q) || name.includes(q) || id.includes(q);
+        })
+      : members;
+
+    return res.json({
+      users: filtered,
+      total: out?.total ?? filtered.length,
+      start: out?.start ?? page * per_page,
+      limit: out?.limit ?? per_page,
+      length: filtered.length,
+      org_id,
+    });
+  }
+
+  // Si NO hay org_id, se usa el buscador global (comportamiento anterior)
   const base = `per_page=${per_page}&page=${page}&include_totals=true`;
-  const query = q
-    ? `?q=${encodeURIComponent(q)}&search_engine=v3&${base}`
-    : `?${base}`;
+  const query = q ? `?q=${encodeURIComponent(q)}&search_engine=v3&${base}` : `?${base}`;
   const out = await callMgmt(`/users${query}`);
-  // out => { start, limit, length, total, users: [...] }
-  res.json(out);
+  return res.json(out);
 });
 
 // Asignar roles a usuario (tenant-wide u Organization)
