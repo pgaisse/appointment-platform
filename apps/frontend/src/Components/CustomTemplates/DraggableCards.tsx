@@ -47,6 +47,7 @@ import Pagination from '../Pagination';
 import AddPatientButton from '../DraggableCards/AddPatientButton';
 import DeleteItemButton from './DeleteItemButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
+import ArchiveItemButton from './ArchiveItemButton';
 
 type Props = {
   onCardClick?: (item: Appointment) => void;
@@ -548,7 +549,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                 <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
                                   <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
                                 </Tooltip>
-                                <DeleteItemButton id={item._id} modelName="Appointment" />
+                                <ArchiveItemButton id={item._id} modelName="Appointment" />
                               </HStack>
                             </GridItem>
                             <GridItem>

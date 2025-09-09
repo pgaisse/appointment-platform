@@ -15,7 +15,7 @@ import { IoSettingsOutline } from "react-icons/io5";
 import { LuUserRoundSearch } from "react-icons/lu";
 import { HiOutlineClipboardDocumentCheck } from "react-icons/hi2";
 
-import { TbCalendarPlus } from "react-icons/tb";
+import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
 import { Outlet } from "react-router-dom";
 
 import paths from "./path";  // <-- Importa las rutas centralizadas
@@ -52,6 +52,8 @@ const Layout = () => {
         { name: "Patient Finder", icon: LuUserRoundSearch, path: paths.patientFinder, color: "purple.500" },
         { name: "Appointments", icon: FaRegCalendarCheck, path: paths.assignedAppointments, color: "teal.500" },
         { name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
+        { name: "Organizer", icon: TbSortAscendingSmallBig, path: paths.organizer, color: "black.500" },
+         { name: "Settings", icon: TbSortAscendingSmallBig, path: paths.roles, color: "black.500" },
        
         
 
