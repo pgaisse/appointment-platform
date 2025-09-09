@@ -347,11 +347,9 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
     if (!start || !end) {
       return res.status(400).json({ error: 'Invalid date range' });
     }
-    console.log("org_id", org_id, start, end);
+
     const result = await models.PriorityList.aggregate([
-      {
-        $match: { org_id }
-      },
+      { $match: { org_id } },
       {
         $lookup: {
           from: 'appointments',
@@ -377,14 +375,13 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
                 },
               },
             },
-
-            // Restricción: position debe ser numérico y >= 0
+            // ⬇️ Excluir SOLO position == -1 (acepta nulos/ausentes y strings)
             {
               $match: {
                 $expr: {
-                  $and: [
-                    { $in: [{ $type: "$position" }, ["int", "long", "double", "decimal"]] },
-                    { $gte: ["$position", 0] }
+                  $ne: [
+                    { $convert: { input: "$position", to: "double", onError: null, onNull: null } },
+                    -1
                   ]
                 }
               }
