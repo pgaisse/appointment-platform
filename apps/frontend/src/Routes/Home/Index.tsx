@@ -68,7 +68,7 @@ const Index = () => {
   return (
     <>
 
-      <PremiumDentalLanding />
+      
     </>
   );
 };
