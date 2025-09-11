@@ -430,3 +430,37 @@ export interface CustomUser extends Omit<User, 'org_id' | 'org_name'> {
 
 export type TimeSlot = 'Early Morning' | 'Late Morning' | 'Early Afternoon' | 'Late Afternoon';
 export type WeekDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
+
+
+export type MentionItem = {
+  id: string;
+  nameInput: string; // display/search key
+  type?: string;     // e.g., "patient", "provider"
+  avatarUrl?: string;
+  subtitle?: string; // secondary line: phone/email/etc.
+  [k: string]: any;  // pass-through fields
+};
+
+export type ExtractedMention = {
+  display: string;
+  type: string;
+  id: string;
+  start: number; // inclusive
+  end: number;   // exclusive
+};
+
+export type HashtagMentionInputProps = {
+  value: string;
+  onChange: (value: string) => void;
+  onMentionAdd?: (item: MentionItem) => void;
+  onMentionsChange?: (mentions: ExtractedMention[]) => void;
+  fetchSuggestions: (query: string) => Promise<MentionItem[]>;
+  renderItem?: (item: MentionItem, isActive: boolean) => React.ReactNode;
+  placeholder?: string;
+  isDisabled?: boolean;
+  maxSuggestions?: number;
+  requireBoundaryBeforeHash?: boolean;
+  minQueryLength?: number;
+  debounceMs?: number;
+  rows?: number;
+};

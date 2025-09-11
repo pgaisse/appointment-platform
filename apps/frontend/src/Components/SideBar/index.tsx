@@ -1,241 +1,128 @@
-"use client";
-import { LinkItem } from "@/types";
+// apps/frontend/src/Components/SideBar/index.tsx
+import React from "react";
 import {
-  Avatar,
   Box,
-  BoxProps,
-  Drawer,
-  DrawerContent,
-  Flex,
-  FlexProps,
+  VStack,
   HStack,
   Icon,
-  IconButton,
-  Spacer,
   Text,
+  Divider,
+  Tooltip,
   useColorModeValue,
-  useDisclosure,
-  VStack,
+  Link as ChakraLink,
 } from "@chakra-ui/react";
-import { ReactNode } from "react";
-import { IconType } from "react-icons";
-import { FiMenu } from "react-icons/fi";
-import { Link, useLocation } from "react-router-dom";
+import { NavLink as RouterLink, useLocation } from "react-router-dom";
+import type { LinkItem as LinkItemType } from "@/types";
 
-interface SidebarProps extends BoxProps {
-  onClose: () => void;
-  linkItems: LinkItem[];
-  linkConfig: LinkItem[];
+/**
+ * Props esperadas (coinciden con tu Layout actual)
+ * - linkItems: zona superior (links de la app)
+ * - linkConfig: zona inferior (admin, settings, etc.)
+ */
+type Props = {
+  linkItems: LinkItemType[];
+  linkConfig?: LinkItemType[];
+};
+
+function SideBarLink({ item, isActive }: { item: LinkItemType; isActive: boolean }) {
+  const activeBg = useColorModeValue("gray.100", "gray.700");
+  const hoverBg = useColorModeValue("gray.50", "gray.800");
+  const textColor = useColorModeValue("gray.800", "gray.100");
+  const inactiveColor = useColorModeValue("gray.600", "gray.300");
+
+  return (
+    <Tooltip label={item.name} hasArrow placement="right" openDelay={400}>
+      <ChakraLink
+        as={RouterLink}
+        to={item.path}
+        _hover={{ textDecoration: "none" }}
+        w="full"
+        borderRadius="lg"
+      >
+        <HStack
+          spacing={3}
+          pl={3}
+          pr={1}
+          py={2.5}
+          borderRadius="lg"
+          transition="background 0.2s ease"
+          bg={isActive ? activeBg : "transparent"}
+          _hover={{ bg: isActive ? activeBg : hoverBg }}
+        >
+          {item.icon && (
+            <Icon
+              mx="auto"
+              as={item.icon as any}
+              boxSize={5}
+              color={item.color || (isActive ? textColor : inactiveColor)}
+            />
+          )}
+          <Text
+            fontSize="sm"
+            fontWeight={isActive ? "semibold" : "medium"}
+            color={isActive ? textColor : inactiveColor}
+            noOfLines={1}
+          >
+            {/*item.name*/}
+          </Text>
+        </HStack>
+      </ChakraLink>
+    </Tooltip>
+  );
 }
 
-const SidebarContent = ({ onClose, linkItems, linkConfig, ...rest }: SidebarProps) => {
+export default function SideBar({ linkItems, linkConfig = [] }: Props) {
   const location = useLocation();
-  const activeBg = "blue.50";
-  const activeColor = "blue.600";
-  const hoverBg = "purple.100";
 
-  const settingsItem = linkItems.find((link) => link.name.toLowerCase() === "settings");
-  const otherLinks = linkItems.filter((link) => link.name.toLowerCase() !== "settings");
+  // ¿cuándo un link está activo?
+  const isActive = (path: string) => {
+    if (!path) return false;
+    // marcamos activo si coincide exactamente o es prefijo de la ruta actual
+    return location.pathname === path || location.pathname.startsWith(path + "/");
+  };
 
-  return (
-    <Flex
-      direction="column"
-      bg="white"
-      borderRight="1px solid"
-      borderColor="gray.200"
-      w={{ base: "full", md: "220px" }}
-      h="100vh"
-      p={4}
-      {...rest}
-    >
-      {/* Links principales */}
-      <VStack spacing={1} align="start" flex="1">
-        {otherLinks.map((link, index) => {
-          const isActive = location.pathname === link.path;
-          return (
-            <Link to={link.path} key={`${link.name}-${index}`} style={{ width: "100%" }}>
-              <NavItem
-                icon={link.icon}
-                iconColor={link.color}
-                isActive={isActive}
-                activeBg={activeBg}
-                activeColor={activeColor}
-                hoverBg={hoverBg}
-              >
-                {link.name}
-              </NavItem>
-            </Link>
-          );
-        })}
-      </VStack>
-
-      <Spacer />
-
-      {/* Settings */}
-      {settingsItem && (
-        <>
-          <Box w="100%" borderTop="1px solid" borderColor="gray.200" my={2} />
-          <Link to={settingsItem.path} style={{ width: "100%" }}>
-            <NavItem
-              icon={settingsItem.icon}
-              iconColor={settingsItem.color}
-              isActive={location.pathname === settingsItem.path}
-              activeBg={activeBg}
-              activeColor={activeColor}
-              hoverBg={hoverBg}
-            >
-              {settingsItem.name}
-            </NavItem>
-          </Link>
-        </>
-      )}
-
-      {/* Configuración del usuario */}
-      {linkConfig.length > 0 && (
-        <>
-          <Box w="100%" borderTop="1px solid" borderColor="gray.200" my={2} />
-          <VStack spacing={1} align="start">
-            {linkConfig.map((link, index) => {
-              const isActive = location.pathname === link.path;
-              return (
-                <Link to={link.path} key={`config-${link.name}-${index}`} style={{ width: "100%" }}>
-                  <NavItem
-                    icon={link.icon}
-                    iconColor={link.color}
-                    isActive={isActive}
-                    activeBg={activeBg}
-                    activeColor={activeColor}
-                    hoverBg={hoverBg}
-                  >
-                    {link.name}
-                  </NavItem>
-                </Link>
-              );
-            })}
-          </VStack>
-        </>
-      )}
-    </Flex>
-  );
-};
-
-interface NavItemProps extends FlexProps {
-  icon: IconType;
-  iconColor: string;
-  children: ReactNode;
-  isActive: boolean;
-  activeBg?: string;
-  activeColor?: string;
-  hoverBg?: string;
-}
-
-const NavItem = ({
-  icon,
-  iconColor,
-  children,
-  isActive,
-  activeBg = "blue.50",
-  activeColor = "blue.600",
-  hoverBg = "purple.100",
-  ...rest
-}: NavItemProps) => {
-  return (
-    <Box>
-      <Flex
-        align="center"
-        px={4}
-        py={3}
-        borderRadius="md"
-        role="group"
-        cursor="pointer"
-        bg={isActive ? activeBg : "transparent"}
-        color={isActive ? activeColor : "gray.800"}
-        _hover={{
-          bg: hoverBg,
-          color: "purple.800",
-        }}
-        {...rest}
-      >
-        <Icon
-          as={icon}
-          color={iconColor}
-          mr="4"
-          _groupHover={{ color: "purple.800" }}
-        />
-        <Text fontSize="sm" fontWeight={isActive ? "bold" : "normal"}>
-          {children}
-        </Text>
-      </Flex>
-    </Box>
-  );
-};
-
-interface MobileProps extends FlexProps {
-  onOpen: () => void;
-}
-
-const MobileNav = ({ onOpen, ...rest }: MobileProps) => {
-  return (
-    <Flex
-      ml={{ base: 0, md: 60 }}
-      px={{ base: 4, md: 6 }}
-      height="20"
-      alignItems="center"
-      bg="white"
-      borderBottomWidth="1px"
-      borderBottomColor="gray.200"
-      justifyContent="flex-start"
-      {...rest}
-    >
-      <IconButton
-        variant="outline"
-        onClick={onOpen}
-        aria-label="open menu"
-        icon={<FiMenu />}
-      />
-      <Text fontSize="lg" ml="4" fontWeight="bold">
-        Dental Pro+
-      </Text>
-    </Flex>
-  );
-};
-
-interface SimpleSidebarProps {
-  linkItems: LinkItem[];
-  linkConfig: LinkItem[];
-}
-
-export default function SimpleSidebar({ linkItems, linkConfig }: SimpleSidebarProps) {
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const sectionTitleColor = useColorModeValue("gray.500", "gray.400");
+  const sidebarBg = useColorModeValue("white", "gray.900");
 
   return (
-    <Box minH="100vh">
-      <SidebarContent
-        onClose={onClose}
-        display={{ base: "none", md: "flex" }}
-        linkItems={linkItems}
-        linkConfig={linkConfig}
-      />
-      <Drawer
-        isOpen={isOpen}
-        placement="left"
-        onClose={onClose}
-        returnFocusOnClose={false}
-        onOverlayClick={onClose}
-        size="full"
-      >
-        <DrawerContent>
-          <SidebarContent
-            onClose={onClose}
-            linkItems={linkItems}
-            linkConfig={linkConfig}
-          />
-        </DrawerContent>
-      </Drawer>
-      <MobileNav display={{ base: "flex", md: "none" }} onOpen={onOpen} />
-      <Box ml={{ base: 0, md: 60 }} p="4">
-        {/* Aquí va tu contenido principal */}
+    <Box h="100%" display="flex" flexDir="column" overflow="hidden" p={2} bg={sidebarBg} >
+      {/* ─────────────────────────────────────────────────────────
+          ZONA SUPERIOR (scrollable): links principales de la app
+          ───────────────────────────────────────────────────────── */}
+      <Box flex="1" overflowY="auto" >
+        {/* Título sección (opcional) */}
+        {linkItems.length > 0 && (
+          <Text fontSize="xs" fontWeight="semibold" color={sectionTitleColor} px={2} mb={2}>
+            
+          </Text>
+        )}
+
+        <VStack align="stretch" spacing={1}>
+          {linkItems.map((item) => (
+            <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={isActive(item.path)} />
+          ))}
+        </VStack>
       </Box>
+
+      {/* ─────────────────────────────────────────────────────────
+          ZONA INFERIOR (fija): admin, settings, etc.
+          ───────────────────────────────────────────────────────── */}
+      {linkConfig.length > 0 && (
+        <Box borderTopWidth="1px" pt={2} mt={2} bg={sidebarBg}>
+          <Text fontSize="xs" fontWeight="semibold" color={sectionTitleColor} px={2} mb={2}>
+            
+          </Text>
+
+          <VStack align="stretch" spacing={1}>
+            {linkConfig.map((item) => (
+               <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={isActive(item.path)} />
+            ))}
+          </VStack>
+
+          {/* Separador/espacio final para que no se pegue al borde */}
+          <Divider mt={3} opacity={0} />
+        </Box>
+      )}
     </Box>
   );
 }

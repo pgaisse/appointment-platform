@@ -2,6 +2,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { Alert, AlertDescription, AlertIcon, AlertTitle, Box, Spinner, Center } from '@chakra-ui/react';
 import PremiumDentalLanding from "@/Components/CustomTemplates/PremiumDentalLanding";
 import React from "react";
+import { MessageComposer } from "@/Components/Chat/min";
 
 const Index = () => {
   const { error, isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
@@ -64,11 +65,14 @@ const Index = () => {
       </Box>
     );
   }
+  const conversationId ="CH0656c4a8270e463ca1c8436bb917854e"
 
   return (
     <>
 
-      <PremiumDentalLanding />
+      
+
+
     </>
   );
 };

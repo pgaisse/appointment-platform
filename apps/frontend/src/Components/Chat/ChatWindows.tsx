@@ -31,7 +31,7 @@ const isSameLocalDay = (a: Date, b: Date) =>
 
 function formatDayLabel(d: Date, now = new Date(), locale = navigator?.language || "en-US") {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dateStart  = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dateStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const diffDays = Math.round((todayStart.getTime() - dateStart.getTime()) / 86400000);
 
   if (diffDays === 0) return "Today";
@@ -139,17 +139,19 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         index: `${Date.now()}`,
       };
       addOptimistic(optimistic);
-        console.log("LOG:",{ to: formatToE164(chat.owner.phone || ""),
-          appId,
-          body: text.trim(),
-          files,})
+      console.log("LOG:", {
+        to: formatToE164(chat.owner.phone || ""),
+        appId,
+        body: text.trim(),
+        files,
+      })
       sendChat.mutate(
         {
           to: formatToE164(chat.owner.phone || ""),
           appId,
           body: text.trim(),
           files,
-          onProgress: () => {},
+          onProgress: () => { },
         },
         {
           onSuccess: () => {
@@ -198,6 +200,7 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         conversationId={chat.conversationId}
         disabled={sendChat.isPending}
         patientId={chat.owner._id || ""}
+        unknown={chat.owner.unknown || false}
         onSend={onSend}
       />
     </Flex>
@@ -344,7 +347,7 @@ const MessageList = memo(function MessageList({
     const imgs = Array.from(scroller.querySelectorAll("img")) as HTMLImageElement[];
     if (imgs.length) {
       const decoders = imgs.map((img) => {
-        if (typeof img.decode === "function") return img.decode().catch(() => {});
+        if (typeof img.decode === "function") return img.decode().catch(() => { });
         if (img.complete) return Promise.resolve();
         return new Promise<void>((res) => img.addEventListener("load", () => res(), { once: true, capture: true }));
       });
@@ -537,11 +540,13 @@ const Composer = memo(function Composer({
   disabled,
   patientId,
   conversationId,
+  unknown,
   onSend,
 }: {
   disabled?: boolean;
   patientId: string;
   conversationId: string;
+  unknown: boolean;
   onSend: (p: { text: string; files: File[] }) => void;
 }) {
   type PreviewItem = { id: string; url: string; name: string; size: number };
@@ -560,7 +565,7 @@ const Composer = memo(function Composer({
       const t = text.trim();
       if (t.length > 0) localStorage.setItem(storageKey, t);
       else localStorage.removeItem(storageKey);
-    } catch {}
+    } catch { }
   }, [storageKey, text]);
 
   const hasText = text.trim().length > 0;
@@ -596,7 +601,7 @@ const Composer = memo(function Composer({
     onSend({ text, files: selectedFiles });
     setText("");
     handleClearPreviews();
-    try { localStorage.removeItem(storageKey); } catch {}
+    try { localStorage.removeItem(storageKey); } catch { }
     inputRef.current?.focus();
   }, [onSend, text, selectedFiles, handleClearPreviews, storageKey]);
 
@@ -627,11 +632,11 @@ const Composer = memo(function Composer({
         bg={composerBg}
       >
         <HStack spacing={1}>
-          <Tooltip label="Saved messages">
+          {!unknown && <Tooltip label="Saved messages">
             <ShowTemplateButton selectedPatient={patientId} onSelectTemplate={setText} />
-          </Tooltip>
+          </Tooltip>}
 
-          <Tooltip label="Create template">
+          {!unknown && <Tooltip label="Create template">
             <CreateMessageModal
               triggerButton={
                 <IconButton
@@ -642,7 +647,7 @@ const Composer = memo(function Composer({
                 />
               }
             />
-          </Tooltip>
+          </Tooltip>}
 
           <Tooltip label="Attach file">
             <FileUploadButton onFilesReady={handleFilesReady} isSending={!!disabled} hasText={hasText} />

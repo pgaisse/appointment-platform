@@ -1,125 +1,172 @@
+// apps/frontend/src/Routes/Layout.tsx
 import Header from "@/Components/Header";
 import SideBar from "@/Components/SideBar";
 import { useAuth0 } from "@auth0/auth0-react";
-import {
-  Grid,
-  GridItem
-} from "@chakra-ui/react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FaRegCalendarCheck, FaUserCircle } from 'react-icons/fa';
-import {
-  FiCalendar,
-  FiHome
-} from "react-icons/fi";
-import { IoSettingsOutline } from "react-icons/io5";
-import { LuUserRoundSearch } from "react-icons/lu";
-import { HiOutlineClipboardDocumentCheck } from "react-icons/hi2";
-
-import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
+import { Grid, GridItem } from "@chakra-ui/react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Outlet } from "react-router-dom";
-
-import paths from "./path";  // <-- Importa las rutas centralizadas
 import { SocketNotification } from "@/Components/Socket/SocketNotification";
-import 'react-date-range/dist/styles.css';
-import 'react-date-range/dist/theme/default.css';
-import { MdTextsms } from "react-icons/md";
-import { LinkItem } from "@/types";
+
+import paths, { navLinks, NavLink } from "./path";
+import type { LinkItem as LinkItemType } from "@/types";
+import { FaUserCircle } from "react-icons/fa";
+
+const NS = "https://letsmarter.com/";
+
+// helpers
+const toLowerArr = (a: unknown) =>
+  (Array.isArray(a) ? a : [])
+    .map((x) => (x == null ? "" : String(x)))
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+const match = (pattern: string, value: string) => {
+  const p = (pattern || "").toLowerCase();
+  const v = (value || "").toLowerCase();
+  if (!p) return false;
+  if (p === v) return true;
+  if (p.endsWith("*")) return v.startsWith(p.slice(0, -1));
+  return false;
+};
+
+/**
+ * Verifica visibilidad según sesión y permisos.
+ * Usa SOLO claims del ID token (user), como tenías "antes".
+ * Extra: los roles generan "permisos virtuales" rol:* (p.ej. Admin → admin:*)
+ */
+function hasAccess(link: NavLink, isAuthenticated: boolean, user: any) {
+  // auth
+  if (link.requireAuth && !isAuthenticated) return false;
+
+  const roles = toLowerArr(user?.[NS + "roles"] ?? user?.roles);
+  const perms = toLowerArr(user?.[NS + "permissions"] ?? user?.permissions);
+
+  // Derivamos perms virtuales desde roles (Admin → admin:*)
+  const derived = new Set<string>(perms);
+  for (const r of roles) derived.add(`${r}:*`);
+
+  // requireAllPerms
+  if (link.requireAllPerms?.length) {
+    const needed = link.requireAllPerms.map((p) => p.toLowerCase());
+    const ok = needed.every(
+      (p) => Array.from(derived).some((h) => match(p, h))
+    );
+    if (!ok) return false;
+  }
+
+  // requireAnyPerms
+  if (link.requireAnyPerms?.length) {
+    const any = link.requireAnyPerms.map((p) => p.toLowerCase());
+    const ok = any.some((p) => Array.from(derived).some((h) => match(p, h)));
+    if (!ok) return false;
+  }
+
+  // forbidPerms
+  if (link.forbidPerms?.length) {
+    const forb = link.forbidPerms.map((p) => p.toLowerCase());
+    const hit = forb.some((p) => Array.from(derived).some((h) => match(p, h)));
+    if (hit) return false;
+  }
+
+  return true;
+}
+// --- helpers de orden ---
+const ord = (n: unknown): number =>
+  typeof n === "number" && Number.isFinite(n) ? n : 1_000_000;
+
+const byOrderThenLabel = (
+  a: { order?: number; label?: string },
+  b: { order?: number; label?: string }
+): number => {
+  const d = ord(a.order) - ord(b.order);
+  if (d !== 0) return d;
+  return String(a.label ?? "").localeCompare(String(b.label ?? ""), undefined, { sensitivity: "base" });
+};
 
 
-const Layout = () => {
-  const { user, isAuthenticated, isLoading } = useAuth0();
-  const [linkItems, setLinkItems] = useState<LinkItem[]>([]);
-  const [linkSession, setLinkSession] = useState<LinkItem[]>([]);
-  
-  const [linkConfig, setLinkConfig] = useState<LinkItem[]>([]);
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      setLinkItems([
-        { name: "Home", icon: FiHome, path: paths.root, color: "blue.500" },
-        // { name: "Profile", icon: FiUser, path: paths.profile, color: "cyan.600" },
-      ]);
-      setLinkSession([
-        { name: "Sign in", icon: FaUserCircle, path: paths.signin, color: "pink.300" },
-      ]);
-    } else if (!isLoading && isAuthenticated) {
-      //{ name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
-      setLinkItems([
-        { name: "Home", icon: FiHome, path: paths.root, color: "blue.500" },
-        { name: "New Patient", icon: TbCalendarPlus, path: paths.appointments, color: "green.500" },
-        { name: "Priority List", icon: FiCalendar, path: paths.appointmentList, color: "orange.400" },
-        { name: "Appointment Manager", icon: HiOutlineClipboardDocumentCheck, path: paths.appointmentManager, color: "cyan.600" },
-        { name: "Patient Finder", icon: LuUserRoundSearch, path: paths.patientFinder, color: "purple.500" },
-        { name: "Appointments", icon: FaRegCalendarCheck, path: paths.assignedAppointments, color: "teal.500" },
-        { name: "SMS Center", icon: MdTextsms, path: paths.messages, color: "black.500" },
-        { name: "Organizer", icon: TbSortAscendingSmallBig, path: paths.organizer, color: "black.500" },
-         { name: "Settings", icon: TbSortAscendingSmallBig, path: paths.roles, color: "black.500" },
-       
-        
-
-      ]);
-      setLinkConfig([
-         { name: "Settings", icon: IoSettingsOutline, path: paths.settings, color: "black.500" },
-      ])
-      setLinkSession([
-        { name: `${user?.name}`, icon: FaUserCircle, path: "", color: "pink.300" },
-        { name: "Log out", icon: FaUserCircle, path: paths.logout, color: "pink.300" },
-      ]);
-    }
-  }, [isAuthenticated, isLoading, user]);
-
+export default function Layout({ children }: { children?: React.ReactNode }) {
   const headerRef = useRef<HTMLDivElement>(null);
-  const [headerHeight, setHeaderHeight] = useState<number>(0);
-
+  const [headerHeight, setHeaderHeight] = useState(64);
   useLayoutEffect(() => {
-    if (headerRef.current) {
-      setHeaderHeight(headerRef.current.offsetHeight);
-    }
+    if (headerRef.current) setHeaderHeight(headerRef.current.getBoundingClientRect().height);
   }, []);
+
+  const { isAuthenticated, user } = useAuth0();
+
+  // Header items (excluimos signin/logout aquí; se manejan como "linkSession")
+  const headerItems = useMemo(
+    () =>
+      navLinks
+        .filter((l) => l.show.includes("header") && !["signin", "logout"].includes(l.key))
+        .filter((l) => hasAccess(l, !!isAuthenticated, user))
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map(({ label, path, icon }) => ({ name: label, path, icon: icon ?? FaUserCircle })),
+    [isAuthenticated, user]
+  );
+
+  // Session links (derecha del Header)
+  const linkSession = isAuthenticated
+    ? [{ name: "Log out", path: paths.logout, icon: FaUserCircle }]
+    : [{ name: "Sign in", path: paths.signin, icon: FaUserCircle }];
+
+  // Sidebar (linkItems)
+
+
+  // Sidebar (linkConfig) — sección inferior (Settings cuando está logueado)
+  // Arriba
+  const sidebarMain = useMemo(() =>
+    navLinks
+      .filter(l => l.show.includes("sidebar") && (l.sidebarZone ?? "main") === "main")
+      .filter(l => hasAccess(l, !!isAuthenticated, user))
+      .sort(byOrderThenLabel)
+      .map(({ label, path, icon }) => ({ name: label, path, icon: icon ?? FaUserCircle, color: "blue.500" })),
+    [isAuthenticated, user]
+  );
+
+  // Abajo
+  const sidebarBottom = useMemo(() =>
+    navLinks
+      .filter(l => l.show.includes("sidebar") && (l.sidebarZone ?? "main") === "bottom")
+      .filter(l => hasAccess(l, !!isAuthenticated, user))
+      .sort(byOrderThenLabel)  // ⬅️ aquí se respeta order
+      .map(({ label, path, icon }) => ({ name: label, path, icon: icon ?? FaUserCircle, color: "black.500" })),
+    [isAuthenticated, user]
+  );
+
+  // Pásalos tal cual:
+
+
 
   return (
     <Grid
-      templateAreas={`"header header"
-                      "nav main"`}
-      gridTemplateRows={"70px 1fr"}
-      gridTemplateColumns={{ base: "0 1fr", md: "200px 1fr" }}
-      transition="all 0.3s ease"
-      gap="1"
-      color="blackAlpha.700"
-      fontWeight="bold"
-      bg={"gray.200"}
+      templateAreas={{
+        base: `"header" "main"`,
+        md: `"header header" "sidebar main"`,
+      }}
+      gridTemplateRows="auto 1fr"
+      gridTemplateColumns={{ base: "1fr", md: "auto 1fr" }}
+      minH="100vh"
+      bg="white"
     >
-      <GridItem
-        pl="2"
-        area="header"
-        //position="fixed"
-        top="0"
-        ref={headerRef} // 
-        left="0"
-        width="100%"
-        zIndex="999"
-      >
-        <Header linkItems={linkItems} linkSession={linkSession} />
+      <GridItem area="header" ref={headerRef} zIndex={999}>
+        <Header linkItems={headerItems} linkSession={linkSession} />
       </GridItem>
 
       <GridItem
-        pl="2"
-        area={"nav"}
-        height={`calc(100vh - ${headerHeight}px)`}
-        overflow="hidden"
-        transition="all 0.3s ease"
+        area={{ base: "main", md: "sidebar" }}
         display={{ base: "none", md: "block" }}
-        bg={"white"}
+        bg="white"
+        height={`calc(100vh - ${headerHeight}px)`}   // ⬅️ ocupa todo el alto disponible
+        overflow="hidden"                             // ⬅️ el scroll va ADENTRO del SideBar
       >
-        <SideBar linkItems={linkItems} linkConfig={linkConfig} />
+        <SideBar linkItems={sidebarMain} linkConfig={sidebarBottom} />
       </GridItem>
 
-      <GridItem pl="2" area={"main"} bg={"white"} height={`calc(100vh - ${headerHeight}px)`} >
-        {<SocketNotification />}
+      <GridItem area="main" bg="white" height={`calc(100vh - ${headerHeight}px)`} pl="2">
+        <SocketNotification />
         <Outlet />
-    </GridItem>
-    </Grid >
+        {children}
+      </GridItem>
+    </Grid>
   );
-};
-
-export default Layout;
+}
