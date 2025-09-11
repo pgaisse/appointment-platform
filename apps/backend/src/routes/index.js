@@ -586,6 +586,86 @@ router.post('/add', jwtCheck, async (req, res) => {
 });
 
 
+
+
+const MAX_LIMIT = 25;
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+function escapeRegExp(s = '') {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * GET /appointments/mentions?nameInput=<q>&limit=8
+ * Devuelve: { items: Array<MentionItem> }
+ * MentionItem:
+ *  - id: _id de la cita
+ *  - nameInput: Appointment.nameInput
+ *  - type: "appointment"
+ *  - subtitle: info breve (ej: lastNameInput + phone/email)
+ *  - avatarUrl: (no se define en Appointment; lo dejamos undefined)
+ *  - ...doc: toda la info vinculada de la cita (lean)
+ * const { requireAuth } = require('../middleware/auth');
+ */
+const { requireAuth } = require('../middleware/auth');
+router.get('/appointments/mentions', requireAuth, async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+
+    const { org_id } = await helpers.getTokenInfo(authHeader);
+    if (!org_id) return res.status(403).json({ error: 'Unauthorized: org_id not found' });
+
+    const raw = String(req.query.nameInput || req.query.q || '').trim();
+    const limit = clamp(parseInt(req.query.limit, 10) || 8, 1, MAX_LIMIT);
+    if (!raw) return res.json({ items: [] });
+
+    // Prefijo (rápido y predecible). Si quieres contains, quita el ^.
+    const regex = new RegExp('^' + escapeRegExp(raw), 'i');
+
+    // Buscar por nameInput y, de apoyo, lastNameInput / phoneInput / emailInput
+    const query = {
+      org_id,
+      $or: [
+        { nameInput: { $regex: regex } },
+        { lastNameInput: { $regex: regex } },
+        { phoneInput: { $regex: regex } },
+        { emailInput: { $regex: regex } },
+      ],
+    };
+
+    // Ordenamos por actividad reciente si existe, luego por _id desc
+    const docs = await Appointment.find(query)
+      .sort({ lastMessage: -1, _id: -1 })
+      .limit(limit)
+      .lean();
+      console.log("query", query, docs);
+
+    const items = docs.map((doc) => {
+      const subtitleParts = [];
+      if (doc.lastNameInput) subtitleParts.push(doc.lastNameInput);
+      if (doc.phoneInput) subtitleParts.push(doc.phoneInput);
+      else if (doc.emailInput) subtitleParts.push(doc.emailInput);
+
+      return {
+        id: String(doc._id),
+        nameInput: doc.nameInput || '',       // display principal
+        type: 'appointment',
+        avatarUrl: undefined,                  // Appointment no define avatar
+        subtitle: subtitleParts.join(' · ') || undefined,
+        ...doc,                                // toda la info vinculada disponible
+      };
+    });
+
+    res.json({ items });
+  } catch (err) {
+    console.error('GET /appointments/mentions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+
 router.delete("/:id", jwtCheck, async (req, res) => {
   try {
     const authHeader = await req.headers.authorization;
