@@ -414,9 +414,11 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
               ) : (
                 <VStack align="stretch" spacing={2}>
                   <Textarea
+                    textColor={"whiteAlpha.900"}
                     value={draftByCol[col.id]}
                     onChange={(e) =>
                       setDraftByCol((p) => ({ ...p, [col.id]: e.target.value }))
+
                     }
                     placeholder="Enter a title or paste a link"
                     rows={2}
