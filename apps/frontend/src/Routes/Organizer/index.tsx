@@ -54,7 +54,6 @@ export default function index({ topicId }: Props) {
     }
   }, [topicsList, selectedTopic]);
 
-
   /** ===== 2) Board by topic ===== */
   const {
     board,
@@ -82,15 +81,25 @@ export default function index({ topicId }: Props) {
   const selectedCard: Card | null =
     openCardId ? flatCards.find((c) => c.id === openCardId) ?? null : null;
 
-
   return (
     <>
-      {/* Fullscreen background (color/image + blur/brightness + overlay) */}
+      {/* Fullscreen background (color/image + blur/brightness + overlay)
+          Asegúrate de tener zIndex={-1} dentro de BoardBackground */}
       <BoardBackground appearance={appearance.data} />
 
-      <Container maxW="full" py={6} position="relative" zIndex={1}>
-        {/* Header */}
-        <VStack align="stretch" spacing={4} mb={4}>
+      {/* Contenedor raíz: ocupa TODO el alto disponible del parent (Layout main) */}
+      <Container
+        maxW="full"
+        h="full"                 // 100% del alto del contenedor padre
+        py={6}
+        position="relative"
+        zIndex={1}
+        display="flex"           // Para poder fijar header arriba y área scroll abajo
+        flexDir="column"
+        overflow="hidden"        // Evita crecer; el scroll será del área de contenido
+      >
+        {/* Header área (altura natural, no hace scroll) */}
+        <VStack align="stretch" spacing={4} mb={4} flexShrink={0}>
           <HStack>
             <Heading size="md"></Heading>
             <Spacer />
@@ -99,16 +108,17 @@ export default function index({ topicId }: Props) {
             {topics.isLoading ? (
               <Skeleton height="32px" width="260px" rounded="md" />
             ) : topicsList.length > 0 ? (
-              <BackgroundSurface overlayOpacity={0.45}     // más alto → más atenuado
-                overlayColor="whiteAlpha.700"       // puedes usar 'blackAlpha.700'
+              <BackgroundSurface
+                overlayOpacity={0.45}     // más alto → más atenuado
+                overlayColor="whiteAlpha.700" // 'blackAlpha.700' si prefieres
                 blurPx={2}                 // suaviza detalles del fondo
                 brightness={0.85}          // 0.7–0.9 suele ser óptimo
-
                 containerProps={{
                   minH: "50px",
                   p: 8,
                   rounded: "2xl"
-                }}>
+                }}
+              >
                 <HStack spacing={2}>
                   <TopicPicker
                     value={selectedTopic}
@@ -126,6 +136,7 @@ export default function index({ topicId }: Props) {
                   <Gate requireAnyPerms={["organizer_appearance:edit"]} source="all">
                     <AppearanceControls topicId={selectedTopic ?? ''} />
                   </Gate>
+
                   <NewColumnButton
                     buttonText="New List"
                     onCreate={async (title) => {
@@ -148,42 +159,44 @@ export default function index({ topicId }: Props) {
           </HStack>
         </VStack>
 
-        {/* Content */}
-        {selectedTopic ? (
-          <Box rounded="md" p={2}>
-            <KanbanBoard
-              columns={data.columns}
-              cardsByColumn={data.cardsByColumn}
-              isLoading={board.isLoading}
-              onMoveCard={onMoveCard}
-              onCreateCard={(colId, title) =>
-                createCard.mutateAsync({ columnId: colId, title })
-              }
-              onOpenCard={(c) => setOpenCardId(c.id)}
-              // custom card view with hover completion radio
-              renderCard={(card) => (
-                <CardView
-                  card={card}
-                  onOpen={(c) => setOpenCardId(c.id)}
-                  onToggleComplete={(id, next) => {
-                    // PATCH /cards/:id { completed: boolean }
-                    return updateCard.mutateAsync({ cardId: id, patch: { completed: next } });
-                  }}
-                />
+        {/* Área de contenido: FLEX + minH=0 + overflowY=auto para scroll interno */}
+        <Box flex="1" minH={0} overflow="hidden">
+          {selectedTopic ? (
+            <Box rounded="md" p={2} h="100%" overflowY="auto">
+              <KanbanBoard
+                columns={data.columns}
+                cardsByColumn={data.cardsByColumn}
+                isLoading={board.isLoading}
+                onMoveCard={onMoveCard}
+                onCreateCard={(colId, title) =>
+                  createCard.mutateAsync({ columnId: colId, title })
+                }
+                onOpenCard={(c) => setOpenCardId(c.id)}
+                // custom card view with hover completion radio
+                renderCard={(card) => (
+                  <CardView
+                    card={card}
+                    onOpen={(c) => setOpenCardId(c.id)}
+                    onToggleComplete={(id, next) => {
+                      // PATCH /cards/:id { completed: boolean }
+                      return updateCard.mutateAsync({ cardId: id, patch: { completed: next } });
+                    }}
+                  />
+                )}
+              />
+            </Box>
+          ) : (
+            <Box p={6} rounded="md" borderWidth="1px" h="100%" overflowY="auto">
+              {topics.isLoading ? (
+                <Text>Loading topics…</Text>
+              ) : (
+                <Text>Create a topic to get started.</Text>
               )}
-            />
-          </Box>
-        ) : (
-          <Box p={6} rounded="md" borderWidth="1px">
-            {topics.isLoading ? (
-              <Text>Loading topics…</Text>
-            ) : (
-              <Text>Create a topic to get started.</Text>
-            )}
-          </Box>
-        )}
+            </Box>
+          )}
+        </Box>
 
-        {/* Card details modal */}
+        {/* Modales (independientes del scroll) */}
         <CardDetailsModal
           isOpen={!!openCardId}
           card={selectedCard}
@@ -202,7 +215,7 @@ export default function index({ topicId }: Props) {
             await saveAppearance.mutateAsync(patch);
           }}
         />
-      </Container >
+      </Container>
     </>
   );
 }

@@ -22,8 +22,8 @@ export default function BoardBackground({ appearance }: { appearance?: TopicAppe
           filter: `blur(${blur}px) brightness(${brightness})`,
         };
   return (
-    <Box position="fixed" inset="0" zIndex={-1} pointerEvents="none" aria-hidden>
-      <Box position="absolute" inset="0" style={baseStyles} />
+    <Box position="fixed" inset="0" zIndex={0} pointerEvents="none" aria-hidden >
+      <Box position="absolute" inset="0" style={baseStyles} h={"100vh"}/>
     </Box>
   );
 }

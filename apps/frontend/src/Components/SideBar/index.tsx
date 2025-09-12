@@ -33,6 +33,7 @@ function SideBarLink({ item, isActive }: { item: LinkItemType; isActive: boolean
   return (
     <Tooltip label={item.name} hasArrow placement="right" openDelay={400}>
       <ChakraLink
+
         as={RouterLink}
         to={item.path}
         _hover={{ textDecoration: "none" }}
@@ -82,18 +83,20 @@ export default function SideBar({ linkItems, linkConfig = [] }: Props) {
   };
 
   const sectionTitleColor = useColorModeValue("gray.500", "gray.400");
-  const sidebarBg = useColorModeValue("white", "gray.900");
+  const sidebarBg = useColorModeValue("white", "gray.100");
 
   return (
-    <Box h="100%" display="flex" flexDir="column" overflow="hidden" p={2} bg={sidebarBg} zIndex={999} >
+    <Box h="100%" display="flex" flexDir="column" overflow="hidden" p={2} bg={sidebarBg} zIndex={999}
+      minW="fit-content"
+    >
       {/* ─────────────────────────────────────────────────────────
           ZONA SUPERIOR (scrollable): links principales de la app
           ───────────────────────────────────────────────────────── */}
-      <Box flex="1" overflowY="auto" >
+      <Box flex="1">
         {/* Título sección (opcional) */}
         {linkItems.length > 0 && (
           <Text fontSize="xs" fontWeight="semibold" color={sectionTitleColor} px={2} mb={2}>
-            
+
           </Text>
         )}
 
@@ -110,12 +113,12 @@ export default function SideBar({ linkItems, linkConfig = [] }: Props) {
       {linkConfig.length > 0 && (
         <Box borderTopWidth="1px" pt={2} mt={2} bg={sidebarBg}>
           <Text fontSize="xs" fontWeight="semibold" color={sectionTitleColor} px={2} mb={2}>
-            
+
           </Text>
 
           <VStack align="stretch" spacing={1}>
             {linkConfig.map((item) => (
-               <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={isActive(item.path)} />
+              <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={isActive(item.path)} />
             ))}
           </VStack>
 
