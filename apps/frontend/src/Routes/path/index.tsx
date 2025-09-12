@@ -1,7 +1,6 @@
 // apps/frontend/src/Routes/path/index.tsx
 import { IconType } from "react-icons";
 import { FiHome, FiCalendar } from "react-icons/fi";
-import { IoSettingsOutline } from "react-icons/io5";
 import { FaUserCircle, FaRegCalendarCheck } from "react-icons/fa";
 import { MdTextsms } from "react-icons/md";
 import { LuUserRoundSearch } from "react-icons/lu";
@@ -58,9 +57,9 @@ export const navLinks: NavLink[] = [
   { key: "home", path: paths.root, label: "Home", icon: FiHome, show: ["header", "sidebar"], order: 10, headerZone: "main", sidebarZone: "main" },
 
   // Appointments (grupo visible) + hijos en sidebar zona "main"
-  { key: "appointments", path: paths.appointments, label: "Appointments", icon: FiCalendar, show: ["header", "sidebar"], order: 20, requireAuth: true, headerZone: "main", sidebarZone: "main" },
+  { key: "appointments", path: paths.appointments, label: "Appointments", icon: TbCalendarPlus, show: ["header", "sidebar"], order: 20, requireAuth: true, headerZone: "main", sidebarZone: "main" },
   { key: "appointments.priorityList", path: paths.appointmentList, label: "Priority List", icon: TbSortAscendingSmallBig, show: ["sidebar"], order: 21, requireAuth: true, sidebarZone: "main" },
-  { key: "appointments.manager", path: paths.appointmentManager, label: "Appointment Manager", icon: TbCalendarPlus, show: ["sidebar"], order: 22, requireAuth: true, sidebarZone: "main" },
+  { key: "appointments.manager", path: paths.appointmentManager, label: "Appointment Manager", icon: FiCalendar, show: ["sidebar"], order: 22, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.patientFinder", path: paths.patientFinder, label: "Patient Finder", icon: LuUserRoundSearch, show: ["sidebar"], order: 23, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.assigned", path: paths.assignedAppointments, label: "Assigned Appointments", icon: HiOutlineClipboardDocumentCheck, show: ["sidebar"], order: 24, requireAuth: true, sidebarZone: "main" },
 
@@ -69,10 +68,12 @@ export const navLinks: NavLink[] = [
   { key: "organizer", path: paths.organizer, label: "Organizer", icon: FaRegCalendarCheck, show: ["header", "sidebar"], order: 40, requireAuth: true, headerZone: "main", sidebarZone: "main" },
 
   // Admin y Settings → sidebar "bottom"
-  { key: "admin", path: paths.roles, label: "Admin", icon: FaUserCircle, show: ["sidebar"], order: 850, requireAuth: true, 
-    requireAnyPerms: ["dev-admin", "admin:*"], 
-    sidebarZone: "bottom" },
-  
+  {
+    key: "admin", path: paths.roles, label: "Admin", icon: FaUserCircle, show: ["sidebar"], order: 850, requireAuth: true,
+    requireAnyPerms: ["dev-admin", "admin:*"],
+    sidebarZone: "bottom"
+  },
+
   // Sesión en Header → zona "session"
   { key: "signin", path: paths.signin, label: "Sign in", icon: FaUserCircle, show: ["header"], order: 900, headerZone: "session" },
   { key: "logout", path: paths.logout, label: "Log out", icon: FaUserCircle, show: ["header"], order: 999, requireAuth: true, headerZone: "session" },

@@ -44,8 +44,7 @@ function PriorityList() {
   const limit = 20;
   const params = { start, end } // solo frontend
   const { data: options } = useGetCollection<AppointmentGroup[]>("PriorityList", { query, limit, params });
-  console.log("option", options)
-  console.log("data2", data2)
+
 
   useEffect(() => {
     onOpen()

@@ -93,7 +93,6 @@ function CustomCalendar({
 
   const handleSelectSlot = async (slotInfo: SlotInfo) => {
     if (isHandlingSelection) {
-      console.warn("Selection blocked: already handling another selection");
       return;
     }
 
@@ -151,7 +150,6 @@ function CustomCalendar({
     }
   }, [calView]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  console.log("events desde hijo", events)
 
   return (
     <Box

@@ -8,7 +8,6 @@ import { Outlet } from "react-router-dom";
 import { SocketNotification } from "@/Components/Socket/SocketNotification";
 
 import paths, { navLinks, NavLink } from "./path";
-import type { LinkItem as LinkItemType } from "@/types";
 import { FaUserCircle } from "react-icons/fa";
 
 const NS = "https://letsmarter.com/";

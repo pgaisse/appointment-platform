@@ -43,7 +43,6 @@ const AssignedAppointments = () => {
   useEffect(() => {
     if (!isFetching && Array.isArray(data) && data.length > 0) {
       const events = createEvents(data);
-      console.log("🟡 Eventos generados", events);
       setMarkedEvents(events);
     }
   }, [data, isFetching]);
@@ -61,7 +60,6 @@ const AssignedAppointments = () => {
     const result = data?.find((item) => item._id === event._id);
 
     setSelectedEvent(result);
-    console.log(event)
     onOpen();
   };
 
@@ -84,11 +82,7 @@ const AssignedAppointments = () => {
     return true;
   });
 
-  useEffect(() => {
-    console.log("🧭 currentDate:", currentDate);
-    console.log("👁️ Vista actual:", calendarView);
-    console.log("🎯 Eventos filtrados:", filteredEvents);
-  }, [currentDate, calendarView, markedEvents]);
+
   return (
     <>
       <Grid

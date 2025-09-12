@@ -41,7 +41,6 @@ export default function useSlotSelection(
       setOffsetState(offset ?? 0.25);
     }
   }, [offset]);
-console.log("offset desde slotSelection",offset)
   const [range, setRange] = useState<DateRange | null>(null);
   const { data, isLoading, refetch, isSuccess, isFetching, isPlaceholderData }
     = usePriorityTreatments(range?.startDate, range?.endDate)
@@ -62,7 +61,6 @@ console.log("offset desde slotSelection",offset)
       )
     }
 
-    console.log("newRange",newRange, offsetState)
     if (autoFind) {
       setRange(newRange); // esto actualiza el hook de React Query
       refetch();

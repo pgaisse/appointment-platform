@@ -21,7 +21,6 @@ export default function BoardBackground({ appearance }: { appearance?: TopicAppe
           backgroundColor: color,
           filter: `blur(${blur}px) brightness(${brightness})`,
         };
-console.log("baseStyles",baseStyles)
   return (
     <Box position="fixed" inset="0" zIndex={0} pointerEvents="none" aria-hidden>
       <Box position="absolute" inset="0" style={baseStyles} />
