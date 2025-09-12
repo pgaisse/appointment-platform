@@ -34,7 +34,6 @@ export const TreatmentSelector = ({ onChange,selected, onSelect, selectedId, que
     isSuccess,
     isFetching,
   } = useGetCollection<Treatment>("Treatment", { query, limit });
-  console.log("data", data);
   if (isFetching) {
     return (
       <Flex justify="center" py={4}>

@@ -147,6 +147,8 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
       gridTemplateColumns={{ base: "1fr", md: "auto 1fr" }}
       minH="100vh"
       bg="white"
+      h="100dvh"
+      w="100dvw"
     >
       <GridItem area="header" ref={headerRef} zIndex={999}>
         <Header linkItems={headerItems} linkSession={linkSession} />

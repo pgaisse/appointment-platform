@@ -51,12 +51,21 @@ export default function Header({ linkItems, linkSession }: Props) {
       px={6}
       py={3}
       shadow="sm"
+      as="header"
+      position="sticky"
+      top={0}
+      insetInlineStart={0}
+      insetInlineEnd={0}
+      w="100vw"          // clave: ancho del viewport, no del contenedor
+      maxW="100vw"       // no se expande más que la ventana
+      zIndex="docked"
+      overflowX="clip"   // por si algo interno se sale
     >
       <Flex align="center" justify="space-between">
         <HStack spacing={4}>
           {/* Logo / App Name */}
           <Text fontWeight="bold" fontSize="lg" color="purple.800">
-           App Sys
+            App Sys
           </Text>
 
           {/* Navigation Links */}

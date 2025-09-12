@@ -10,6 +10,8 @@ import theme from "./Components/Constants/Constants";
 import DevExposeAuth from "./DevExposeAuth";
 import OrgGate from "./org/OrgGate";
 import AutoProvisionUser from "./Boot/AutoProvisionUser";
+import EnsureOfflineAccess from "./auth/EnsureOfflineAccess";
+import AuthAutoLogoutGuard from "./auth/AuthAutoLogoutGuard";
 
 const queryClient = new QueryClient();
 
@@ -45,7 +47,7 @@ createRoot(document.getElementById("root")!).render(
          */
         >
           <AutoProvisionUser />
-          <DevExposeAuth />
+           <AuthAutoLogoutGuard />
           <OrgGate>
             <RouterProvider router={router} />
           </OrgGate>
