@@ -17,12 +17,12 @@ const Index = () => {
         try {
           const t = await getAccessTokenSilently({
             authorizationParams: {
-              audience: "https://api.dev.iconicsmiles", // 👈 tu Audience de Auth0
+              audience: import.meta.env.VITE_AUTH0_AUDIENCE || "https://api.dev.iconicsmiles",
             },
           });
           if (!cancelled) {
             setToken(t);
-            console.log("✅ Access Token:", t);
+         
           }
         } catch (e) {
           console.error("❌ Error getting access token", e);
