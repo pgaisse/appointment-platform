@@ -1,9 +1,9 @@
 // apps/frontend/src/Routes/path/index.tsx
 import { IconType } from "react-icons";
-import { FiHome, FiCalendar } from "react-icons/fi";
+import { FiHome} from "react-icons/fi";
 import { FaUserCircle, FaRegCalendarCheck } from "react-icons/fa";
 import { MdTextsms } from "react-icons/md";
-import { LuUserRoundSearch } from "react-icons/lu";
+import { LuCalendarCog, LuUserRoundSearch } from "react-icons/lu";
 import { HiOutlineClipboardDocumentCheck } from "react-icons/hi2";
 import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
 
@@ -59,7 +59,7 @@ export const navLinks: NavLink[] = [
   // Appointments (grupo visible) + hijos en sidebar zona "main"
   { key: "appointments", path: paths.appointments, label: "Appointments", icon: TbCalendarPlus, show: ["header", "sidebar"], order: 20, requireAuth: true, headerZone: "main", sidebarZone: "main" },
   { key: "appointments.priorityList", path: paths.appointmentList, label: "Priority List", icon: TbSortAscendingSmallBig, show: ["sidebar"], order: 21, requireAuth: true, sidebarZone: "main" },
-  { key: "appointments.manager", path: paths.appointmentManager, label: "Appointment Manager", icon: TbCalendarPlus, show: ["sidebar"], order: 22, requireAuth: true, sidebarZone: "main" },
+  { key: "appointments.manager", path: paths.appointmentManager, label: "Appointment Manager", icon: LuCalendarCog, show: ["sidebar"], order: 22, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.patientFinder", path: paths.patientFinder, label: "Patient Finder", icon: LuUserRoundSearch, show: ["sidebar"], order: 23, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.assigned", path: paths.assignedAppointments, label: "Assigned Appointments", icon: HiOutlineClipboardDocumentCheck, show: ["sidebar"], order: 24, requireAuth: true, sidebarZone: "main" },
 
