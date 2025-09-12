@@ -159,11 +159,12 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
         bg="white"
         height={`calc(100vh - ${headerHeight}px)`}   // ⬅️ ocupa todo el alto disponible
         overflow="hidden"                             // ⬅️ el scroll va ADENTRO del SideBar
+        zIndex={999}
       >
         <SideBar linkItems={sidebarMain} linkConfig={sidebarBottom} />
       </GridItem>
 
-      <GridItem area="main" bg="white" height={`calc(100vh - ${headerHeight}px)`} pl="2">
+      <GridItem area="main" bg="white" height={`calc(100vh - ${headerHeight}px)`} pl="2" zIndex={0}>
         <SocketNotification />
         <Outlet />
         {children}

@@ -85,7 +85,7 @@ export default function SideBar({ linkItems, linkConfig = [] }: Props) {
   const sidebarBg = useColorModeValue("white", "gray.900");
 
   return (
-    <Box h="100%" display="flex" flexDir="column" overflow="hidden" p={2} bg={sidebarBg} >
+    <Box h="100%" display="flex" flexDir="column" overflow="hidden" p={2} bg={sidebarBg} zIndex={999} >
       {/* ─────────────────────────────────────────────────────────
           ZONA SUPERIOR (scrollable): links principales de la app
           ───────────────────────────────────────────────────────── */}
