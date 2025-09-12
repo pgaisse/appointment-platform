@@ -1,39 +1,40 @@
-import { useAuth0 } from "@auth0/auth0-react";
-import { Alert, AlertDescription, AlertIcon, AlertTitle, Box, Spinner, Center } from '@chakra-ui/react';
-import PremiumDentalLanding from "@/Components/CustomTemplates/PremiumDentalLanding";
+// src/Pages/Index.tsx
 import React from "react";
-import { MessageComposer } from "@/Components/Chat/min";
+import { useAuth0 } from "@auth0/auth0-react";
+import {
+  Alert,
+  AlertDescription,
+  AlertIcon,
+  AlertTitle,
+  Box,
+  Spinner,
+  Center,
+} from "@chakra-ui/react";
+// (Opcional) PremiumDentalLanding si lo usas en esta pantalla
+import { ExtractedMention } from "@/types";
+
+// ⬇️ Ajusta esta ruta al lugar donde copiaste el componente
 
 const Index = () => {
-  const { error, isLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
-  const [, setToken] = React.useState<string | null>(null);
+  const { error, isLoading, isAuthenticated } = useAuth0();
 
+  // Texto del composer + menciones detectadas
+  const [] = React.useState("");
+  const [] = React.useState<ExtractedMention[]>([]);
 
-  // 🚀 Pedir el access_token automáticamente al autenticar
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (isAuthenticated) {
-        try {
-          const t = await getAccessTokenSilently({
-            authorizationParams: {
-              audience: import.meta.env.VITE_AUTH0_AUDIENCE || "https://api.dev.iconicsmiles",
-            },
-          });
-          if (!cancelled) {
-            setToken(t);
-         
-          }
-        } catch (e) {
-          console.error("❌ Error getting access token", e);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, getAccessTokenSilently]);
+  // Para tus llamadas de API (usa tu convención de config)
 
+  // Conversation (ajústalo si lo pasas por props/router)
+
+  // Cache en memoria para evitar refetch de la misma query
+
+  // Mapea tu documento de la colección al formato MentionItem requerido
+
+  // Busca por nameInput en tu API protegida por Auth0 (debounced/cached desde el componente)
+
+  // Enviar mensaje (ajusta el endpoint / payload si usas otro)
+
+  // --------- Estados de Auth0 ---------
   if (isLoading) {
     return (
       <Center minH="100vh">
@@ -65,14 +66,11 @@ const Index = () => {
       </Box>
     );
   }
-  const conversationId ="CH0656c4a8270e463ca1c8436bb917854e"
 
+  // --------- UI ---------
   return (
     <>
-
       
-
-
     </>
   );
 };

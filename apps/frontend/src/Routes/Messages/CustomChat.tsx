@@ -40,9 +40,7 @@ export default function CustomChat() {
     const fresh = dataConversation.find(c => c.conversationId === chat.conversationId);
     if (fresh && fresh !== chat) setChat(fresh); // nueva referencia -> re-render
   }, [dataConversation, chat?.conversationId]);
-  console.log(dataConversation)
   // live updates
-  console.log(org_id)
   useChatSocket(
     org_id,
     // onNewMessage
@@ -57,7 +55,6 @@ export default function CustomChat() {
     // onMessageUpdated (delivered/read/etc.)
     (msg) => {
       window.dispatchEvent(new CustomEvent("chat:message-delivery", { detail: msg }));
-      console.log("Se disparó el evento!!!!","ID",JSON.stringify(msg.conversationId,null,2))
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["messages", msg.conversationId] });
     }
@@ -106,7 +103,6 @@ export default function CustomChat() {
             queryKey: ["conversation-categories", conversationSid],
           });
         } catch (err) {
-          console.error("Failed to assign category:", err);
         }
       }
     },

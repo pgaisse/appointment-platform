@@ -215,7 +215,6 @@ function CustomEntryForm({ children, dates,
 
 
 
-  console.log("priorityVal", priorityVal)
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [selectedAppDates, setSelectedAppDates] = useState<DateRange[]>(datesAppSelected || []);
 
@@ -233,7 +232,6 @@ function CustomEntryForm({ children, dates,
   const onSubmit = (data: AppointmentForm | ContactForm) => {
 
     const cleanedData = sanitize(data)
-    console.log("cleanedData", cleanedData)
     if (mode == "CREATION") {
 
       mutate(cleanedData, {
@@ -294,7 +292,6 @@ function CustomEntryForm({ children, dates,
             });
             if (rfetchPl) rfetchPl();
             if (onClose_1) onClose_1()
-            console.log("conversationId", conversationId)
             queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["Appointment"] });

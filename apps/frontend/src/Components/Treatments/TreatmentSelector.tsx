@@ -4,7 +4,6 @@ import {
   Icon,
   Spinner,
   Text,
-  useToast,
 } from "@chakra-ui/react";
 import * as RiIcons from "react-icons/ri";
 import * as MdIcons from "react-icons/md";
@@ -28,13 +27,12 @@ interface Props {
   onChange?: (id: string, value: string, color?: string, duration?: number | null) => void;
 }
 
-export const TreatmentSelector = ({ onChange,selected, onSelect, selectedId, query = {}, limit = 20 }: Props) => {
+export const TreatmentSelector = ({ onChange,onSelect, selectedId, query = {}, limit = 20 }: Props) => {
   const {
     data,
     isSuccess,
     isFetching,
   } = useGetCollection<Treatment>("Treatment", { query, limit });
-  console.log("data", data);
   if (isFetching) {
     return (
       <Flex justify="center" py={4}>

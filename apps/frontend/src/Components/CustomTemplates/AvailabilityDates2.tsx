@@ -97,9 +97,7 @@ export default function AvailabilityDates2({ hasSubmitted, trigger, setValue, is
         setValue('selectedDates', newSelectedDates);
       }
     }
-console.log("Selected Days:", selectedDays);
-console.log("hasSubmitted:", hasSubmitted);
-console.log("newSelectedDates:", newSelectedDates);
+
 
 
   }, [selectedDays, duration, setBuildSelectedDates, hasSubmitted]);

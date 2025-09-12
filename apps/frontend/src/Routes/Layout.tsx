@@ -8,7 +8,6 @@ import { Outlet } from "react-router-dom";
 import { SocketNotification } from "@/Components/Socket/SocketNotification";
 
 import paths, { navLinks, NavLink } from "./path";
-import type { LinkItem as LinkItemType } from "@/types";
 import { FaUserCircle } from "react-icons/fa";
 
 const NS = "https://letsmarter.com/";
@@ -147,6 +146,8 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
       gridTemplateColumns={{ base: "1fr", md: "auto 1fr" }}
       minH="100vh"
       bg="white"
+      h="100dvh"
+      w="100dvw"
     >
       <GridItem area="header" ref={headerRef} zIndex={999}>
         <Header linkItems={headerItems} linkSession={linkSession} />
