@@ -25,6 +25,7 @@ import DateRangeSelector from "../searchBar/DateRangeSelector";
 import { useDraggableCards } from "@/Hooks/Query/useDraggableCards";
 import { filterAppointmentsByRange, RangeOption } from "@/Functions/filterAppointmentsByRage";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
+import { unknown } from "zod";
 
 
 const CustomTableAppColumnV = () => {
@@ -43,16 +44,24 @@ const CustomTableAppColumnV = () => {
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
   const query = {
-    $or: [
-      { "selectedAppDates": { $exists: false } },
-      { "selectedAppDates": null },
-      { "selectedAppDates": { $size: 0 } }
-    ]
+    $and: [
+      { unknown: false },           // ← obligatorio
+      {
+        $or: [
+          { selectedAppDates: { $exists: false } },
+          { selectedAppDates: null },
+          { selectedAppDates: { $size: 0 } },
+          { selectedDates: { $exists: false } },
+          // (opcional) si también quieres selectedDates vacío:
+          // { selectedDates: { $size: 0 } },
+        ],
+      },
+    ],
   };
 
   const limit = 100;
   const { data: dataContacts } = useGetCollection<Appointment>("Appointment", {
-    mongoQuery:query,
+    mongoQuery: query,
     limit,
   });
   const handleRangeChange = (
@@ -196,8 +205,8 @@ const CustomTableAppColumnV = () => {
 
         <DraggableCards
           isPlaceholderData={isPlaceholderData}
-          dataAP2={filteredData?filteredData:[]}
-          dataContacts={dataContacts?dataContacts:[]}
+          dataAP2={filteredData ? filteredData : []}
+          dataContacts={dataContacts ? dataContacts : []}
           onCardClick={handleCardClick}
         />
       </SimpleGrid>

@@ -48,6 +48,7 @@ import AddPatientButton from '../DraggableCards/AddPatientButton';
 import DeleteItemButton from './DeleteItemButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
 import ArchiveItemButton from './ArchiveItemButton';
+import DeleteContactButton from './DeleteContactButton';
 
 type Props = {
   onCardClick?: (item: Appointment) => void;
@@ -705,7 +706,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                           <Text fontWeight="bold">
                             {item.nameInput} {item.lastNameInput}
                           </Text>
-                          <DeleteItemButton id={item._id} modelName="Appointment" />
+                          <DeleteContactButton item={item} modelName="Appointment" />
                         </HStack>
                       </GridItem>
                       <GridItem>

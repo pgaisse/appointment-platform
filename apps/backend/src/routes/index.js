@@ -275,7 +275,7 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
       }
 
       // Forzamos unknown=false y no confiamos en org_id del cliente
-      data = { ...data, unknown: false };
+      data = { ...data, unknown: data.unknown?data.unknown:false };
       if (org_id) {
         // Si no viene org_id en el doc, lo agregamos con el del token
         // (No sobreescribimos si ya existe en el payload; lo añade solo si falta)
@@ -561,6 +561,7 @@ router.post('/add', jwtCheck, async (req, res) => {
       ...(sid && { sid }), // ← esto agrega `sid` solo si existe
       ...(proxyAddress && { proxyAddress }), // agrega `proxyAddress` solo si existe
       lastMessage: new Date(),
+      unknown: false, // forzamos unknown=false
       org_name: orgName,
       createdBy: sub,
       createdAt: new Date(),
