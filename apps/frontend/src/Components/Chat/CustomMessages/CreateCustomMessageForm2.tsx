@@ -35,7 +35,7 @@ type Props = {
 }
 
 
-export default function CreateCustomMessageForm({ mode }: Props) {
+export default function CreateCustomMessageForm({ mode, onClose }: Props) {
 
   const navigate = useNavigate();
 
@@ -106,14 +106,13 @@ export default function CreateCustomMessageForm({ mode }: Props) {
       mutate(cleanedData, {
         onSuccess: () => {
           toast({
-            title: "PatientPatient successfully submitted.",
-            description: "Your new contact has been submitted successfully",
+            title: "Template successfully created.",
             status: "success",
             duration: 3000,
             isClosable: true,
           });
           reset();
-          navigate("/appointments/priority-list");
+          if(onClose)onClose();
         },
         onError: (error: any) => {
           toast({
