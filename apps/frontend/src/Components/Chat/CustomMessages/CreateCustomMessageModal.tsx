@@ -14,8 +14,10 @@ import { ReactNode } from "react";
 import CreateCustomMessageForm2 from "./CreateCustomMessageForm2";
 
 export default function CreateMessageModal({
+  patientId,
   triggerButton,
 }: {
+  patientId: string;
   triggerButton: ReactNode;
 }) {
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -30,7 +32,7 @@ export default function CreateMessageModal({
           <ModalHeader textAlign="center">New Template</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            <CreateCustomMessageForm2 onClose={onClose} mode="CREATION" />
+            <CreateCustomMessageForm2 onClose={onClose} mode="CREATION" patientId={patientId} />
           </ModalBody>
           <ModalFooter>
             <Button onClick={onClose} variant="ghost">

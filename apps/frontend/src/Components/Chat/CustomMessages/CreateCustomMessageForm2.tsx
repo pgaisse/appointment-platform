@@ -19,12 +19,14 @@ import { useInsertToCollection } from '@/Hooks/Query/useInsertToCollection';
 import CustomInputN from '@/Components/Form/CustomInputN';
 import { useUpdateItems } from '@/Hooks/Query/useUpdateItems';
 import { messageTemplateSchema, ScheaMessageTemplate } from '@/schemas/MessageTemplateSchema';
-import { FormMode, TemplateToken } from '@/types';
+import { Appointment, FormMode, TemplateToken } from '@/types';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from 'react-router-dom';
 import { MdOutlineTitle } from 'react-icons/md';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
+import { compactObject } from '@/Helpers/compactObject';
+import React from 'react';
 
 
 
@@ -32,12 +34,11 @@ import { useGetCollection } from '@/Hooks/Query/useGetCollection';
 type Props = {
   onClose?: () => void
   mode: FormMode
+  patientId: string
 }
 
 
-export default function CreateCustomMessageForm({ mode, onClose }: Props) {
-
-  const navigate = useNavigate();
+export default function CreateCustomMessageForm({ mode, onClose, patientId }: Props) {
 
   const sanitize = (data: ScheaMessageTemplate): ScheaMessageTemplate => ({
     ...data,
@@ -51,8 +52,23 @@ export default function CreateCustomMessageForm({ mode, onClose }: Props) {
   //console.log( "datesAppSelected FORM", datesAppSelected)
 
   //const { mutate, isPending } = useEntryForm("Appointment");
+
+  const project = { firstName: 1, lastName: 1, phone: 1, selectedAppDates: 1, nameInput: 1, lastNameInput: 1 }
+  const { data: fields } = useGetCollection<Appointment>('Appointment', {
+    mongoQuery: { _id: patientId },
+    projection: project
+  });
+  const doc = fields?.[0];
+  const presentKeys = doc ? Object.keys(compactObject(doc)) : [];
+  // opcional: excluir _id
+  const presentKeysNoId = presentKeys.filter(k => k !== "_id");
+  const inList = React.useMemo<(string | null)[]>(
+    () => [...new Set([...presentKeysNoId, null])],
+    [presentKeysNoId]
+  );
+  console.log("presentKeysNoId", presentKeysNoId)
   const { data: tokens } = useGetCollection<TemplateToken>('TemplateToken', {
-    mongoQuery: {},
+     mongoQuery: { field: { $in: inList } },
   });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const { mutate, isPending } = useInsertToCollection<{ message: string; document: any }>("MessageTemplate");
@@ -112,7 +128,7 @@ export default function CreateCustomMessageForm({ mode, onClose }: Props) {
             isClosable: true,
           });
           reset();
-          if(onClose)onClose();
+          if (onClose) onClose();
         },
         onError: (error: any) => {
           toast({

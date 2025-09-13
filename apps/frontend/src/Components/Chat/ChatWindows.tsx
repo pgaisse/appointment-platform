@@ -638,6 +638,7 @@ const Composer = memo(function Composer({
 
           {!unknown && <Tooltip label="Create template">
             <CreateMessageModal
+              patientId={patientId}
               triggerButton={
                 <IconButton
                   aria-label="Create template"
