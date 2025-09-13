@@ -150,41 +150,7 @@ const Index = () => {
   // --------- UI ---------
   return (
     <>
-      <Box p={6} maxW="900px" mx="auto">
-        <VStack align="stretch" spacing={4}>
-          {/* Tu landing u otros componentes arriba, si quieres */}
-          {/* <PremiumDentalLanding /> */}
-
-          <HashtagMentionInput
-            value={text}
-            onChange={(v) => {
-              setText(v);
-              setMentions(extractMentions(v));
-            }}
-            onMentionsChange={setMentions}
-            onMentionAdd={(it) => {
-              // Aquí tienes TODO el objeto de la colección seleccionado
-              // Puedes guardarlo en un store, cache, etc.
-              console.log("Linked:", it);
-            }}
-            fetchSuggestions={fetchByNameInput}
-            placeholder="Type # to link a patient…"
-            maxSuggestions={8}
-            debounceMs={150}
-            requireBoundaryBeforeHash={true}
-            rows={5}
-          />
-
-          <HStack justify="space-between">
-            <Text fontSize="sm" color="gray.500">
-              Mentions detected: {mentions.length}
-            </Text>
-            <Button onClick={handleSend} colorScheme="blue" isDisabled={!text.trim()}>
-              Send
-            </Button>
-          </HStack>
-        </VStack>
-      </Box>
+      
     </>
   );
 };
