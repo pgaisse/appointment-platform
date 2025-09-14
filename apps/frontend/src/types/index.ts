@@ -259,6 +259,19 @@ export type SendChatMessageResponseBatch = {
   created: { sid: string; index?: number }[];
   conversationSid?: string; // opcional por compat
 };
+export interface ContactAppointment {
+  _id?: string;
+  appointment?: string; // referencia al Appointment
+  org_id?: string;
+  status?: string; // ContactStatus
+  startDate?: Date;
+  endDate?: Date;
+  context?: string;
+  cSid?: string;
+  pSid?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export type SendChatMessageResponse =
   | SendChatMessageResponseSingle
@@ -269,14 +282,6 @@ export type GroupedAppointments = AppointmentGroup[];
 
 export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted';
 
-export interface ContactAppointment {
-  _id?: string; // asignado por MongoDB
-  status?: ContactStatus;
-  context?: string;
-  cSid: string,
-  pSid: string
-
-}
 
 export interface Appointment {
   _id: string;
@@ -298,6 +303,8 @@ export interface Appointment {
   org_name: string;
   position: number;
   reschedule: boolean;
+  unknown: boolean;
+  proxyAddress: string;
   selectedDates: SelectedDates;
   selectedAppDates: Array<{
     rescheduleRequested:boolean

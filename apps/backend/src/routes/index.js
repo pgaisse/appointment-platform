@@ -167,82 +167,113 @@ router.get('/treatments', jwtCheck, async (req, res) => {
   }
 });
 
+// routes/query.js (handler drop-in)
 router.get('/query/:collection', jwtCheck, async (req, res) => {
   try {
     const { collection } = req.params;
     const Model = models[collection];
-    //console.log("models", models)
+    if (!Model) return res.status(400).json({ error: 'Invalid collection name' });
 
-    if (!Model) {
-      return res.status(400).json({ error: 'Invalid collection name' });
-    }
-
-    // 🔐 Obtener org_id desde token
+    // 🔐 org_id desde token (se mantiene)
     const { org_id } = await helpers.getTokenInfo(req.headers.authorization);
 
-    let filters = {};
-    let populate = [];
-    let limit = 50;
+    // --- helpers locales, no rompen nada ---
+    const tryParseJSON = (v) => {
+      if (typeof v !== 'string') return v;
+      try { return JSON.parse(v); } catch { return undefined; }
+    };
+    const normalizeSelect = (sel) => {
+      if (!sel) return undefined;
+      const parsed = tryParseJSON(sel);
+      if (Array.isArray(parsed)) return parsed.join(' ');
+      return String(sel).replace(/\+/g, ' ');
+    };
 
-    // Parsear query (filtros MongoDB)
+    // --- filtros (igual que antes, pero con parseo seguro) ---
+    let filters = {};
     if (req.query.query) {
-      filters = typeof req.query.query === 'string'
-        ? JSON.parse(req.query.query)
-        : req.query.query;
+      const parsed = tryParseJSON(req.query.query);
+      if (!parsed) return res.status(400).json({ error: "Bad JSON in 'query'" });
+      filters = parsed;
 
       if (req.query.convertObjectId === 'true') {
-        filters = convertIdsInFilter(filters);
-      }
-    }
-    console.log("Filter : ", filters)
-
-    let projection = {};
-
-    if (req.query.projection) {
-      projection = typeof req.query.projection === 'string'
-        ? JSON.parse(req.query.projection)
-        : req.query.projection;
-    }
-
-    // ⬅️ Añadir org_id automáticamente
-    filters.org_id = org_id;
-    //console.log("filters", filters, Model);
-    // Parsear populate
-    if (req.query.populate) {
-      populate = typeof req.query.populate === 'string'
-        ? JSON.parse(req.query.populate)
-        : req.query.populate;
-    }
-
-    if (req.query.limit) {
-      const parsedLimit = parseInt(req.query.limit);
-      if (!isNaN(parsedLimit)) {
-        limit = parsedLimit;
-      }
-    }
-
-    // Construir y ejecutar la consulta
-    let query = Model.find(filters, projection);
-    if (populate && Array.isArray(populate)) {
-      populate.forEach(p => {
-        if (p?.path) {
-          query = query.populate(p.path, p.select);
+        try {
+          filters = convertIdsInFilter(filters);
+        } catch {
+          return res.status(400).json({ error: 'convertObjectId failed' });
         }
-      });
+      }
+    }
+
+    // ⬅️ Mantengo enforcement de org_id
+    filters.org_id = org_id;
+
+    // --- projection / select (projection ya existía; select es opcional) ---
+    let projection = {};
+    if (req.query.projection) {
+      const parsed = tryParseJSON(req.query.projection);
+      if (!parsed) return res.status(400).json({ error: "Bad JSON in 'projection'" });
+      projection = parsed;
+    }
+    const selectStr = normalizeSelect(req.query.select); // opcional, no rompe
+
+    // --- populate (tolerante a errores) ---
+    let populate = [];
+    if (req.query.populate) {
+      const parsed = tryParseJSON(req.query.populate);
+      if (!parsed) return res.status(400).json({ error: "Bad JSON in 'populate'" });
+      populate = Array.isArray(parsed) ? parsed : [parsed];
+    }
+
+    // --- limit (igual que antes) ---
+    let limit = 50;
+    if (req.query.limit) {
+      const parsedLimit = parseInt(req.query.limit, 10);
+      if (!Number.isNaN(parsedLimit)) limit = parsedLimit;
+    }
+
+    // --- construir query (retrocompatible) ---
+    let query = Model.find(filters, projection);
+
+    if (selectStr) {
+      // select es adicional; si no lo usas, no afecta
+      query = query.select(selectStr);
+    }
+
+    if (populate && Array.isArray(populate)) {
+      for (const p of populate) {
+        try {
+          if (!p) continue;
+          if (typeof p === 'string') {
+            query = query.populate(p);
+          } else if (p && typeof p === 'object') {
+            // ✅ pasa el objeto completo (soporta anidados sin perder opciones)
+            query = query.populate(p);
+          }
+        } catch (e) {
+          // 👇 Evita 500 si un path no es ref válido (solo loggea y sigue)
+          console.warn('⚠️ populate skipped:', p, e?.message);
+        }
+      }
     }
 
     query = query.limit(limit);
-
-
+    console.log("filters",filters, Model.collection.name)
     const result = await query.lean();
-    //console.log("result", result);
-    res.status(200).json(result);
+    return res.status(200).json(result);
 
   } catch (error) {
-    console.error('❌ Error fetching collection:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('❌ Error fetching collection:', {
+      message: error.message,
+      stack: error.stack,
+      params: req.params,
+      query: req.query,
+    });
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
+
 
 router.patch("/update-items", jwtCheck, async (req, res) => {
   const { org_id, sub } = await helpers.getTokenInfo(req.headers.authorization);
@@ -328,6 +359,50 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
   }
 });
 
+
+
+function isValidObjectId(id) {
+  return mongoose.Types.ObjectId.isValid(id);
+}
+
+router.get('/appointments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const doc = await Appointment.findById(id)
+      .populate({
+        path: 'priority',
+        model: 'PriorityList',
+        select: 'id description notes durationHours name color org_id',
+      })
+      .populate({
+        path: 'treatment',
+        model: 'Treatment',
+        select: '_id name duration icon minIcon color category active',
+      })
+      .populate({
+        path: 'selectedDates.days.timeBlocks',
+        model: 'TimeBlock',
+        select: '_id org_id blockNumber label short from to',
+      })
+      .populate({
+        path: 'selectedAppDates.contactedId',
+        model: 'ContactAppointment',
+        select: 'status startDate endDate context cSid pSid createdAt updatedAt',
+      })
+      .lean({ virtuals: true });
+
+    if (!doc) return res.status(404).json({ error: 'Appointment not found' });
+
+    res.json({ data: doc });
+  } catch (err) {
+    console.error('GET /appointments/:id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 router.get('/DraggableCards', jwtCheck, async (req, res) => {
   try {
@@ -589,79 +664,64 @@ router.post('/add', jwtCheck, async (req, res) => {
 
 
 
-const MAX_LIMIT = 25;
-const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
-function escapeRegExp(s = '') {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+
+const clamp = (n, min, max) =>
+  Math.max(min, Math.min(parseInt(n, 10) || 0, max));
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * GET /appointments/mentions?nameInput=<q>&limit=8
- * Devuelve: { items: Array<MentionItem> }
- * MentionItem:
- *  - id: _id de la cita
- *  - nameInput: Appointment.nameInput
- *  - type: "appointment"
- *  - subtitle: info breve (ej: lastNameInput + phone/email)
- *  - avatarUrl: (no se define en Appointment; lo dejamos undefined)
- *  - ...doc: toda la info vinculada de la cita (lean)
- * const { requireAuth } = require('../middleware/auth');
+ * GET /appointments/mentions?nameInput=<q>&limit=5&mode=contains
+ * Devuelve hasta `limit` coincidencias para sugerir menciones tras '#'.
  */
-const { requireAuth } = require('../middleware/auth');
-router.get('/appointments/mentions', requireAuth, async (req, res) => {
+router.get('/appointments/mentions', jwtCheck, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+    let { nameInput = '', limit = '5', mode = 'contains' } = req.query;
+    const q = String(nameInput).trim();
+    const lim = clamp(limit, 1, 8);
+    if (!q) return res.json({ items: [] });
 
-    const { org_id } = await helpers.getTokenInfo(authHeader);
-    if (!org_id) return res.status(403).json({ error: 'Unauthorized: org_id not found' });
+    const re =
+      mode === 'prefix'
+        ? new RegExp('^' + escapeRegex(q), 'i')
+        : new RegExp(escapeRegex(q), 'i');
 
-    const raw = String(req.query.nameInput || req.query.q || '').trim();
-    const limit = clamp(parseInt(req.query.limit, 10) || 8, 1, MAX_LIMIT);
-    if (!raw) return res.json({ items: [] });
+    // (Opcional) limitar por organización desde el token
+    let org_id;
+    try {
+      const info = await helpers.getTokenInfo(req.headers.authorization);
+      org_id = info?.org_id;
+    } catch (_) {}
 
-    // Prefijo (rápido y predecible). Si quieres contains, quita el ^.
-    const regex = new RegExp('^' + escapeRegExp(raw), 'i');
+    const match = { nameInput: re };
+    if (org_id) match.org_id = org_id;
 
-    // Buscar por nameInput y, de apoyo, lastNameInput / phoneInput / emailInput
-    const query = {
-      org_id,
-      $or: [
-        { nameInput: { $regex: regex } },
-        { lastNameInput: { $regex: regex } },
-        { phoneInput: { $regex: regex } },
-        { emailInput: { $regex: regex } },
-      ],
-    };
+    const pipeline = [
+      { $match: match },
+      { $set: { __q: q.toLowerCase() } },
+      { $addFields: { __idx: { $indexOfCP: [ { $toLower: '$nameInput' }, '$__q' ] } } },
+      { $addFields: { __starts: { $eq: [ '$__idx', 0 ] } } },
+      { $sort: { __starts: -1, __idx: 1, updatedAt: -1, createdAt: -1 } },
+      { $limit: lim },
+      {
+        $project: {
+          _id: 1,
+          nameInput: 1,
+          avatarUrl: 1,
+          phoneInput: 1,
+          emailInput: 1,
+          type: { $literal: 'appointment' },
+        }
+      },
+      // Si prefieres limpiar los auxiliares explícitamente:
+      // { $unset: ['__q','__idx','__starts'] },
+    ];
 
-    // Ordenamos por actividad reciente si existe, luego por _id desc
-    const docs = await Appointment.find(query)
-      .sort({ lastMessage: -1, _id: -1 })
-      .limit(limit)
-      .lean();
-      console.log("query", query, docs);
-
-    const items = docs.map((doc) => {
-      const subtitleParts = [];
-      if (doc.lastNameInput) subtitleParts.push(doc.lastNameInput);
-      if (doc.phoneInput) subtitleParts.push(doc.phoneInput);
-      else if (doc.emailInput) subtitleParts.push(doc.emailInput);
-
-      return {
-        id: String(doc._id),
-        nameInput: doc.nameInput || '',       // display principal
-        type: 'appointment',
-        avatarUrl: undefined,                  // Appointment no define avatar
-        subtitle: subtitleParts.join(' · ') || undefined,
-        ...doc,                                // toda la info vinculada disponible
-      };
-    });
-
-    res.json({ items });
+    const items = await Appointment.aggregate(pipeline).exec();
+    return res.json({ items });
   } catch (err) {
-    console.error('GET /appointments/mentions error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('GET /appointments/mentions error', err);
+    return res.status(500).send('Internal error');
   }
 });
 

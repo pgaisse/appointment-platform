@@ -4,6 +4,7 @@ import type { Card, LabelColor } from '@/types/kanban';
 import CompletionRadio from '@/Components/Kanban/CompletionRadio';
 import DeleteCardButton from '../Cards/DeleteCardButton';
 import Gate from '@/auth/Gate';
+import TokenLinkText from '../Mentions/TokenLinkText';
 
 // Mapea tu LabelColor a tokens de Chakra
 const colorToken = (c?: LabelColor | string) => {
@@ -109,14 +110,14 @@ export default function CardView({
             onToggle={() => onToggleComplete?.(card.id, !card.completed)}
           />
           <Text fontWeight="semibold" lineHeight="1.2">
-            {card.title}
+           <TokenLinkText text={card.title} />
           </Text>
         </HStack>
 
         {/* Descripción breve (opcional) */}
         {card.description ? (
           <Text fontSize="sm" color="gray.300" noOfLines={3}>
-            {card.description}
+            <TokenLinkText text={card.description} />
           </Text>
         ) : null}
       </VStack>

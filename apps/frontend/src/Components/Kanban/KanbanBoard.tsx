@@ -6,7 +6,6 @@ import {
   Text,
   HStack,
   Button,
-  Textarea,
   IconButton,
   Center,
   Alert,
@@ -34,11 +33,14 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SmallCloseIcon } from '@chakra-ui/icons';
+import { useAuth0 } from '@auth0/auth0-react';
 
 import type { KanbanBoardProps, Column, Card } from '@/types/kanban';
 import { between } from '@/Helpers/between';
 import LabelChip from './LabelChip';
 import { hairlineFromBg } from '@/Helpers/color';
+import MentionTextarea from '../Mentions/MentionTexTarea';
+
 
 type CardId = string;
 const colDroppableId = (colId: string) => `col-${colId}`;
@@ -46,10 +48,8 @@ const isColDroppable = (id: string | number | undefined) =>
   typeof id === 'string' && id.startsWith('col-');
 const parseColId = (droppableId: string) => String(droppableId).replace(/^col-/, '');
 
-
 const DefaultCard: React.FC<{ card: Card }> = ({ card }) => (
   <Box p={3} bg="gray.600" rounded="md">
-
     {/* Chips arriba */}
     {card.labels?.length ? (
       <HStack spacing={1} mb={2} flexWrap="wrap">
@@ -99,7 +99,6 @@ function SortableCard({
       {...attributes}
       {...listeners}
       onClick={(e) => {
-        // Si el click proviene de un botón/acción interno (p.ej. delete), no abrir modal
         const target = e.target as HTMLElement;
         if (target.closest('[data-card-action]')) return;
         if (!isDragging) onOpenCard?.(card);
@@ -128,7 +127,7 @@ function ColumnDroppable({
       ref={setNodeRef}
       align="stretch"
       spacing={2}
-      minH="80px"                 // área mínima para soltar
+      minH="80px"
       bg={isOver ? 'gray.700' : 'transparent'}
       borderColor={isOver ? 'blue.400' : 'transparent'}
       borderWidth={isOver ? '1px' : '0'}
@@ -141,7 +140,7 @@ function ColumnDroppable({
 }
 
 const KanbanBoard: React.FC<KanbanBoardProps> = ({
-  columns = [],                           // defaults seguros
+  columns = [],
   cardsByColumn = {},
   renderColumnHeader,
   renderCard,
@@ -159,6 +158,17 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
+
+  const { getAccessTokenSilently } = useAuth0();
+  const mentionGetToken = React.useCallback(async () => {
+    try {
+      return await getAccessTokenSilently({
+        authorizationParams: { audience: 'https://api.dev.iconicsmiles' },
+      });
+    } catch {
+      return null;
+    }
+  }, [getAccessTokenSilently]);
 
   const findCard = (id: CardId) => {
     for (const col of columns) {
@@ -314,8 +324,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
         .trim()
       : '') || '#1A202C';
 
-  const baseBorder = hairlineFromBg(boardBgHex);         // normal
-  const hoverBorder = hairlineFromBg(boardBgHex, 0.12, 0.14); // un poco más visible en hover
+  const baseBorder = hairlineFromBg(boardBgHex);
+  const hoverBorder = hairlineFromBg(boardBgHex, 0.12, 0.14);
+
   return (
     <DndContext
       sensors={sensors}
@@ -326,8 +337,8 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
     >
       {/* ===== CONTENEDOR HORIZONTAL SIN WRAP ===== */}
       <Box
-        w="full"        // <-- ocupa 100%
-        minW={0}        // <-- permite que el contenido se contraiga sin overflow
+        w="full"
+        minW={0}
         display="flex"
         flexDir="row"
         alignItems="flex-start"
@@ -369,7 +380,6 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     <Text fontWeight="bold" color="white">
                       {col.title}
                     </Text>
-
                   </HStack>
                 )}
               </Box>
@@ -379,7 +389,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 <SortableContext
                   id={colDroppableId(col.id)}
                   items={items}
-                  strategy={rectSortingStrategy} // vertical dentro de la columna
+                  strategy={rectSortingStrategy}
                 >
                   {items.length === 0
                     ? renderEmptyColumn
@@ -413,24 +423,28 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 </Button>
               ) : (
                 <VStack align="stretch" spacing={2}>
-                  <Textarea
-                    textColor={"whiteAlpha.900"}
-                    value={draftByCol[col.id]}
-                    onChange={(e) =>
-                      setDraftByCol((p) => ({ ...p, [col.id]: e.target.value }))
-
-                    }
+                  <MentionTextarea
+                    textColor="whiteAlpha.900"
+                    value={draftByCol[col.id] ?? ''}
+                    onChange={(v) => setDraftByCol((p) => ({ ...p, [col.id]: v }))}
                     placeholder="Enter a title or paste a link"
                     rows={2}
                     autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        confirmAdd(col.id);
-                      } else if (e.key === 'Escape') {
-                        cancelAdd(col.id);
-                      }
-                    }}
+                    onEnter={() => confirmAdd(col.id)}
+                    onEscape={() => cancelAdd(col.id)}
+                    /** Config de menciones + endpoint */
+                    apiBase="/api"
+                    endpointPath="/appointments/mentions"
+                    getToken={mentionGetToken}
+                    maxSuggestions={5}
+                    minQueryLength={1}
+                    debounceMs={150}
+                    triggerChar="#"
+                    usePortal
+                    compact
+                    matchParentBg
+                    insertMode="token" // renderiza como “Tag” visual en el highlighter
+                    onMentionAdd={(it) => console.log("Mention inserted:", it)}
                   />
                   <HStack>
                     <Button

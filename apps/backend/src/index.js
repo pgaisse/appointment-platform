@@ -11,7 +11,7 @@ const Routes = require('./routes/index');
 const SMS = require('./routes/sms');
 const Topics = require('./routes/topics.routes');
 const SocketRoutes = require('./routes/socket');
-const mongoConnect = require('./config/db');
+const { connectDB, getSessionIfAvailable, supportsTransactions }=require('./config/db');
 const setupSocket = require('./config/setupSocket');
 
 const app = express();
@@ -54,7 +54,7 @@ app.use((err, _req, res, next) => {
 
 // ARRANQUE: **espera** Mongo antes de escuchar
 (async () => {
-  await mongoConnect(); // 👈 evita "buffering timed out"
+  await connectDB(); // 👈 evita "buffering timed out"
   server.listen(port, '0.0.0.0', () => {
     console.log(`HTTP server listening on :${port}`);
   });
