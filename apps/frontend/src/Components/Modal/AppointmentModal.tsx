@@ -30,6 +30,10 @@ import {
 import { FiCalendar, FiClock, FiPhone, FiMail, FiUser, FiHash, FiClipboard, FiInfo, FiMessageSquare, FiSmartphone } from "react-icons/fi";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { ContactAppointment } from "@/types";
+import { formatDateWS } from "@/Functions/FormatDateWS";
+import { GrContact } from "react-icons/gr";
+import { FaRegThumbsUp, FaThumbsDown, FaThumbsUp } from "react-icons/fa";
+import { CiUser } from "react-icons/ci";
 
 // -----------------------------
 // Tipos basados en tus esquemas Mongoose (actualizados)
@@ -287,9 +291,10 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
         { path: "priority", select: "id description notes durationHours name color org_id" },
         { path: "treatment", select: "_id name duration icon minIcon color category active" },
         { path: "selectedDates.days.timeBlocks", select: "_id org_id blockNumber label short from to" },
+        { path: "user", select: "auth0_id name email" },
     ] as const;
 
-    const limit = 5;
+    const limit = 25;
     const safeQuery = React.useMemo(() => (
         id && id.trim() ? { _id: id } : { _id: { $exists: false } }
     ), [id]);
@@ -303,16 +308,17 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
         "Appointment",
         { mongoQuery: safeQuery, limit, populate: populateFields }
     );
-
+    const populateFieldsContacted = [
+        { path: "user", select: "auth0_id name email" },
+    ] as const;
     const { data: contacted, isLoading: isloadinfContacted } = useGetCollection<ContactAppointment>(
         "ContactAppointment",
-        { mongoQuery: safeQuery2, limit }
+        { mongoQuery: safeQuery2, limit, populate: populateFieldsContacted }
     );
-    console.log("ContactAppointment", contacted)
+
 
 
     const appointment = data?.[0] ?? null;
-    console.log("appointment", appointment);
     const fullName = `${appointment?.nameInput ?? ""} ${appointment?.lastNameInput ?? ""}`.trim() || "Unnamed";
 
     const logs = React.useMemo(() => {
@@ -320,10 +326,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
         return arr.filter(l => l && typeof l === 'object' && 'contactedAt' in l) as ContactLog[];
     }, [appointment]);
 
-    const sortedLogs = React.useMemo(
-        () => [...logs].sort((a, b) => new Date(b.contactedAt).getTime() - new Date(a.contactedAt).getTime()),
-        [logs]
-    );
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} size="5xl" scrollBehavior="inside">
@@ -332,9 +334,9 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                 {/* Header */}
                 <Box bg={headerBg} color="white" px={6} py={5} borderLeftWidth={6} borderLeftStyle="solid" borderLeftColor={appointment?.color ?? "transparent"}>
                     <HStack spacing={4} align="center">
-                        <Avatar name={fullName} bg="whiteAlpha.900" color="black" size="lg">
-                            <Text as="span" fontWeight="black">{initialsOf(appointment?.nameInput, appointment?.lastNameInput)}</Text>
-                        </Avatar>
+                        <Avatar name={fullName} bg="whiteAlpha.900" color="black" size="lg" />
+
+
                         <VStack align="start" spacing={0} flex={1}>
                             <HStack wrap="wrap" spacing={3} align="center">
                                 <Text fontSize="xl" fontWeight="extrabold">{fullName}</Text>
@@ -344,34 +346,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                 ) : null}
                             </HStack>
 
-                            <HStack spacing={4} mt={2} align="center">
-                                <HStack spacing={2}>
-                                    <Icon as={FiHash} />
-                                    <Text fontFamily="mono" fontSize="sm"><b>ID:</b> {id}</Text>
-                                </HStack>
-                                {appointment?._id && (
-                                    <HStack spacing={2}>
-                                        <Icon as={FiHash} />
-                                        <Text fontFamily="mono" fontSize="sm"><b>_id:</b> {appointment._id}</Text>
-                                    </HStack>
-                                )}
-                                {appointment?.sid && (
-                                    <HStack spacing={2}>
-                                        <Icon as={FiHash} />
-                                        <Text fontFamily="mono" fontSize="sm"><b>SID:</b> {appointment.sid}</Text>
-                                    </HStack>
-                                )}
-                                {appointment?.proxyAddress && (
-                                    <HStack spacing={2}>
-                                        <Icon as={FiHash} />
-                                        <Text fontFamily="mono" fontSize="sm"><b>Proxy:</b> {appointment.proxyAddress}</Text>
-                                    </HStack>
-                                )}
-                                <HStack spacing={2}>
-                                    <ColorSwatch color={appointment?.color} />
-                                    <Text fontSize="sm">Color</Text>
-                                </HStack>
-                            </HStack>
+
                         </VStack>
                     </HStack>
                 </Box>
@@ -415,8 +390,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                         <LabeledRow label="Name" value={appointment?.treatment?.name} />
                                         <LabeledRow label="Duration" value={appointment?.treatment?.duration ? `${appointment?.treatment?.duration} min` : "—"} />
                                         <LabeledRow label="Category" value={appointment?.treatment?.category} />
-                                        <LabeledRow label="Icon" value={appointment?.treatment?.icon} />
-                                        <LabeledRow label="Min Icon" value={appointment?.treatment?.minIcon} />
                                         <HStack>
                                             <LabeledRow label="Color" value={appointment?.treatment?.color} />
                                             <ColorSwatch color={appointment?.treatment?.color} />
@@ -426,15 +399,51 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
 
                                 <SectionCard title={<HStack><Icon as={FiInfo} /><Text>Notes</Text></HStack>}>
                                     <VStack align="stretch" spacing={3}>
-                                        <Box bg={useColorModeValue("blackAlpha.50", "whiteAlpha.100")} p={3} rounded="lg">
-                                            <Text fontSize="xs" color={sub} mb={1}>Text Area Input</Text>
-                                            <Text>{appointment?.textAreaInput || "—"}</Text>
-                                        </Box>
+
                                         <Box bg={useColorModeValue("blackAlpha.50", "whiteAlpha.100")} p={3} rounded="lg">
                                             <Text fontSize="xs" color={sub} mb={1}>Note</Text>
                                             <Text>{appointment?.note || "—"}</Text>
                                         </Box>
                                     </VStack>
+                                </SectionCard>
+
+
+                                <SectionCard title={<HStack><Icon as={FiInfo} /><Text>Contact History</Text></HStack>} right={<Badge rounded="full" colorScheme="blue">{contacted?.length} entries</Badge>}>
+                                    {contacted?.length === 0 ? (
+                                        <Text>—</Text>
+                                    ) : (
+                                        <VStack align="stretch" spacing={3}>
+                                            {contacted?.map((log, idx) => (
+                                                <HStack key={log._id ?? idx} align="flex-start" border="1px solid" borderColor={border} rounded="lg" p={2} justify="space-between">
+                                                    <VStack align="start" spacing={1} flex={1}>
+                                                        <HStack spacing={2}>
+                                                            <Badge rounded="xl" px={2} py={1} bg={log.status === "Confirmed" ? "green.100" : "red.100"}
+                                                                color={log.status === "Confirmed" ? "green.800" : "red.800"} fontSize="xs" fontWeight="bold" textTransform="uppercase">
+                                                                <HStack spacing={1}>
+                                                                    <LabeledRow icon={CiUser} label="User" value={(log.user?.name || "").trim().split(" ")[0] || log.user?.email || log.user?.auth0_id} />
+                                                                    <LabeledRow icon={GrContact} label="Contacted" value={fmtDateTime(log.createdAt)} />
+                                                                    <LabeledRow icon={FiClock} label="Appointment" value={formatDateWS({ startDate: new Date(log.startDate || ""), endDate: new Date(log.endDate || "") })} />
+
+
+                                                                </HStack>
+                                                            </Badge>
+                                                            <Badge
+                                                                rounded="full"
+
+                                                            >
+
+                                                            </Badge>
+
+
+                                                        </HStack>
+                                                        {//<Text fontSize="sm" color={sub}>{fmtDateTime(log.contactedAt)} · by {log.contactedBy}</Text>
+                                                        }
+
+                                                    </VStack>
+                                                </HStack>
+                                            ))}
+                                        </VStack>
+                                    )}
                                 </SectionCard>
                             </VStack>
 
@@ -454,34 +463,21 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                                     <Box key={it._id ?? idx} border="1px solid" borderColor={border} rounded="xl" p={3}>
                                                         <HStack justify="space-between" mb={2}>
                                                             <HStack spacing={2}>
-                                                                {it.status && (
-                                                                    <Badge
-                                                                        rounded="full"
-                                                                        colorScheme={
-                                                                            it.status === "Contacted" || it.status === "confirmed"
-                                                                                ? "green"
-                                                                                : it.status === "Pending"
-                                                                                    ? "yellow"
-                                                                                    : "gray"
-                                                                        }
-                                                                    >
-                                                                        {it.status}
-                                                                    </Badge>
-                                                                )}
+
                                                                 {it.rescheduleRequested ? (
                                                                     <Badge colorScheme="orange" rounded="full">Reschedule requested</Badge>
                                                                 ) : null}
-                                                                {it.confirmation?.decision && (
+                                                                {it.status && (
                                                                     <Badge
                                                                         rounded="full"
-                                                                        colorScheme={{
-                                                                            confirmed: "green",
-                                                                            declined: "red",
-                                                                            reschedule: "orange",
-                                                                            unknown: "gray",
-                                                                        }[it.confirmation.decision] as any}
+                                                                        colorScheme={({
+                                                                            Confirmed: "green",
+                                                                            Declined: "red",
+                                                                            Reschedule: "orange",
+                                                                            Unknown: "gray",
+                                                                        } as Record<string, string>)[it.status ?? "Unknown"] ?? "gray"}
                                                                     >
-                                                                        {it.confirmation.decision}
+                                                                        {it.status}
                                                                     </Badge>
                                                                 )}
                                                             </HStack>
@@ -530,7 +526,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                         <VStack align="stretch" spacing={2}>
                                             {(appointment?.selectedDates?.days ?? []).map((d, idx) => (
                                                 <HStack key={idx} justify="space-between" border="1px solid" borderColor={border} rounded="lg" p={2}>
-                                                    <Text fontWeight="semibold">{d.weekDay}</Text>
+                                                    <Text fontWeight="semibold" w="150px">{d.weekDay}</Text>
                                                     <Wrap>
                                                         {(d.timeBlocks ?? []).map((tb, j) => (
                                                             <WrapItem key={j}>
@@ -546,47 +542,9 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                     </VStack>
                                 </SectionCard>
 
-                                <SectionCard title={<HStack><Icon as={FiInfo} /><Text>Contact History</Text></HStack>} right={<Badge rounded="full" colorScheme="blue">{sortedLogs.length} entries</Badge>}>
-                                    {contacted?.length === 0 ? (
-                                        <Text>—</Text>
-                                    ) : (
-                                        <VStack align="stretch" spacing={3}>
-                                            {contacted?.map((log, idx) => (
-                                                <HStack key={log._id ?? idx} align="flex-start" border="1px solid" borderColor={border} rounded="lg" p={3} justify="space-between">
-                                                    <VStack align="start" spacing={1} flex={1}>
-                                                        <HStack spacing={2}>
-                                                            <Badge rounded="full" colorScheme={methodColor[log.method as keyof typeof methodColor]}>
-                                                                <HStack spacing={1}>
-                                                                    <LabeledRow icon={FiClock} label="Start" value={fmtDateTime(log.startDate)} />
-                                                                    <LabeledRow icon={FiClock} label="End" value={fmtDateTime(log.endDate)} />
-                                                                </HStack>
-                                                            </Badge>
-                                                            <Badge rounded="full" colorScheme={statusColor[log.status as keyof typeof statusColor]}>
-                                                                {log.status}
-                                                            </Badge>
-                                                        </HStack>
-                                                        {//<Text fontSize="sm" color={sub}>{fmtDateTime(log.contactedAt)} · by {log.contactedBy}</Text>
-                                                        }
-                                                        {log.notes && <Text>{log.notes}</Text>}
-                                                    </VStack>
-                                                </HStack>
-                                            ))}
-                                        </VStack>
-                                    )}
-                                </SectionCard>
 
-                                <SectionCard title={<HStack><Icon as={FiInfo} /><Text>Meta</Text></HStack>}>
-                                    <Grid templateColumns={{ base: "1fr", sm: "1fr 1fr" }} gap={4}>
-                                        <LabeledRow label="Org Name" value={appointment?.org_name} />
-                                        <LabeledRow label="Org ID" value={appointment?.org_id} copyable />
-                                        <LabeledRow label="User ID" value={appointment?.user_id} copyable />
-                                        <LabeledRow label="Position" value={appointment?.position} />
-                                        <LabeledRow label="Proxy Address" value={appointment?.proxyAddress} />
-                                        <LabeledRow label="Unknown" value={appointment?.unknown ? "Yes" : "No"} />
-                                        <LabeledRow label="Last Message" value={fmtDateTime(appointment?.lastMessage)} />
-                                        <LabeledRow label="Last Interaction" value={appointment?.lastMessageInteraction} />
-                                    </Grid>
-                                </SectionCard>
+
+
                             </VStack>
                         </SimpleGrid>
                     )}
@@ -597,7 +555,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                     <HStack w="full" justify="space-between">
                         <HStack color={sub}>
                             <FiInfo />
-                            <Text fontSize="sm">Visual premium – tipos actualizados</Text>
+
                         </HStack>
                         <HStack>
                             <Button variant="ghost" onClick={onClose}>Close</Button>

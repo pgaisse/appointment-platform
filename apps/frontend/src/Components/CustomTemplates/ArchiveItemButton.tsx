@@ -14,7 +14,7 @@ import {
 } from "@chakra-ui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUpdateItems, UpdatePayload } from "@/Hooks/Query/useUpdateItems";
-import { DeleteIcon } from "lucide-react";
+import { IoMdClose } from "react-icons/io";
 
 type ArchiveButtonProps = {
     id: string;
@@ -74,7 +74,7 @@ export default function ArchiveItemButton({
             <Tooltip label="Discard" aria-label="A tooltip">
                 <IconButton
                     aria-label="Archive"
-                    icon={<DeleteIcon />}
+                    icon={<IoMdClose />}
                     size="sm"
                     variant="ghost"
                     colorScheme="red"

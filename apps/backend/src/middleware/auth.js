@@ -22,7 +22,7 @@ function decodeToken(token) {
 // DEV: modo sin auth (bypass)
 // ---------------------------
 if (DISABLE_AUTH) {
-  console.warn('🔓 Auth deshabilitado (DISABLE_AUTH=true)');
+  //console.warn('🔓 Auth deshabilitado (DISABLE_AUTH=true)');
 
   const pass = (_req, _res, next) => next();
 
@@ -46,8 +46,8 @@ if (!audience || !issuerBaseURL) {
   throw new Error('Faltan AUTH0_AUDIENCE o AUTH0_ISSUER_BASE_URL en el backend');
 }
 if (process.env.NODE_ENV !== 'production') {
-  console.log('🔐 AUTH0_AUDIENCE:', audience);
-  console.log('🔐 AUTH0_ISSUER_BASE_URL:', issuerBaseURL);
+  //console.log('🔐 AUTH0_AUDIENCE:', audience);
+  //console.log('🔐 AUTH0_ISSUER_BASE_URL:', issuerBaseURL);
 }
 
 // ---------------------------
@@ -87,12 +87,12 @@ function mergeArrClaims(p, key) {
 const attachUserInfo = (req, _res, next) => {
   if (!req.auth || !req.auth.payload) return next();
   const p = req.auth.payload;
-
+//console.log("PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",p['https://letsmarter.com/email'])
   req.user = {
     id: p.sub,
-    email: p.email,
+    email: p['https://letsmarter.com/email'],
     emailVerified: p.email_verified === true,
-    name: p.name || p.nickname || p.email,
+    name: p['https://letsmarter.com/name'],
     picture: p.picture || null,
 
     org_id: p[NS + 'org_id'] ?? p.org_id ?? null,
@@ -109,7 +109,7 @@ const attachUserInfo = (req, _res, next) => {
     organization: p[NS + 'organization'],
     org_name: p['https://iconicsmile.com/org_name'],
   };
-
+//console.log("RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRREQ",req.user)
   // Debug opcional:
   // console.log('[attachUserInfo] roles=%j perms=%j', req.user.roles, req.user.permissions);
 
@@ -122,20 +122,22 @@ const attachUserInfo = (req, _res, next) => {
 const ensureUser = async (req, _res, next) => {
   try {
     if (!req.auth || !req.auth.payload) {
-      console.warn('[ensureUser] NO req.auth.payload');
+      //console.warn('[ensureUser] NO req.auth.payload');
       return next();
     }
     const p = req.auth.payload;
+    p.email = p.email || p[NS + 'email'] || null; // normaliza email
+    p.name = p.name || p[NS + 'name'] || null;    // normaliza name
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[ensureUser] sub=%s email=%s aud=%s', p.sub, p.email, p.aud);
+      //console.log('[ensureUser] sub=%s email=%s aud=%s', p.sub, p.email, p.aud);
     }
 
     const User = require('../models/User/User');
     const doc = await User.upsertFromClaims(p, NS);
 
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[ensureUser] UPSERT OK -> _id=%s auth0_id=%s org_id=%s',
-        doc?._id, doc?.auth0_id, doc?.org_id);
+     // console.log('[ensureUser] UPSERT OK -> _id=%s auth0_id=%s org_id=%s',
+      //  doc?._id, doc?.auth0_id, doc?.org_id);
     }
     req.dbUser = doc;
     next();

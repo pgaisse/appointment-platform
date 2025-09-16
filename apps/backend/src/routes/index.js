@@ -6,7 +6,7 @@ const { Appointment, Categories, PriorityList, ManualContact } = require('../mod
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-const { attachUserInfo, jwtCheck, checkJwt, decodeToken } = require('../middleware/auth');
+const { attachUserInfo, jwtCheck, checkJwt, decodeToken,ensureUser } = require('../middleware/auth');
 const models = require("../models/Appointments");
 const sms = require('../helpers/conversations')
 const { findMatchingAppointments } = require('../helpers/findMatchingAppointments');
@@ -30,6 +30,7 @@ const { exist } = require('joi');
 //RUTAS PROTEGIDAS
 router.use(jwtCheck);
 router.use(attachUserInfo); // /send
+router.use(ensureUser);
 
 
 
@@ -170,6 +171,7 @@ router.get('/treatments', jwtCheck, async (req, res) => {
 // routes/query.js (handler drop-in)
 router.get('/query/:collection', jwtCheck, async (req, res) => {
   try {
+    console.log(req.user )
     const { collection } = req.params;
     const Model = models[collection];
     if (!Model) return res.status(400).json({ error: 'Invalid collection name' });
@@ -365,44 +367,7 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
-router.get('/appointments/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!isValidObjectId(id)) {
-      return res.status(400).json({ error: 'Invalid id' });
-    }
 
-    const doc = await Appointment.findById(id)
-      .populate({
-        path: 'priority',
-        model: 'PriorityList',
-        select: 'id description notes durationHours name color org_id',
-      })
-      .populate({
-        path: 'treatment',
-        model: 'Treatment',
-        select: '_id name duration icon minIcon color category active',
-      })
-      .populate({
-        path: 'selectedDates.days.timeBlocks',
-        model: 'TimeBlock',
-        select: '_id org_id blockNumber label short from to',
-      })
-      .populate({
-        path: 'selectedAppDates.contactedId',
-        model: 'ContactAppointment',
-        select: 'status startDate endDate context cSid pSid createdAt updatedAt',
-      })
-      .lean({ virtuals: true });
-
-    if (!doc) return res.status(404).json({ error: 'Appointment not found' });
-
-    res.json({ data: doc });
-  } catch (err) {
-    console.error('GET /appointments/:id error', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 router.get('/DraggableCards', jwtCheck, async (req, res) => {
   try {
@@ -675,8 +640,10 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * Devuelve hasta `limit` coincidencias para sugerir menciones tras '#'.
  */
 router.get('/appointments/mentions', jwtCheck, async (req, res) => {
+  console.log(req.query)
   try {
     let { nameInput = '', limit = '5', mode = 'contains' } = req.query;
+    console.log("nameInput",nameInput)
     const q = String(nameInput).trim();
     const lim = clamp(limit, 1, 8);
     if (!q) return res.json({ items: [] });
@@ -915,6 +882,43 @@ router.post("/cleanup-twilio", jwtCheck, async (req, res) => {
   }
 });
 
+router.get('/appointments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
 
+    const doc = await Appointment.findById(id)
+      .populate({
+        path: 'priority',
+        model: 'PriorityList',
+        select: 'id description notes durationHours name color org_id',
+      })
+      .populate({
+        path: 'treatment',
+        model: 'Treatment',
+        select: '_id name duration icon minIcon color category active',
+      })
+      .populate({
+        path: 'selectedDates.days.timeBlocks',
+        model: 'TimeBlock',
+        select: '_id org_id blockNumber label short from to',
+      })
+      .populate({
+        path: 'selectedAppDates.contactedId',
+        model: 'ContactAppointment',
+        select: 'status startDate endDate context cSid pSid createdAt updatedAt',
+      })
+      .lean({ virtuals: true });
+
+    if (!doc) return res.status(404).json({ error: 'Appointment not found' });
+
+    res.json({ data: doc });
+  } catch (err) {
+    console.error('GET /appointments/:id error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 module.exports = router;

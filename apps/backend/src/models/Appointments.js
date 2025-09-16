@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { ContactStatus, MsgType } = require("../constants");
+const User = require('../models/User/User');
 const { boolean } = require('joi');
 // Priority Schema (subdocumento)
 const PrioritySchema = new mongoose.Schema({
@@ -72,6 +73,7 @@ const ContactSchema = new mongoose.Schema({
   context: String,
   cSid: String,
   pSid: String,
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
 const SelectedAppDateSchema = new mongoose.Schema({
@@ -87,11 +89,12 @@ const SelectedAppDateSchema = new mongoose.Schema({
     reason: { type: String },
     createdAt: { type: Date },
   },
-  confirmation: { type: ConfirmationSchema, default: undefined },
+  confirmation: ConfirmationSchema,
 }, { _id: true });
 
 // Appointment Schema
 const AppointmentsSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   proxyAddress: String,
   unknown: Boolean,
   sid: String,
@@ -178,6 +181,7 @@ const ManualContactSchema = new mongoose.Schema(
 
 const MessageSchema = new mongoose.Schema(
   {
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     conversationId: {
       type: String,   // Twilio Conversation SID o tu propio ID de conversación
       required: true,

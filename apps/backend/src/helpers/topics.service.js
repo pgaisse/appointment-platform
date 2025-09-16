@@ -1,7 +1,6 @@
 // backend/src/helpers/topics.service.js
 const mongoose = require('mongoose');
 const { isValidObjectId } = mongoose;
-
 const Topic  = require('../models/Organizer/Topic');
 const Column = require('../models/Organizer/Column');
 const Card   = require('../models/Organizer/Card');

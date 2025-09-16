@@ -1,5 +1,4 @@
 import { DateRange } from "@/Hooks/Handles/useEventSelection";
-import { User } from "@auth0/auth0-react";
 
 export interface BackendEvent {
   id: string;
@@ -271,8 +270,26 @@ export interface ContactAppointment {
   pSid?: string;
   createdAt?: string;
   updatedAt?: string;
+  user:User
 }
 
+export interface User {
+  id: string;                // mapeado desde _id
+  auth0_id: string;
+  email?: string | null;
+  emailVerified: boolean;
+  name?: string | null;
+  picture?: string | null;
+  org_id?: string | null;
+  orgs: string[];
+  roles: string[];
+  permissions: string[];
+  status: UserStatus;
+  lastLoginAt?: string | null; // en frontend normalmente viaja como string ISO
+  createdAt?: string;
+  updatedAt?: string;
+}
+export type UserStatus = "active" | "blocked";
 export type SendChatMessageResponse =
   | SendChatMessageResponseSingle
   | SendChatMessageResponseBatch;
@@ -280,7 +297,7 @@ export type SendChatMessageResponse =
 
 export type GroupedAppointments = AppointmentGroup[];
 
-export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted';
+export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted' | 'Confirmed' | 'Rescheduled' | 'Cancelled' | 'Rejected'
 
 
 export interface Appointment {
@@ -307,6 +324,7 @@ export interface Appointment {
   proxyAddress: string;
   selectedDates: SelectedDates;
   selectedAppDates: Array<{
+    status: ContactStatus;
     rescheduleRequested:boolean
     contact: ContactAppointment;
     startDate: Date;

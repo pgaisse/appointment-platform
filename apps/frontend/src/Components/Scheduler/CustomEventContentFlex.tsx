@@ -121,13 +121,6 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
 
     mutate(payload, {
       onSuccess: async () => {
-        toast({
-          title: "Appointment Rescheduled Successfully",
-          description: "Your appointment has been rescheduled successfully.",
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
 
         // ✅ Enviar SMS después del éxito del reschedule
         try {
@@ -148,9 +141,12 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
             isClosable: true,
           });
         }
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
+          queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
+          queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+        ]);
 
-        queryClient.invalidateQueries({ queryKey: ["PriorityList"] });
-        queryClient.invalidateQueries({ queryKey: ["Appointment"] });
         navigate("/appointments/priority-list");
       },
       onError: (error) => {
@@ -254,7 +250,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
               transition={{ type: "spring", stiffness: 260, damping: 20 }}
             >
               <Card
-              h="xl" 
+                h="xl"
                 boxShadow="2xl"
                 userSelect="none"
                 p={1}
@@ -262,7 +258,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                 border="1px"
                 borderColor="gray.50"
                 bg={`${groupItem.priority.color}.300`}
-               
+
 
               >
                 <CardHeader>
