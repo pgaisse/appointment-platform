@@ -2,6 +2,9 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const { attachUserInfo, jwtCheck, checkJwt, decodeToken, ensureUser } = require('../middleware/auth');
+
+router.use(jwtCheck,jwtCheck,attachUserInfo,ensureUser);
 
 const svc = require('../helpers/topics.service');              // (topics/board/cards/labels)
 const appearanceSvc = require('../helpers/appearance.service');// apariencia
@@ -200,6 +203,7 @@ router.patch(
   '/cards/:cardId/move',
   requireAnyPermission('card:edit', 'dev-admin'), // RBAC
   async (req, res) => {
+    console.log("mover tarjeta",req.dbUser)
     try {
       const { cardId } = req.params;
       let { toColumnId, before, after } = req.body || {};

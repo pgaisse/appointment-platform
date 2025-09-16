@@ -3,33 +3,53 @@ services:
   mongo:
     image: mongo:7
     container_name: mongo_dev
-    ports:
-      - "27019:27017"
-    env_file:
-      - ../../apps/backend/.env.backend.dev
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"     # tamaño máximo de un archivo de log
-        max-file: "3"       # número de archivos de log rotados
+    command: ["--replSet","rs0","--bind_ip_all","--keyFile","/etc/mongo-keyfile"]
+    ports: ["27019:27017"]
     environment:
       - MONGO_INITDB_ROOT_USERNAME=pgaisse
       - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
       - MONGO_INITDB_DATABASE=productionDB
     volumes:
       - mongo_dev_data:/data/db
-      - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
-      - /home/appointment-platform/mongo-backup:/backup_dev
-      - ./../mongo/dev-init/01-init-restore.sh:/docker-entrypoint-initdb.d/init-restore-dev.sh:ro
-   
+      - ../mongo/keys/mongo-keyfile:/etc/mongo-keyfile:ro
+      # (deja tus scripts de init/restauración como los tenías)
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 5s
       timeout: 5s
       retries: 10
-    networks:
-      - app_network_dev
+    networks: [app_network_dev]
 
+  # 👇 Job para inicializar el replica set una sola vez
+  mongo-init-replica:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: pgaisse
+      MONGO_INITDB_ROOT_PASSWORD: Patoch-2202
+    entrypoint: ["/bin/bash","-lc"]
+    command: |
+      echo "⏳ Esperando ping..."
+      for i in {1..60}; do
+        mongosh --host mongo:27017 --quiet --eval "db.runCommand({ ping: 1 }).ok" && break || sleep 2
+      done
+      echo "🚀 rs.initiate() autenticado"
+      mongosh --host mongo:27017 -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --quiet --eval '
+        try {
+          rs.initiate({_id:"rs0", members:[{_id:0, host:"mongo:27017"}]})
+        } catch(e) { print(e.message) }
+      '
+      echo "⏳ Esperando PRIMARY..."
+      for i in {1..60}; do
+        state=$(mongosh --host mongo:27017 -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --quiet --eval 'var m=rs.status().members.find(x=>x.self); m?m.stateStr:""')
+        [ "$state" = "PRIMARY" ] && echo "✅ PRIMARY" && exit 0 || sleep 2
+      done
+      echo "❌ No se alcanzó PRIMARY"; exit 1
+    networks: [app_network_dev]
+    
   backend:
     image: node:20-alpine
     container_name: backend_dev
@@ -37,11 +57,14 @@ services:
     command: sh -lc "npm install --no-audit --no-fund && npm run dev"
     env_file:
       - ../../apps/backend/.env.backend.dev
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"     # tamaño máximo de un archivo de log
-        max-file: "3"       # número de archivos de log rotados
+    environment:
+      # 👇 Fuerza a usar el nombre del servicio Docker como host
+      - MONGO_HOST=mongo
+      # 👇 Activa RS y TX en el backend; asegúrate de quitar MONGO_URI de tu .env
+      - MONGO_RS=rs0
+      - MONGO_USE_TRANSACTIONS=true
+      - MONGO_DIRECT_CONNECTION=false
+      - MONGO_URI=                # 👈 override a vacío si en tu .env existía (para que no se use)
     expose:
       - "3003"
     volumes:
@@ -51,6 +74,8 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      mongo-init-replica:
+        condition: service_completed_successfully
     networks:
       - app_network_dev
 
@@ -61,19 +86,13 @@ services:
     command: sh -lc "CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3004"
     env_file:
       - ../../apps/frontend/.env.frontend.dev
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"     # tamaño máximo de un archivo de log
-        max-file: "3"       # número de archivos de log rotados
+    depends_on:
+      - backend
     expose:
       - "3004"
     volumes:
       - ../..:/repo
       - /repo/apps/frontend/node_modules
-    depends_on:
-      - backend
-      
     networks:
       - app_network_dev
 
@@ -85,11 +104,6 @@ services:
       - "8443:8443"
     env_file:
       - ../../apps/backend/.env.backend.dev
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"     # tamaño máximo de un archivo de log
-        max-file: "3"       # número de archivos de log rotados
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/conf.d/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt
@@ -102,11 +116,6 @@ services:
   certbot:
     image: certbot/certbot
     container_name: certbot_dev
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"     # tamaño máximo de un archivo de log
-        max-file: "3"       # número de archivos de log rotados
     volumes:
       - appointment_dev_certbot_www:/var/www/certbot
       - /etc/letsencrypt:/etc/letsencrypt

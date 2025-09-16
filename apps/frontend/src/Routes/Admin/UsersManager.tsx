@@ -355,21 +355,23 @@ export default function UsersManager() {
                   ) : (
                     <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2}>
                       {catalogPerms.map((perm) => {
-                        const providedByRole = rolePerms.has(perm) && !directOriginal.has(perm);
-                        const isChecked = effectivePerms.has(perm);
+                        const isDirect = selectedDirect.has(perm);   // ← estado editable actual
+                        const fromRole = rolePerms.has(perm);        // ← viene por rol
+                        const lockedByRoleOnly = fromRole && !isDirect; // ← bloqueado solo si viene por rol y NO está directo
+                        const isChecked = fromRole || isDirect;      // ← check si viene por rol o está seleccionado directo
 
                         return (
                           <Tooltip
                             key={perm}
-                            label={providedByRole ? "Provided by role (not editable here)" : ""}
+                            label={lockedByRoleOnly ? "Provided by role (not editable here)" : ""}
                             hasArrow
-                            isDisabled={!providedByRole}
+                            isDisabled={!lockedByRoleOnly}
                           >
                             <Checkbox
                               isChecked={isChecked}
-                              isDisabled={providedByRole}
+                              isDisabled={lockedByRoleOnly}
                               onChange={(e) => {
-                                if (providedByRole) return;
+                                if (lockedByRoleOnly) return; // no permitir toggle si es solo por rol
                                 setSelectedDirect((prev) => {
                                   const next = new Set(prev);
                                   if (e.target.checked) next.add(perm);
@@ -379,7 +381,7 @@ export default function UsersManager() {
                               }}
                             >
                               {perm}{" "}
-                              {providedByRole && (
+                              {lockedByRoleOnly && (
                                 <Tag size="sm" ml={2} colorScheme="purple" variant="subtle">
                                   <TagLabel>by role</TagLabel>
                                 </Tag>

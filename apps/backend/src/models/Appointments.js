@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { ContactStatus, MsgType } = require("../constants");
+const User = require('../models/User/User');
 const { boolean } = require('joi');
 // Priority Schema (subdocumento)
 const PrioritySchema = new mongoose.Schema({
@@ -63,6 +64,17 @@ const ConfirmationSchema = new mongoose.Schema(
   },
   { _id: false }
 );
+const ContactSchema = new mongoose.Schema({
+  appointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true, index: true },
+  org_id: String,
+  status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NotStarted },
+  startDate: { type: Date },
+  endDate: { type: Date },
+  context: String,
+  cSid: String,
+  pSid: String,
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+}, { timestamps: true });
 
 const SelectedAppDateSchema = new mongoose.Schema({
   startDate: { type: Date },
@@ -77,11 +89,12 @@ const SelectedAppDateSchema = new mongoose.Schema({
     reason: { type: String },
     createdAt: { type: Date },
   },
-  confirmation: { type: ConfirmationSchema, default: undefined },
+  confirmation: ConfirmationSchema,
 }, { _id: true });
 
 // Appointment Schema
 const AppointmentsSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   proxyAddress: String,
   unknown: Boolean,
   sid: String,
@@ -128,7 +141,8 @@ const CategoriesSchema = new mongoose.Schema({
   id: Number,
   user_id: String,
   org_id: String,
-});
+},
+  { timestamps: true });
 
 
 const MediaFileSchema = new mongoose.Schema(
@@ -162,24 +176,12 @@ const ManualContactSchema = new mongoose.Schema(
   }
 );
 
-const ContactSchema = new mongoose.Schema({
-  appointmentId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Appointment',
-    required: true, // recomendable si siempre debe tenerlo
-  },
-  status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NotStarted },
-  context: String,
-  cSid: String,
-  pSid: String,
-
-
-});
 
 
 
 const MessageSchema = new mongoose.Schema(
   {
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     conversationId: {
       type: String,   // Twilio Conversation SID o tu propio ID de conversación
       required: true,
@@ -191,8 +193,8 @@ const MessageSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-    userId:{
-      type: String,  
+    userId: {
+      type: String,
     },
     author: {
       type: String,   // "patient" | "clinic"

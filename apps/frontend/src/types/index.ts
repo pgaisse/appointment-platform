@@ -1,5 +1,4 @@
 import { DateRange } from "@/Hooks/Handles/useEventSelection";
-import { User } from "@auth0/auth0-react";
 
 export interface BackendEvent {
   id: string;
@@ -259,7 +258,38 @@ export type SendChatMessageResponseBatch = {
   created: { sid: string; index?: number }[];
   conversationSid?: string; // opcional por compat
 };
+export interface ContactAppointment {
+  _id?: string;
+  appointment?: string; // referencia al Appointment
+  org_id?: string;
+  status?: string; // ContactStatus
+  startDate?: Date;
+  endDate?: Date;
+  context?: string;
+  cSid?: string;
+  pSid?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  user:User
+}
 
+export interface User {
+  id: string;                // mapeado desde _id
+  auth0_id: string;
+  email?: string | null;
+  emailVerified: boolean;
+  name?: string | null;
+  picture?: string | null;
+  org_id?: string | null;
+  orgs: string[];
+  roles: string[];
+  permissions: string[];
+  status: UserStatus;
+  lastLoginAt?: string | null; // en frontend normalmente viaja como string ISO
+  createdAt?: string;
+  updatedAt?: string;
+}
+export type UserStatus = "active" | "blocked";
 export type SendChatMessageResponse =
   | SendChatMessageResponseSingle
   | SendChatMessageResponseBatch;
@@ -267,16 +297,8 @@ export type SendChatMessageResponse =
 
 export type GroupedAppointments = AppointmentGroup[];
 
-export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted';
+export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted' | 'Confirmed' | 'Rescheduled' | 'Cancelled' | 'Rejected'
 
-export interface ContactAppointment {
-  _id?: string; // asignado por MongoDB
-  status?: ContactStatus;
-  context?: string;
-  cSid: string,
-  pSid: string
-
-}
 
 export interface Appointment {
   _id: string;
@@ -298,8 +320,11 @@ export interface Appointment {
   org_name: string;
   position: number;
   reschedule: boolean;
+  unknown: boolean;
+  proxyAddress: string;
   selectedDates: SelectedDates;
   selectedAppDates: Array<{
+    status: ContactStatus;
     rescheduleRequested:boolean
     contact: ContactAppointment;
     startDate: Date;

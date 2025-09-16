@@ -4,7 +4,7 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const { ContactStatus, MsgType } = require("../constants")
 const DOMPurify = require('isomorphic-dompurify');
-const { Appointment, MessageLog, MediaFile, Message } = require('../models/Appointments');
+const { Appointment, MessageLog, MediaFile, Message, ContactAppointment } = require('../models/Appointments');
 const sms = require('../helpers/conversations')
 const helpers = require('../helpers');
 const multer = require("multer");
@@ -12,7 +12,7 @@ const aws = require('../helpers/aws');
 const twilio = require('twilio');
 const router = express.Router();
 const mongoose = require('mongoose');
-const { attachUserInfo, jwtCheck, checkJwt, decodeToken, verifyJwtManually } = require('../middleware/auth');
+const { attachUserInfo, jwtCheck, checkJwt, decodeToken, verifyJwtManually, ensureUser } = require('../middleware/auth');
 const { SendMessageSchema } = require("../schemas/messages");
 const { uploadImageFromUrl, getFileMetadata, getPublicImageLink } = require('../helpers/imagesManagment')
 const { receiveMessage } = require('../controllers/message.controller');
@@ -43,6 +43,12 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
 const client = twilio(accountSid, authToken);
 
+router.use(
+  ['/sendMessage', '/sendMessageAsk', '/conversations', '/messages', '/categories'],
+  jwtCheck,
+  attachUserInfo,
+  ensureUser
+);
 
 
 
@@ -288,14 +294,16 @@ router.post('/sendMessageAsk', async (req, res) => {
       .create({
         author: org_id,
         body: safeBody,
-        attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1 }),
+        attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1, user:req.dbUser._id }),
       });
 
     console.log("Twilio creó:", msg);
     // #endregion enviar mensaje a Twilio
 
     // #region Registro en DB  (pequeño ajuste para N mensajes)
+    console.log("req.dbUser:", req.dbUser);
     const docs = {
+      user: req.dbUser._id,
       conversationId: msg.conversationSid,
       proxyAddress: process.env.TWILIO_FROM_MAI,
       userId: data._id,
@@ -336,8 +344,7 @@ router.post('/sendMessageAsk', async (req, res) => {
 });
 
 router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) => {
-  console.log("➡️ req.body:", req.body);   // campos de texto
-  console.log("➡️ req.files:", req.files); // array de archivos enviados
+  console.log("➡️ req.dbUser:", req.dbUser);   // campos de texto
   // #region recepcion de parámetros
   const session = await mongoose.startSession();
   const { to, body = '', appId } = req.body;
@@ -424,6 +431,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
 
       // Para mapear 1 a 1 archivo->mensaje en tu DB
       savedPerFile.push({
+
         proxyAddress: process.env.TWILIO_FROM_MAIN,
         url: signedUrl,
         signedUrl,
@@ -479,6 +487,7 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
 
     // #region Registro en DB  (pequeño ajuste para N mensajes)
     const docs = messagesCreated.map(({ msg, mediaInfo }) => ({
+      user: req.dbUser._id,
       conversationId: msg.conversationSid,
       proxyAddress: process.env.TWILIO_FROM_MAIN,
       sid: msg.sid,
@@ -542,7 +551,6 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
     // Obtener binding (número del paciente y proxy de Twilio)
     const { address, proxyAddress } = await getSmsBindingFromWebhookPayload(payload);
-    console.log("proxyAddress:", proxyAddress, "address:", address);
 
     const isInbound = payload.Author && payload.Author.startsWith("+"); // ej: +61...
     const orgId = (process.env.TWILIO_ORG_ID || "").toLowerCase();
@@ -627,9 +635,11 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
         updateDoc,
         { upsert: true, new: true }
       );
+     
 
       // 3) Correlación SOLO para inbound: ver si responde a la última Confirmation outbound
       if (isInbound) {
+        console.log("isInbound", isInbound)
         const prev = await findPrevOutboundConfirmation({
           Message,
           conversationId: payload.ConversationSid,
@@ -645,9 +655,9 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
         if (prev) {
           console.log("preDesition: ", saved.body)
           const decision = decideFromBody(saved.body || "");
-          console.log("esta es la decision", decision)
+          const lastOutBound = await Message.findOne({ sid: prev.sid });
           const q = await Appointment.findOne({ sid: payload.ConversationSid, unknown: { $ne: true } }, // excluye unknown:true
-            { selectedAppDates: 1, nameInput: 1, lastNameInput: 1 }
+            { selectedAppDates: 1, nameInput: 1, lastNameInput: 1, org_id: 1 }
           )
           // Enlazar INBOUND -> OUTBOUND y cerrar OUTBOUND
           await Message.updateOne({ sid: saved.sid }, { $set: { respondsTo: prev.sid } });
@@ -661,44 +671,97 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
             Appointment,
             conversationId: payload.ConversationSid,
           });
-          console.log("slotId", slotId)
+          console.log("slotId__________________________________________", slotId)
 
           if (slotId) {
             const arrayFilters = [{ "slot._id": new mongoose.Types.ObjectId(slotId) }];
+            console.log("decision _____________________________________________________________________", decision)
+
+
 
             if (decision === "confirmed") {
-              console.log("está en confirmated", q.selectedAppDates[0].proposed.startDate, q.selectedAppDates[0].proposed.endDate)
-              await Appointment.updateOne(
-                { sid: payload.ConversationSid, unknown: { $ne: true } }, // excluye unknown:true
-                {
-                  $set: {
-                    "selectedAppDates.$[slot].status": "Confirmed",
-                    "selectedAppDates.$[slot].rescheduleRequested": false,
-                    "selectedAppDates.$[slot].confirmation.decision": "confirmed",
-                    "selectedAppDates.$[slot].confirmation.decidedAt": now,
-                    "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
-                    "selectedAppDates.$[slot].startDate": q.selectedAppDates[0].proposed.startDate,
-                    "selectedAppDates.$[slot].endDate": q.selectedAppDates[0].proposed.endDate,
-                    reschedule: true
-                  },
-                },
-                { arrayFilters }
-              );
+              const startDate = q.selectedAppDates[0]?.proposed?.startDate;
+              const endDate = q.selectedAppDates[0]?.proposed?.endDate;
+
+              const session = await mongoose.startSession();
+              try {
+                await session.withTransaction(async () => {
+                  // 1) Crear/actualizar el documento ContactAppointment
+                  const contactDoc = await ContactAppointment.create([{
+                    user:prev.user,
+                    org_id: q.org_id,
+                    appointment: q._id,
+                    status: ContactStatus.Confirmed,     // usa el enum
+                    startDate,
+                    endDate,
+                    context: "Reschedule confirmation",
+                    cSid: payload.ConversationSid,
+                    pSid: payload.ParticipantSid,
+                  }], { session });
+
+                  const contactedId = contactDoc[0]._id;
+
+                  // 2) Actualizar el Appointment y referenciar el contactedId en el slot
+                  await Appointment.updateOne(
+                    { sid: payload.ConversationSid, unknown: { $ne: true } },
+                    {
+                      $set: {
+                        "selectedAppDates.$[slot].status": ContactStatus.Confirmed,
+                        "selectedAppDates.$[slot].rescheduleRequested": false,
+                        "selectedAppDates.$[slot].confirmation.decision": "confirmed",
+                        "selectedAppDates.$[slot].confirmation.decidedAt": now,
+                        "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
+                        "selectedAppDates.$[slot].startDate": startDate,
+                        "selectedAppDates.$[slot].endDate": endDate,
+                        reschedule: true,
+                      },
+                    },
+                    { arrayFilters, session, runValidators: true }
+                  );
+                });
+              } finally {
+                session.endSession();
+              }
             } else if (decision === "declined") {
-              await Appointment.updateOne(
-                { sid: payload.ConversationSid },
-                {
-                  $set: {
-                    "selectedAppDates.$[slot].status": "Rejected",
-                    "selectedAppDates.$[slot].rescheduleRequested": false,
-                    "selectedAppDates.$[slot].confirmation.decision": "declined",
-                    "selectedAppDates.$[slot].confirmation.decidedAt": now,
-                    "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
-                  },
-                  $unset: { "selectedAppDates.$[slot].proposed": "" },
-                },
-                { arrayFilters }
-              );
+              const session = await mongoose.startSession();
+              try {
+                await session.withTransaction(async () => {
+                  // 1) Crear/actualizar el documento ContactAppointment
+                  const startDate = q.selectedAppDates[0]?.proposed?.startDate;
+                  const endDate = q.selectedAppDates[0]?.proposed?.endDate;
+                  const contactDoc = await ContactAppointment.create([{
+                    user:prev.user,
+                    org_id: q.org_id,
+                    appointment: q._id,
+                    status: ContactStatus.Rejected,     // usa el enum
+                    startDate,
+                    endDate,
+                    context: "Reschedule confirmation",
+                    cSid: payload.ConversationSid,
+                    pSid: payload.ParticipantSid,
+
+                  }], { session });
+
+
+                  // 2) Actualizar el Appointment y referenciar el contactedId en el slot
+                  await Appointment.updateOne(
+                    { sid: payload.ConversationSid },
+                    {
+                      $set: {
+                        "selectedAppDates.$[slot].status": "Rejected",
+                        "selectedAppDates.$[slot].rescheduleRequested": false,
+                        "selectedAppDates.$[slot].confirmation.decision": "declined",
+                        "selectedAppDates.$[slot].confirmation.decidedAt": now,
+                        "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
+                      },
+                      $unset: { "selectedAppDates.$[slot].proposed": "" },
+                    },
+                    { arrayFilters }
+                  );
+                });
+              } finally {
+                session.endSession();
+              }
             } else if (decision === "reschedule") {
               await Appointment.updateOne(
                 { sid: payload.ConversationSid },
@@ -777,7 +840,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
           if (updated.status === "delivered") {
             await Appointment.updateOne(
               { sid: updated.conversationId },
-              { $set: { "selectedAppDates.$[slot].status": "Contacted" } },
+              { $set: { "selectedAppDates.$[slot].status": ContactStatus.Pending } },
               { arrayFilters }
             );
           } else if (updated.status === "failed" || updated.status === "undelivered") {

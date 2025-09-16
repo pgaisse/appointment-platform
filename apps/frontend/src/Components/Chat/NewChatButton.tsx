@@ -10,6 +10,7 @@ import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { useCustomChat } from "@/Hooks/Query/useCustomChat";
 import { formatToE164 } from "@/Functions/formatToE164";
 import type { Message, ConversationChat } from "@/types";
+import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 
 type ContactDoc = {
   _id: string;
@@ -192,7 +193,7 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
                         {contact.nameInput} {contact.lastNameInput}
                       </Text>
                       <Text fontSize="sm" color="gray.500">
-                        {contact.phoneInput}
+                        {formatAustralianMobile(contact.phoneInput || "")}
                       </Text>
                     </Box>
                   </HStack>
