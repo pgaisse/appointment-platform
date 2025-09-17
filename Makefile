@@ -33,4 +33,8 @@ mongo_prod:
 	docker exec -it mongo_prod mongosh "mongodb://pgaisse:Patoch-2202@mongo_prod:27017/productionDB?authSource=admin"
 dev_api_logs:
 	docker logs -f backend_dev
+dev_api_logsprod:
+	docker logs -f api_prod
+
+	
 	

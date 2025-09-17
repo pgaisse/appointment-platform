@@ -679,7 +679,8 @@ if (require.main === module) {
 
 
 
-async function createConversationAndAddParticipant(phoneNumber, proxyNumber, meta = {}) {
+async function createConversationAndAddParticipant(phoneNumber, proxyNumber, meta = {}, userId) {
+    console.log("------------------------------------------------->", userId)
     if (!/^\+61\d{9}$/.test(phoneNumber)) {
         throw new Error('El número debe estar en formato E.164: +61XXXXXXXXX');
     }
@@ -710,7 +711,7 @@ async function createConversationAndAddParticipant(phoneNumber, proxyNumber, met
     // 3. Guardar conversationSid en MongoDB
     const update = await Appointment.findOneAndUpdate(
         { phoneInput: phoneNumber },
-        { conversationSid: conversation.sid },
+        { conversationSid: conversation.sid,  user: userId },
         { new: true }
     );
 
@@ -909,46 +910,46 @@ async function uploadToMCS(fileBuffer, filename, contentType) {
             'X-Twilio-Filename': filename || 'file',
         },
     });
-    console.log("resp",resp?.data)
+    console.log("resp", resp?.data)
     return resp?.data; // ME...
 }
 
 function decideFromBody(body = "") {
-  const t = body.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
+    const t = body.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
 
-  const YES = /^(si|sí|s|ok|vale|dale|confirmo|confirm|listo|de acuerdo|perfecto|correcto|okey)\b/iu;
-  const NO  = /^(no|nop|nah|cancel|cancela|no puedo|no voy|rechazo)\b/iu;
-  const RE  = /\b(reagendar|reagenda|otro dia|otra fecha|cambiar hora|reprogramar|posponer|move|reschedule)\b/iu;
+    const YES = /^(si|sí|s|ok|vale|dale|confirmo|confirm|listo|de acuerdo|perfecto|correcto|okey)\b/iu;
+    const NO = /^(no|nop|nah|cancel|cancela|no puedo|no voy|rechazo)\b/iu;
+    const RE = /\b(reagendar|reagenda|otro dia|otra fecha|cambiar hora|reprogramar|posponer|move|reschedule)\b/iu;
 
-  if (YES.test(t)) return "confirmed";
-  if (NO.test(t))  return "declined";
-  if (RE.test(t))  return "reschedule";
-  return "unknown";
+    if (YES.test(t)) return "confirmed";
+    if (NO.test(t)) return "declined";
+    if (RE.test(t)) return "reschedule";
+    return "unknown";
 }
 
 // ➋ Encuentra el OUTBOUND Confirmation anterior
 async function findPrevOutboundConfirmation({ conversationId, nowIndex, nowCreatedAt }) {
-  const MAX_AGE_MS = 72 * 3600 * 1000;
-  const now = new Date();
+    const MAX_AGE_MS = 72 * 3600 * 1000;
+    const now = new Date();
 
-  // Filtro base
-  const base = {
-    conversationId,
-    direction: "outbound",
-    type: "Confirmation",
-    $or: [{ resolvedBySid: null }, { resolvedBySid: { $exists: false } }],
-    createdAt: { $gte: new Date(now.getTime() - MAX_AGE_MS) },
-  };
+    // Filtro base
+    const base = {
+        conversationId,
+        direction: "outbound",
+        type: "Confirmation",
+        $or: [{ resolvedBySid: null }, { resolvedBySid: { $exists: false } }],
+        createdAt: { $gte: new Date(now.getTime() - MAX_AGE_MS) },
+    };
 
-  // Si tienes index numérico fiable, úsalo para “anterior”
-  if (typeof nowIndex === "number") {
-    base.index = { $lt: nowIndex };
-  } else {
-    // respaldo por tiempo si index es string/inconsistente
-    base.createdAt.$lt = nowCreatedAt;
-  }
+    // Si tienes index numérico fiable, úsalo para “anterior”
+    if (typeof nowIndex === "number") {
+        base.index = { $lt: nowIndex };
+    } else {
+        // respaldo por tiempo si index es string/inconsistente
+        base.createdAt.$lt = nowCreatedAt;
+    }
 
-  return await Message.findOne(base).sort({ index: -1, createdAt: -1 }).lean();
+    return await Message.findOne(base).sort({ index: -1, createdAt: -1 }).lean();
 }
 
 module.exports = {

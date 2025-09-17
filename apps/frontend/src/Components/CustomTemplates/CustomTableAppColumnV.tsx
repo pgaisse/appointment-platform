@@ -43,12 +43,7 @@ const CustomTableAppColumnV = () => {
   };
 
     const query2 = {
-    $and: [
-      { unknown: false },           // ← obligatorio
-      {"selectedAppDates.status": "Pending" }
-          // (opcional) si también quieres selectedDates vacío:
-          // { selectedDates: { $size: 0 } },
-    ],
+    $and: [{ unknown: false },      {"selectedAppDates.status": "Pending" }    ],
   };
 
   const limit = 100;

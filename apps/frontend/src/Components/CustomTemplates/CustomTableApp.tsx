@@ -30,7 +30,7 @@ function CustomTableApp({ pageSize }: Query) {
     { path: "treatment", select: "_id name notes duration icon color minIcon" },
     { path: "selectedDates.days.timeBlocks" }
   ] as const;
-  const limit = 100;
+  const limit = 200;
 
   const { data, isLoading, isPlaceholderData, refetch } =
     useGetCollection<Appointment>("Appointment", { query, limit, populate: populateFields });

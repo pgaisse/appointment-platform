@@ -43,34 +43,8 @@ export default function MentionDemo() {
   }
 console.log("text",text)
   return (
-    <Box p={6} maxW="900px" mx="auto">
-      <VStack align="stretch" spacing={4}>
-        <MentionTextarea
-          value={text}
-          onChange={setText}
-          apiBase="/api"
-          endpointPath="/appointments/mentions"
-          getToken={getToken}
-          placeholder="Escribe # y el nombre…"
-          rows={5}
-          maxSuggestions={5}
-          minQueryLength={1}
-          debounceMs={150}
-          triggerChar="#"
-          usePortal
-          compact
-          matchParentBg
-          /** 👇 Inserta como TOKEN para renderizar Tag visual en el highlighter */
-          insertMode="token"
-          onMentionAdd={(it) => console.log("Mention inserted:", it)}
-        />
-
-        <HStack justify="flex-end">
-          <Button colorScheme="blue" isDisabled={!text.trim()} onClick={() => console.log("Enviar (demo):", text)}>
-            Enviar (demo)
-          </Button>
-        </HStack>
-      </VStack>
-    </Box>
+    <>
+      
+    </>
   );
 }
