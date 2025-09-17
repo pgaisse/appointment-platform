@@ -3,11 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
   ModalCloseButton, Box, HStack, VStack, Text, Input, Textarea, Button,
-  Tag, TagLabel, Wrap, WrapItem, IconButton, Checkbox, Avatar, Divider,
+  IconButton, Checkbox, Avatar, Divider,
   useToast, useDisclosure, Tooltip, Center, Spinner,
   Popover, PopoverTrigger, PopoverContent, PopoverArrow, PopoverCloseButton, PopoverBody,
   InputGroup, InputLeftElement, useOutsideClick,
-  textDecoration,
 } from '@chakra-ui/react';
 import { SmallCloseIcon, AddIcon, SearchIcon } from '@chakra-ui/icons';
 import type { Card, LabelDef } from '@/types/kanban';
@@ -160,7 +159,7 @@ function UserPickerContent({
 
 const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, topicId }) => {
   const toast = useToast();
-  const { isOpen: mgrOpen, onOpen: openMgr } = useDisclosure();
+  const { onOpen: openMgr } = useDisclosure();
   const { labels: topicLabelsQ } = useTopicLabels(topicId);
   const topicLabels: LabelDef[] = topicLabelsQ.data ?? [];
 
