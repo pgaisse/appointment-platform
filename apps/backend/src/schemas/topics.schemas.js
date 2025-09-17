@@ -16,6 +16,14 @@ exports.createTopicLabel = z.object({
   })
 });
 
+exports.createComment = z
+  .object({
+    text: z.string().trim().min(1, 'Required').max(5000, 'Max 5000 chars'),
+  })
+  .strict();
+
+
+
 exports.createColumn = z.object({
   body: z.object({
     title: z.string().min(1, 'title required'),

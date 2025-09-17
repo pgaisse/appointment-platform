@@ -24,6 +24,7 @@ const {
 
 // ✅ Aplica JWT check + attachUserInfo + ensureUser para todo este router
 router.use(requireAuth);
+router.use(jwtCheck, attachUserInfo, ensureUser);
 
 // #region Appearances
 // GET/PUT user preferences (per user) → basta estar autenticado
@@ -351,5 +352,63 @@ router.delete(
   }
 );
 // #endregion
+
+
+// #region Coments
+
+router.get('/cards/:cardId/comments', async (req, res) => {
+  try {
+    const { cardId } = req.params;
+    if (!mongoose.isValidObjectId(cardId)) {
+      return res.status(400).json({ error: 'Invalid cardId' });
+    }
+    const out = await svc.listCardComments(cardId);
+    return res.json(out);
+  } catch (e) {
+    const status = e?.status || 500;
+    console.error('[GET /cards/:cardId/comments] ERROR:', e?.message);
+    return res.status(status).json({ error: e?.message || 'Internal Server Error' });
+  }
+});
+
+router.post('/cards/:cardId/comments', validate(schemas.createComment), async (req, res) => {
+  try {
+    const { cardId } = req.params;
+    if (!mongoose.isValidObjectId(cardId)) {
+      return res.status(400).json({ error: 'Invalid cardId' });
+    }
+
+    // upsert de usuario desde el token (Auth0)
+    const dbUser = req.dbUser
+    const out = await svc.addCardComment(cardId, dbUser._id, req.body.text);
+
+    return res.json({ comment: out });
+  } catch (e) {
+    const status = e?.status || 500;
+    console.error('[POST /cards/:cardId/comments] ERROR:', e?.message);
+    return res.status(status).json({ error: e?.message || 'Internal Server Error' });
+  }
+});
+
+router.delete('/cards/:cardId/comments/:commentId', async (req, res) => {
+  try {
+    const { cardId, commentId } = req.params;
+    if (!mongoose.isValidObjectId(cardId)) {
+      return res.status(400).json({ error: 'Invalid cardId' });
+    }
+    // commentId es subdoc _id; no necesita ser ObjectId “global” pero usualmente lo es
+   
+    const dbUser = req.dbUser;
+    const roles = Array.isArray(dbUser.roles) ? dbUser.roles : [];
+    const isAdmin = roles.includes('admin');
+
+    const out = await svc.deleteCardComment(cardId, commentId, dbUser._id, isAdmin);
+    return res.json(out);
+  } catch (e) {
+    const status = e?.status || 500;
+    console.error('[DELETE /cards/:cardId/comments/:commentId] ERROR:', e?.message);
+    return res.status(status).json({ error: e?.message || 'Internal Server Error' });
+  }
+});
 
 module.exports = router;

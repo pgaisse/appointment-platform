@@ -157,10 +157,6 @@ export default function UsersManager() {
     return new Set(list);
   }, [rolePermsQ.data]);
 
-  const effectivePerms = useMemo(
-    () => new Set<string>([...directOriginal, ...rolePerms]),
-    [directOriginal, rolePerms]
-  );
 
   // editable state ONLY for direct permissions
   const [selectedDirect, setSelectedDirect] = useState<Set<string>>(new Set());

@@ -27,12 +27,11 @@ import {
     Icon,
     Skeleton,
 } from "@chakra-ui/react";
-import { FiCalendar, FiClock, FiPhone, FiMail, FiUser, FiHash, FiClipboard, FiInfo, FiMessageSquare, FiSmartphone } from "react-icons/fi";
+import { FiCalendar, FiClock, FiPhone, FiMail, FiUser, FiClipboard, FiInfo } from "react-icons/fi";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { ContactAppointment } from "@/types";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { GrContact } from "react-icons/gr";
-import { FaRegThumbsUp, FaThumbsDown, FaThumbsUp } from "react-icons/fa";
 import { CiUser } from "react-icons/ci";
 
 // -----------------------------
@@ -171,11 +170,6 @@ const fmtDateTime = (d?: Date | string | number) =>
         minute: "2-digit",
     }) : "—";
 
-const initialsOf = (first?: string, last?: string) => {
-    const a = (first ?? "").trim();
-    const b = (last ?? "").trim();
-    return `${a[0] ?? "?"}${b[0] ?? ""}`.toUpperCase();
-};
 
 function contrastText(hex?: string): string {
     if (!hex) return "white";
@@ -186,24 +180,6 @@ function contrastText(hex?: string): string {
     return yiq >= 128 ? "black" : "white";
 }
 
-const methodColor: Record<'Phone' | 'Email' | 'SMS' | 'WhatsApp', string> = {
-    Phone: 'blue',
-    Email: 'purple',
-    SMS: 'teal',
-    WhatsApp: 'green',
-};
-const statusColor: Record<'Pending' | 'Contacted' | 'Failed' | 'No Contacted', string> = {
-    Pending: 'yellow',
-    Contacted: 'green',
-    Failed: 'red',
-    'No Contacted': 'gray',
-};
-const methodIcon = {
-    Phone: FiPhone,
-    Email: FiMail,
-    SMS: FiMessageSquare,
-    WhatsApp: FiSmartphone,
-};
 
 const SectionCard: React.FC<{ title: React.ReactNode; right?: React.ReactNode; children?: React.ReactNode }>
     = ({ title, right, children }) => {
@@ -311,7 +287,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
     const populateFieldsContacted = [
         { path: "user", select: "auth0_id name email" },
     ] as const;
-    const { data: contacted, isLoading: isloadinfContacted } = useGetCollection<ContactAppointment>(
+    const { data: contacted } = useGetCollection<ContactAppointment>(
         "ContactAppointment",
         { mongoQuery: safeQuery2, limit, populate: populateFieldsContacted }
     );
@@ -321,10 +297,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
     const appointment = data?.[0] ?? null;
     const fullName = `${appointment?.nameInput ?? ""} ${appointment?.lastNameInput ?? ""}`.trim() || "Unnamed";
 
-    const logs = React.useMemo(() => {
-        const arr = (appointment?.contactMessages ?? []) as any[];
-        return arr.filter(l => l && typeof l === 'object' && 'contactedAt' in l) as ContactLog[];
-    }, [appointment]);
 
 
     return (
@@ -559,7 +531,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                         </HStack>
                         <HStack>
                             <Button variant="ghost" onClick={onClose}>Close</Button>
-                            <Button colorScheme="teal" isDisabled>Reschedule</Button>
+                           
                         </HStack>
                     </HStack>
                 </ModalFooter>
