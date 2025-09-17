@@ -334,7 +334,69 @@ exports.moveCard = async function moveCard({ cardId, toColumnId, before, after }
 
   return { finalSortKey: finalSort };
 };
+function shapeComment(c) {
+  const author = c.author && typeof c.author === 'object'
+    ? {
+        id: String(c.author._id),
+        name: c.author.name || c.author.email || 'User',
+        email: c.author.email || null,
+        picture: c.author.picture || null,
+      }
+    : null;
 
+  return {
+    id: String(c._id),
+    text: c.text,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt || null,
+    author,
+  };
+}
+
+exports.listCardComments = async function listCardComments(cardId) {
+  const card = await Card.findById(cardId)
+    .populate('comments.author', 'name email picture')
+    .lean();
+  if (!card) throw new Error('Card not found');
+
+  return (card.comments || []).map(shapeComment);
+};
+
+exports.addCardComment = async function addCardComment(cardId, userId, text) {
+  if (!text || !text.trim()) {
+    const e = new Error('Comment text required'); e.status = 400; throw e;
+  }
+  const push = {
+    text: text.trim(),
+    author: userId,
+    createdAt: new Date(),
+  };
+
+  const updated = await Card.findByIdAndUpdate(
+    cardId,
+    { $push: { comments: push } },
+    { new: true }
+  ).populate('comments.author', 'name email picture');
+
+  if (!updated) throw new Error('Card not found');
+  const c = updated.comments[updated.comments.length - 1];
+  return shapeComment(c);
+};
+
+exports.deleteCardComment = async function deleteCardComment(cardId, commentId, requesterId, isAdmin = false) {
+  const card = await Card.findOne({ _id: cardId, 'comments._id': commentId });
+  if (!card) {
+    const e = new Error('Comment not found'); e.status = 404; throw e;
+  }
+  const c = card.comments.id(commentId);
+  // Solo autor o admin
+  if (!isAdmin && String(c.author) !== String(requesterId)) {
+    const e = new Error('Forbidden'); e.status = 403; throw e;
+  }
+  c.deleteOne();
+  await card.save();
+  return { ok: true };
+};
 // ------------------------ Topic Labels ------------------------
 exports.listTopicLabels = async (topicId) => {
   const t = await Topic.findById(topicId).lean();

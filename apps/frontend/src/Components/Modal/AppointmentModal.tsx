@@ -559,7 +559,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                         </HStack>
                         <HStack>
                             <Button variant="ghost" onClick={onClose}>Close</Button>
-                            <Button colorScheme="teal" isDisabled>Reschedule</Button>
+                           
                         </HStack>
                     </HStack>
                 </ModalFooter>
