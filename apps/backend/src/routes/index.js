@@ -6,7 +6,7 @@ const { Appointment, Categories, PriorityList, ManualContact } = require('../mod
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-const { attachUserInfo, jwtCheck, checkJwt, decodeToken,ensureUser } = require('../middleware/auth');
+const { attachUserInfo, jwtCheck, checkJwt, decodeToken, ensureUser } = require('../middleware/auth');
 const models = require("../models/Appointments");
 const sms = require('../helpers/conversations')
 const { findMatchingAppointments } = require('../helpers/findMatchingAppointments');
@@ -28,9 +28,7 @@ const { exist } = require('joi');
 
 
 //RUTAS PROTEGIDAS
-router.use(jwtCheck);
-router.use(attachUserInfo); // /send
-router.use(ensureUser);
+router.use(jwtCheck, attachUserInfo, ensureUser);
 
 
 
@@ -171,7 +169,7 @@ router.get('/treatments', jwtCheck, async (req, res) => {
 // routes/query.js (handler drop-in)
 router.get('/query/:collection', jwtCheck, async (req, res) => {
   try {
-    console.log(req.user )
+    console.log(req.user)
     const { collection } = req.params;
     const Model = models[collection];
     if (!Model) return res.status(400).json({ error: 'Invalid collection name' });
@@ -233,7 +231,7 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
       const parsedLimit = parseInt(req.query.limit, 10);
       if (!Number.isNaN(parsedLimit)) limit = parsedLimit;
     }
-
+    console.log(filters, projection, selectStr, populate, limit)
     // --- construir query (retrocompatible) ---
     let query = Model.find(filters, projection);
 
@@ -260,7 +258,7 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
     }
 
     query = query.limit(limit);
-    console.log("filters",filters, Model.collection.name)
+    console.log("filters", filters, Model.collection.name)
     const result = await query.lean();
     return res.status(200).json(result);
 
@@ -308,7 +306,7 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
       }
 
       // Forzamos unknown=false y no confiamos en org_id del cliente
-      data = { ...data, unknown: data.unknown?data.unknown:false };
+      data = { ...data, unknown: data.unknown ? data.unknown : false };
       if (org_id) {
         // Si no viene org_id en el doc, lo agregamos con el del token
         // (No sobreescribimos si ya existe en el payload; lo añade solo si falta)
@@ -555,7 +553,7 @@ router.post('/add', jwtCheck, async (req, res) => {
     if (!org_id) {
       return res.status(400).json({ error: 'org_id not found in token' });
     }
-
+    
     const { modelName, data } = req.body;
 
     // ✅ Validaciones básicas
@@ -566,6 +564,11 @@ router.post('/add', jwtCheck, async (req, res) => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return res.status(400).json({ error: 'data must be a valid object' });
     }
+
+    if (!req.dbUser || !req.dbUser._id) {
+      return res.status(401).json({ error: 'User not resolved (ensureUser did not attach req.dbUser)' });
+    }
+
     let sid;
     const proxyAddress = process.env.TWILIO_FROM_MAIN
     //asociar conversación con nuevo contacto creado
@@ -584,7 +587,7 @@ router.post('/add', jwtCheck, async (req, res) => {
         org_id: org_id,
       };
       sid = !existingSid
-        ? await sms.createConversationAndAddParticipant(formattedPhone, proxyAddress, meta)
+        ? await sms.createConversationAndAddParticipant(formattedPhone, proxyAddress, meta, req.dbUser._id)
         //si->unirlo
         : existingSid
       // await sms.addSmsParticipantToConversation(existingSid,formattedPhone, "+61482088223")
@@ -595,6 +598,7 @@ router.post('/add', jwtCheck, async (req, res) => {
 
 
     // 🔐 Asociar org_id (y opcional user_id si lo deseas)
+    console.log("User______________________________________________________-------------------<", req.dbUser)
     const enrichedData = {
       ...data,
       org_id,
@@ -605,6 +609,7 @@ router.post('/add', jwtCheck, async (req, res) => {
       org_name: orgName,
       createdBy: sub,
       createdAt: new Date(),
+      user: req.dbUser._id
     };
 
 
@@ -616,6 +621,7 @@ router.post('/add', jwtCheck, async (req, res) => {
 
     // 💾 Guardar documento
     const newDoc = new Model(enrichedData);
+    console.log("enrichedData",enrichedData)
     const savedDoc = await newDoc.save();
 
     return res.status(201).json({ message: 'Document created successfully', document: savedDoc });
@@ -643,7 +649,7 @@ router.get('/appointments/mentions', jwtCheck, async (req, res) => {
   console.log(req.query)
   try {
     let { nameInput = '', limit = '5', mode = 'contains' } = req.query;
-    console.log("nameInput",nameInput)
+    console.log("nameInput", nameInput)
     const q = String(nameInput).trim();
     const lim = clamp(limit, 1, 8);
     if (!q) return res.json({ items: [] });
@@ -658,7 +664,7 @@ router.get('/appointments/mentions', jwtCheck, async (req, res) => {
     try {
       const info = await helpers.getTokenInfo(req.headers.authorization);
       org_id = info?.org_id;
-    } catch (_) {}
+    } catch (_) { }
 
     const match = { nameInput: re };
     if (org_id) match.org_id = org_id;
@@ -666,8 +672,8 @@ router.get('/appointments/mentions', jwtCheck, async (req, res) => {
     const pipeline = [
       { $match: match },
       { $set: { __q: q.toLowerCase() } },
-      { $addFields: { __idx: { $indexOfCP: [ { $toLower: '$nameInput' }, '$__q' ] } } },
-      { $addFields: { __starts: { $eq: [ '$__idx', 0 ] } } },
+      { $addFields: { __idx: { $indexOfCP: [{ $toLower: '$nameInput' }, '$__q'] } } },
+      { $addFields: { __starts: { $eq: ['$__idx', 0] } } },
       { $sort: { __starts: -1, __idx: 1, updatedAt: -1, createdAt: -1 } },
       { $limit: lim },
       {
