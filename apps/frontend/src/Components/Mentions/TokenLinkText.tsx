@@ -1,21 +1,23 @@
+// frontend/src/Components/Mentions/TokenLinkText.tsx
 import React, { useMemo } from "react";
-import { Link as ChakraLink, useDisclosure, type LinkProps } from "@chakra-ui/react";
-import AppointmentModal from "../Modal/AppointmentModal";
+import {
+  Link as ChakraLink,
+  type LinkProps,
+  useDisclosure,
+} from "@chakra-ui/react";
+
+// ⬇️ Lazy import: solo descarga y ejecuta el modal cuando realmente se abre
+const AppointmentModal = React.lazy(
+  () => import("../Modal/AppointmentModal")
+);
 
 // #[Display|type:id]
 const TOKEN_REGEX = /#\[([^\]|]+)\|([^:|\]]+):([^\]]+)\]/g;
 
 export type TokenLinkTextProps = {
   text?: string | null;
-  /** Prefijo visible del link. Por defecto "#" => "#Juan Pérez" */
-  prefix?: string;
-  /** Props para el <Link> de Chakra (e.g., color, isExternal, etc.) */
+  prefix?: string; // por defecto "#"
   linkProps?: LinkProps;
-  /**
-   * Construye el href del link.
-   * Por defecto: "#<type>:<id>"
-   * Ej.: (d, t, id) => `/contacts/${id}`
-   */
   buildHref?: (display: string, type: string, id: string) => string;
 };
 
@@ -23,30 +25,33 @@ type Part =
   | { kind: "text"; value: string }
   | { kind: "token"; display: string; tokType: string; id: string };
 
-export default function TokenLinkText({
+function parseParts(value: string): Part[] {
+  const out: Part[] = [];
+  let last = 0;
+  // clonamos para evitar efectos de lastIndex
+  const re = new RegExp(TOKEN_REGEX);
+  for (const m of value.matchAll(re)) {
+    const i = m.index ?? 0;
+    if (i > last) out.push({ kind: "text", value: value.slice(last, i) });
+    out.push({ kind: "token", display: m[1], tokType: m[2], id: m[3] });
+    last = i + m[0].length;
+  }
+  if (last < value.length) out.push({ kind: "text", value: value.slice(last) });
+  return out;
+}
+
+const TokenLinkText: React.FC<TokenLinkTextProps> = React.memo(function TokenLinkText({
   text,
   prefix = "#",
   linkProps,
   buildHref,
-}: TokenLinkTextProps) {
+}) {
   const value = text ?? "";
+
   const { isOpen, onOpen, onClose } = useDisclosure({ defaultIsOpen: false });
   const [appid, setAppId] = React.useState<string | null>(null);
 
-  const parts = useMemo<Part[]>(() => {
-    const out: Part[] = [];
-    let last = 0;
-    // Clonar el regex para evitar efectos de lastIndex
-    const re = new RegExp(TOKEN_REGEX);
-    for (const m of value.matchAll(re)) {
-      const i = m.index ?? 0;
-      if (i > last) out.push({ kind: "text", value: value.slice(last, i) });
-      out.push({ kind: "token", display: m[1], tokType: m[2], id: m[3] });
-      last = i + m[0].length;
-    }
-    if (last < value.length) out.push({ kind: "text", value: value.slice(last) });
-    return out;
-  }, [value]);
+  const parts = useMemo<Part[]>(() => parseParts(value), [value]);
 
   const renderTextWithBreaks = (t: string, keyPrefix: string) => {
     const lines = t.split("\n");
@@ -63,7 +68,7 @@ export default function TokenLinkText({
     e.preventDefault();
     e.stopPropagation();
     setAppId(id);
-    onOpen();
+    onOpen(); // <-- aquí es cuando realmente se “ejecuta” el modal
   };
 
   const handleClose = () => {
@@ -83,10 +88,13 @@ export default function TokenLinkText({
             );
           }
 
+          // token
           const label = `${prefix}${p.display}`;
-          const href = buildHref?.(p.display, p.tokType, p.id) ?? `#${p.tokType}:${p.id}`;
+          const href =
+            buildHref?.(p.display, p.tokType, p.id) ?? `#${p.tokType}:${p.id}`;
 
-          return (
+          // no abrimos nada automáticamente: solo con click
+          return p.id ? (
             <ChakraLink
               key={`tok-${idx}`}
               href={href}
@@ -99,11 +107,20 @@ export default function TokenLinkText({
             >
               {label}
             </ChakraLink>
+          ) : (
+            <React.Fragment key={`tok-${idx}`}>{label}</React.Fragment>
           );
         })}
       </span>
 
-      <AppointmentModal id={appid ?? ""} isOpen={isOpen} onClose={handleClose} />
+      {/* ⬇️ El modal solo se monta si realmente se va a mostrar */}
+      {isOpen && appid && (
+        <React.Suspense fallback={null}>
+          <AppointmentModal id={appid} isOpen={isOpen} onClose={handleClose} />
+        </React.Suspense>
+      )}
     </>
   );
-}
+});
+
+export default TokenLinkText;

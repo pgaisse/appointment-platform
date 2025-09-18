@@ -19,7 +19,10 @@ import {
 import { useState, useRef, useEffect } from "react";
 import { AppointmentGroup } from "@/types";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
-import { PhoneIcon, RepeatIcon } from "@chakra-ui/icons";
+import {
+  PhoneIcon,
+  RepeatIcon,
+} from "@chakra-ui/icons";
 import { CiUser } from "react-icons/ci";
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
 import { useQueryClient } from "@tanstack/react-query";
@@ -40,11 +43,11 @@ interface Props {
   event: AppointmentGroup[];
 }
 
-const CustomEventContent: React.FC<Props> = ({ event }) => {
-  // ✅ Usa mutateAsync para poder await/try-catch
-  const { mutateAsync: updateItems, isPending: isUpdating } = useUpdateItems();
-  const { mutateAsync: sendSMSAsync } = useSendAppointmentSMS();
 
+
+const CustomEventContent: React.FC<Props> = ({ event }) => {
+  const { mutate, isPending } = useUpdateItems();
+  const { mutate: sendSMS } = useSendAppointmentSMS();
   const toast = useToast();
   const queryClient = useQueryClient();
   const group = event?.[0];
@@ -52,10 +55,9 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
   const [visibleCards, setVisibleCards] = useState(3);
   const [showLeftShadow, setShowLeftShadow] = useState(false);
   const [showRightShadow, setShowRightShadow] = useState(true);
-  const [rescheduleButton, setRescheduleButton] = useState<string>("");
+  const [rescheduleButton, setRescheduleButton] = useState<string>("")
   const { user } = useAuth0();
   const navigate = useNavigate();
-
   const handleScroll = () => {
     const el = containerRef.current;
     if (!el) return;
@@ -78,16 +80,18 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     };
 
     const onWheel = (e: WheelEvent) => {
+      // Solo mover horizontalmente si hay desplazamiento vertical
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-        e.preventDefault();
-        const SCROLL_SPEED = 2;
+        e.preventDefault(); // prevenir scroll vertical
+        const SCROLL_SPEED = 2; // ajusta esto según tu sensación
         el.scrollLeft += e.deltaY * SCROLL_SPEED;
+        console.log("el.scrollLeft", el.scrollLeft)
       }
     };
 
     updateUI();
     window.addEventListener("resize", updateUI);
-    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("wheel", onWheel, { passive: false }); // importante passive:false
 
     return () => {
       window.removeEventListener("resize", updateUI);
@@ -95,71 +99,74 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     };
   }, []);
 
+
+
+
   const handleClick = async (id: string, start: Date, end: Date) => {
-    if (!id) {
-      toast({ title: "Invalid appointment ID", status: "error" });
-      return;
-    }
-
     setRescheduleButton(id);
-
-    // ⏱️ Normaliza a ISO para evitar problemas de TZ
-    const startISO = new Date(start).toISOString();
-    const endISO = new Date(end).toISOString();
 
     const payload = [
       {
         table: "Appointment",
         id_field: "_id",
-        id_value: id,
-        // Si tu backend requiere operador: usa $set
-        // data: { $set: {
-        //   "selectedAppDates.0.proposed.startDate": startISO,
-        //   "selectedAppDates.0.proposed.endDate": endISO,
-        // }},
+        id_value: id ?? "",
         data: {
-          "selectedAppDates.0.proposed.startDate": startISO,
-          "selectedAppDates.0.proposed.endDate": endISO,
+          "selectedAppDates.0.proposed.startDate": start,
+          "selectedAppDates.0.proposed.endDate": end,
+          "selectedAppDates.0.status": "Pending",
         },
       },
+
     ];
 
-    try {
-      // Espera a que el backend termine
-      await updateItems(payload);
 
-      // Envía SMS una vez confirmada la actualización
-      await sendSMSAsync({ appointmentId: id });
+    mutate(payload, {
+      onSuccess: async () => {
 
-      toast({
-        title: "Confirmation SMS Sent",
-        description: "The patient has been notified via SMS.",
-        status: "info",
-        duration: 3000,
-        isClosable: true,
-      });
+        // ✅ Enviar SMS después del éxito del reschedule
+        try {
+          sendSMS({ appointmentId: id });
+          toast({
+            title: "Confirmation SMS Sent",
+            description: "The patient has been notified via SMS.",
+            status: "info",
+            duration: 3000,
+            isClosable: true,
+          });
+        } catch (err: any) {
+          toast({
+            title: "Failed to Send SMS",
+            description: err.message || "Could not send SMS to the patient.",
+            status: "warning",
+            duration: 4000,
+            isClosable: true,
+          });
+        }
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
+          queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
+          queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+        ]);
 
-      // Invalida una sola vez y espera antes de navegar
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
-        queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
-        queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
-      ]);
-
-      navigate("/appointments/priority-list");
-    } catch (err: any) {
-      toast({
-        title: "Error Rescheduling Appointment",
-        description:
-          err?.message || "An error occurred while rescheduling the appointment.",
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
-    } finally {
-      // Opcional: limpiar estado del botón
-      // setRescheduleButton("");
-    }
+        navigate("/appointments/priority-list");
+      },
+      onError: (error) => {
+        toast({
+          title: "Error Rescheduling Appointment",
+          description:
+            error.message ||
+            "An error occurred while rescheduling the appointment.",
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
+      },
+      onSettled: () => {
+        queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+        queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
+        queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+      },
+    });
   };
 
   if (!group || !group.dateRange || !group.priorities?.length) {
@@ -171,8 +178,23 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
+
     >
-      <Flex justify="center" align="center" position="relative">
+      {/*<Box alignContent="center" display="flex" justifyContent="center" mb={4}   >
+        <VStack>
+          <Heading>Suggested Patients for this Available Slot</Heading>
+          <HStack spacing={4}>
+            <Tag size="lg" variant="solid" colorScheme="blue" bg="none" color="blue.600">
+              <TagLabel p={2} color="black" fontWeight="normal">
+                {`Range selected: ${formatDateWS(group.dateRange)}`}
+              </TagLabel>
+              <TagRightIcon as={MdDateRange} />
+            </Tag>
+          </HStack>
+        </VStack>
+      </Box>*/}
+
+      <Flex justify="center" align="center" position="relative" >
         {showLeftShadow && (
           <Box
             position="absolute"
@@ -216,6 +238,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
             "&::-webkit-scrollbar": { display: "none" },
           }}
           transition={{ duration: 0.5, ease: "easeOut" }}
+
         >
           {group.priorities.map((groupItem, index) => (
             <MotionBox
@@ -224,6 +247,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
               maxW={`${CARD_WIDTH}px`}
               flexShrink={0}
               scrollSnapAlign="start"
+              //whileHover={{ scale: 1.02 }}
               transition={{ type: "spring", stiffness: 260, damping: 20 }}
             >
               <Card
@@ -235,6 +259,8 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                 border="1px"
                 borderColor="gray.50"
                 bg={`${groupItem.priority.color}.300`}
+
+
               >
                 <CardHeader>
                   <Heading
@@ -251,21 +277,24 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                     {groupItem.priority.name}
                   </Heading>
                 </CardHeader>
-
                 <CardBody
                   p={3}
                   bg="white"
                   borderRadius="10px"
-                  h="280px"
+                  h="280px" // Altura visible fija
                   overflowY="auto"
                   overflowX="hidden"
                   sx={{
-                    "&::-webkit-scrollbar": { width: "6px" },
+                    "&::-webkit-scrollbar": {
+                      width: "6px",
+                    },
                     "&::-webkit-scrollbar-thumb": {
-                      backgroundColor: "#a0aec0",
+                      backgroundColor: "#a0aec0", // color gris premium
                       borderRadius: "4px",
                     },
-                    "&::-webkit-scrollbar-track": { backgroundColor: "#edf2f7" },
+                    "&::-webkit-scrollbar-track": {
+                      backgroundColor: "#edf2f7",
+                    },
                   }}
                 >
                   {groupItem.appointments.map((item, idx) => {
@@ -290,8 +319,8 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                             <Tooltip key={idx} label={`${item.matchLevel}`}>
                               <Icon as={icon} color={color} boxSize={5} />
                             </Tooltip>
-                            {item.matchedBlocks?.map((block, i2) => (
-                              <Tooltip key={i2} label={`${block.from} - ${block.to}`}>
+                            {item.matchedBlocks?.map((block, idx) => (
+                              <Tooltip key={idx} label={`${block.from} - ${block.to}`}>
                                 <Tag>{block.short}</Tag>
                               </Tooltip>
                             ))}
@@ -324,18 +353,11 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                             onClick={() =>
                               handleClick(
                                 item._id,
-                                new Date(group.dateRange.startDate),
-                                new Date(group.dateRange.endDate)
+                                group.dateRange.startDate,
+                                group.dateRange.endDate
                               )
                             }
-                            isDisabled={isUpdating && rescheduleButton === item._id}
-                            leftIcon={
-                              isUpdating && rescheduleButton === item._id ? (
-                                <Spinner color="white" />
-                              ) : (
-                                <RepeatIcon />
-                              )
-                            }
+                            leftIcon={isPending && rescheduleButton === item._id ? <Spinner color='white' /> : <RepeatIcon />}
                           >
                             Re-Schedule
                           </Button>

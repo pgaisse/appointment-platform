@@ -253,7 +253,7 @@ export type PremiumAppointmentModalProps = {
     isOpen: boolean;
     onClose: () => void;
 };
-
+console.log("--------------------------------->",)
 const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, isOpen, onClose }) => {
     const headerBg = useColorModeValue(
         "linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0) 100%), linear-gradient(90deg, #7C3AED 0%, #06B6D4 100%)",
@@ -291,7 +291,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
         "ContactAppointment",
         { mongoQuery: safeQuery2, limit, populate: populateFieldsContacted }
     );
-
 
 
     const appointment = data?.[0] ?? null;
