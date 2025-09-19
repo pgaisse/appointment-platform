@@ -542,7 +542,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
         },
       },
     ]);
-console.log("results", result)
+
     return res.status(200).json(result);
   } catch (err) {
     console.error('[GET /DraggableCards] Error:', err);
@@ -916,11 +916,7 @@ router.get('/appointments/:id', async (req, res) => {
         model: 'TimeBlock',
         select: '_id org_id blockNumber label short from to',
       })
-      .populate({
-        path: 'selectedAppDates.contactedId',
-        model: 'ContactAppointment',
-        select: 'status startDate endDate context cSid pSid createdAt updatedAt',
-      })
+  
       .lean({ virtuals: true });
 
     if (!doc) return res.status(404).json({ error: 'Appointment not found' });

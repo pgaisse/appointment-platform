@@ -1,13 +1,17 @@
+// apps/frontend/src/Components/DraggableCards/DraggableColumns.tsx
+
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
 import { PhoneIcon, TimeIcon } from '@chakra-ui/icons';
-import { LiaSmsSolid } from 'react-icons/lia';
+import { FcSms } from "react-icons/fc";
 import {
   Box,
   Card,
   CardBody,
   CardFooter,
   CardHeader,
+  Grid,
+  GridItem,
   Heading,
   HStack,
   Icon,
@@ -20,7 +24,6 @@ import {
   SkeletonCircle,
   Fade,
   Stack,
-  Grid,
 } from '@chakra-ui/react';
 import {
   closestCenter,
@@ -38,9 +41,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Appointment, GroupedAppointment } from '@/types';
-import { UpdatePayload, useUpdateItems } from '@/Hooks/Query/useUpdateItems';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import type { Appointment, GroupedAppointment } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { iconMap } from '../CustomIcons';
 import Pagination from '../Pagination';
@@ -49,6 +51,10 @@ import DeleteItemButton from './DeleteItemButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
 import ArchiveItemButton from './ArchiveItemButton';
 import DeleteContactButton from './DeleteContactButton';
+import { LiaSmsSolid } from 'react-icons/lia';
+
+// ✅ Hook dedicado para Priority List
+import { useMovePriorityItems, type PriorityMove } from '@/Hooks/Query/useMovePriorityItems';
 
 type Props = {
   onCardClick?: (item: Appointment) => void;
@@ -175,7 +181,7 @@ function SortableItem({
     transition,
     zIndex: isDragging ? 999 : 'auto',
     position: isDragging ? 'relative' : 'static',
-    opacity: isDragging ? 0.4 : 1,
+    opacity: isDragging ? 0 : 1,
   };
 
   return (
@@ -205,7 +211,7 @@ function SortableItem({
   );
 }
 
-// ---------- Util: mover items ----------
+// ---------- Util: mover items (con ajuste de índice intra-columna) ----------
 function moveItem(
   data: GroupedAppointment[],
   itemId: string,
@@ -213,27 +219,38 @@ function moveItem(
   toColumnId: string,
   toIndex: number
 ): GroupedAppointment[] {
-  const newData = data.map(col => ({ ...col, patients: [...(col.patients || [])] }));
+  const newData = [...data];
   const sourceCol = newData.find(col => col._id === fromColumnId);
   const destCol = newData.find(col => col._id === toColumnId);
   if (!sourceCol || !destCol) {
     console.warn('⚠️ moveItem: columna origen o destino no encontrada');
     return data;
   }
-  const currentIndex = sourceCol.patients.findIndex(p => p._id === itemId);
-  if (currentIndex === -1) {
+  const item = sourceCol.patients.find(p => p._id === itemId);
+  if (!item) {
     console.warn('⚠️ moveItem: item no encontrado en columna origen');
     return data;
   }
-  const [item] = sourceCol.patients.splice(currentIndex, 1);
 
   if (fromColumnId === toColumnId) {
-    sourceCol.patients.splice(toIndex, 0, item);
-    sourceCol.patients = sourceCol.patients.map((p, idx) => ({ ...p, position: idx }));
+    const newPatients = [...sourceCol.patients];
+    const currentIndex = newPatients.findIndex(p => p._id === itemId);
+    if (currentIndex === -1) {
+      console.warn('⚠️ moveItem: item no encontrado en lista de pacientes de la columna');
+      return data;
+    }
+    // 👇 ajuste cuando arrastras hacia abajo: después de remover, el índice objetivo baja 1
+    const insertIndex =
+      currentIndex < toIndex ? Math.max(0, toIndex - 1) : toIndex;
+
+    newPatients.splice(currentIndex, 1);
+    newPatients.splice(insertIndex, 0, item);
+    sourceCol.patients = newPatients.map((p, idx) => ({ ...p, position: idx }));
   } else {
-    destCol.patients.splice(toIndex, 0, item);
-    sourceCol.patients = sourceCol.patients.map((p, idx) => ({ ...p, position: idx }));
-    destCol.patients = destCol.patients.map((p, idx) => ({ ...p, position: idx }));
+    sourceCol.patients = sourceCol.patients.filter(p => p._id !== itemId);
+    const newPatients = [...destCol.patients];
+    newPatients.splice(toIndex, 0, item);
+    destCol.patients = newPatients.map((p, idx) => ({ ...p, position: idx }));
   }
   return newData;
 }
@@ -241,15 +258,12 @@ function moveItem(
 export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending }: Props) {
   const toast = useToast();
   const searchRef = useRef<SearchBarRef>(null);
-  const { mutate } = useUpdateItems();
+  const { mutate: moveMutate } = useMovePriorityItems(); // ✅ hook dedicado
   const [activeItem, setActiveItem] = useState<Appointment | null>(null);
   const [optimisticData, setOptimisticData] = useState<GroupedAppointment[] | null>(null);
   const [sourceCol, setSourceCol] = useState<GroupedAppointment | undefined>();
   const [columnPages, setColumnPages] = useState<Record<string, number>>({});
   const queryClient = useQueryClient();
-
-  // snapshot para revertir en error
-  const prevSnapshotRef = useRef<GroupedAppointment[] | null>(null);
 
   // 👉 bandera de “último col pintado”
   const [lastColPainted, setLastColPainted] = useState(false);
@@ -273,19 +287,16 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   // ---------- Handlers memoizados ----------
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const { active } = event;
-    const id = String(active.id);
+    const id = active.id as string;
     if (!dataAP2) return;
 
-    const item = dataAP2.flatMap(col => col.patients || []).find(p => p._id === id) ?? null;
+    const item = dataAP2.flatMap(col => col.patients).find(p => p._id === id) ?? null;
     setActiveItem(item);
 
-    const originCol = dataAP2.find(col => (col.patients || []).some(p => p._id === id));
+    const originCol = dataAP2.find(col => col.patients.some(p => p._id === id));
     setSourceCol(originCol);
 
     if (!optimisticData) setOptimisticData(dataAP2);
-
-    // snapshot pre-move
-    prevSnapshotRef.current = optimisticData ? JSON.parse(JSON.stringify(optimisticData)) : (dataAP2 ? JSON.parse(JSON.stringify(dataAP2)) : null);
   }, [dataAP2, optimisticData]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -296,11 +307,11 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       return;
     }
 
-    const activeId = String(active.id);
-    const overId = String(over.id);
+    const activeId = active.id as string;
+    const overId = over.id as string;
 
     const destinationCol =
-      optimisticData.find(col => (col.patients || []).some(p => p._id === overId)) ||
+      optimisticData.find(col => col.patients.some(p => p._id === overId)) ||
       optimisticData.find(col => `placeholder-${col._id}` === overId);
 
     if (!destinationCol) {
@@ -319,92 +330,43 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       return;
     }
 
-    // índice de drop relativo al arreglo completo del destino
-    const overIndex = (destinationCol.patients || []).findIndex(p => p._id === overId);
-    const toIndex = overIndex === -1 ? (destinationCol.patients?.length || 0) : overIndex;
+    const overIndex = destinationCol.patients.findIndex(p => p._id === overId);
+    const index = overIndex === -1 ? destinationCol.patients.length : overIndex;
 
-    // snapshot antes de mover para calcular deltas
-    const beforeData = prevSnapshotRef.current ?? optimisticData;
-    const beforeSource = beforeData.find(c => c._id === fromId);
-    const beforeDest = beforeData.find(c => c._id === toId);
+    // ✨ update optimista en memoria (con moveItem que ajusta índice intra-columna)
+    const updatedData = moveItem(optimisticData, activeId, fromId, toId, index);
+    setOptimisticData(updatedData);
+    queryClient.setQueryData(['DraggableCards'], updatedData);
 
-    // aplicar movimiento en memoria
-    const updatedData = moveItem(optimisticData, activeId, fromId, toId, toIndex);
-
-    // construir payload SOLO con cambios reales (position / priority)
-    const payload: UpdatePayload[] = [];
+    // 🔁 construir MOVES (reenviamos columnas afectadas)
     const updatedSource = updatedData.find(col => col._id === fromId);
     const updatedDest = updatedData.find(col => col._id === toId);
 
-    const pushDeltas = (
-      beforeCol: GroupedAppointment | undefined,
-      afterCol: GroupedAppointment | undefined
-    ) => {
-      if (!afterCol) return;
-      const beforeMap = new Map<string, { position?: number; priority?: any }>(
-        (beforeCol?.patients || []).map(p => [p._id, { position: Number(p.position ?? 0), priority: beforeCol?.priority }])
-      );
-
-      (afterCol.patients || []).forEach((p, idx) => {
-        const prev = beforeMap.get(p._id) || { position: Number(p.position ?? 0), priority: beforeCol?.priority };
-        const nextPosition = idx;
-        const nextPriority = afterCol.priority; // ✅ usar la CLAVE de prioridad real, NO el _id del grupo
-
-        const positionChanged = Number(prev.position ?? 0) !== nextPosition;
-        const priorityChanged = prev.priority !== nextPriority;
-
-        if (positionChanged || priorityChanged) {
-          payload.push({
-            table: 'Appointment',
-            id_field: '_id',
-            id_value: p._id,
-            data: {
-              ...(positionChanged ? { position: nextPosition } : {}),
-              ...(priorityChanged ? { priority: nextPriority } : {}),
-            },
-          });
-        }
+    const moves: PriorityMove[] = [];
+    if (updatedSource) {
+      updatedSource.patients.forEach((p, i) => {
+        moves.push({ id: p._id, position: i, priority: updatedSource._id ?? undefined });
       });
-    };
-
-    // deltas en source y dest
-    pushDeltas(beforeSource, updatedSource);
-    if (toId !== fromId) {
-      pushDeltas(beforeDest, updatedDest);
+    }
+    if (updatedDest && updatedDest._id !== fromId) {
+      updatedDest.patients.forEach((p, i) => {
+        moves.push({ id: p._id, position: i, priority: updatedDest._id ?? undefined });
+      });
     }
 
-    // actualizar UI optimista
-    queryClient.setQueryData(['DraggableCards'], updatedData);
-    setOptimisticData(updatedData);
-
-    // si no hay cambios reales, no golpeamos backend
-    if (payload.length === 0) {
+    if (moves.length === 0) {
       setSourceCol(undefined);
       setActiveItem(null);
       return;
     }
 
-    mutate(payload, {
+    moveMutate(moves, {
       onSuccess: (response: any) => {
-        const failed = response?.results?.filter((r: { status: string }) => r.status === 'failed') || [];
-        if (failed.length > 0) {
-          // revertir sólo los que fallaron
-          const failedIds = new Set(failed.map((f: any) => f.id_value || f.id || f._id));
-          const revert = prevSnapshotRef.current;
-          if (revert) {
-            // reconstruimos tomando del snapshot previo los afectados
-            const repaired = updatedData.map(col => ({
-              ...col,
-              patients: col.patients.map(p => (failedIds.has(p._id)
-                ? (revert.find(rc => rc._id === col._id)?.patients.find(rp => rp._id === p._id) ?? p)
-                : p)),
-            }));
-            setOptimisticData(repaired);
-            queryClient.setQueryData(['DraggableCards'], repaired);
-          }
+        const failed = response?.results?.filter((r: { status: string }) => r.status === 'failed');
+        if (failed?.length > 0) {
           toast({
             title: 'Some updates failed',
-            description: `${failed.length} cambios no se aplicaron.`,
+            description: `${failed.length} updates could not be applied.`,
             status: 'warning',
             duration: 5000,
             isClosable: true,
@@ -414,7 +376,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             title: 'Update successful',
             description: 'All changes have been saved.',
             status: 'success',
-            duration: 2000,
+            duration: 3000,
             isClosable: true,
           });
         }
@@ -422,61 +384,52 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       onSettled: () => {
         setSourceCol(undefined);
         setActiveItem(null);
-        prevSnapshotRef.current = null;
       },
       onError: (error: any) => {
-        console.error('❌ Mutate error:', error);
-        // revert total
-        const snap = prevSnapshotRef.current;
-        if (snap) {
-          setOptimisticData(snap);
-          queryClient.setQueryData(['DraggableCards'], snap);
-        }
+        console.error('❌ Move error:', error);
         toast({
           title: 'Error al mover cita',
           description: error?.message || 'No se pudo guardar el reordenamiento.',
           status: 'error',
-          duration: 2500,
+          duration: 2000,
           isClosable: true,
         });
+        queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+        setOptimisticData(null);
       },
     });
-  }, [optimisticData, sourceCol, queryClient, mutate, toast]);
+  }, [optimisticData, sourceCol, queryClient, moveMutate, toast]);
 
   const handleDragCancel = useCallback(() => {
-    // revert si hay snapshot
-    const snap = prevSnapshotRef.current;
-    if (snap) {
-      setOptimisticData(snap);
-      queryClient.setQueryData(['DraggableCards'], snap);
-    }
     setActiveItem(null);
     setSourceCol(undefined);
-    prevSnapshotRef.current = null;
-  }, [queryClient]);
+  }, []);
 
   const handlePageChange = (colId: string, page: number) => {
     setColumnPages((prev) => ({ ...prev, [colId]: page }));
   };
 
-  const pageSizeGlobal = 10;
+  const pageSize = 10;
   const [filteredItems, setFilteredItems] = useState<Appointment[] | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const start = (currentPage - 1) * pageSizeGlobal;
-  const end = start + pageSizeGlobal;
+  const start = (currentPage - 1) * (pageSize ? pageSize : 0);
+  const end = start + (pageSize ? pageSize : 0);
   const paginatedSource = filteredItems ?? dataContacts;
   const currentItems = paginatedSource ? paginatedSource.slice(start, end) : [];
-  const totalPages = paginatedSource ? Math.ceil(paginatedSource.length / pageSizeGlobal) : 0;
+  const totalPages = paginatedSource ? Math.ceil(paginatedSource.length / (pageSize || 1)) : 0;
 
   const [filteredPending, setFilteredPending] = useState<Appointment[] | null>(null);
   const [currentPagePending, setCurrentPagePending] = useState(1);
-  const startPending = (currentPagePending - 1) * pageSizeGlobal;
-  const endPending = startPending + pageSizeGlobal;
+
+  const startPending = (currentPagePending - 1) * (pageSize ? pageSize : 0);
+  const endPending = startPending + (pageSize ? pageSize : 0);
+
   const paginatedPending = filteredPending ?? dataPending;
   const currentPending = paginatedPending ? paginatedPending.slice(startPending, endPending) : [];
-  const totalPagesPending = paginatedPending ? Math.ceil(paginatedPending.length / pageSizeGlobal) : 0;
 
-  // --------- Estados de carga visual ----------
+  const totalPagesPending = paginatedPending ? Math.ceil(paginatedPending.length / (pageSize || 1)) : 0;
+
+  // --------- Estados de carga visual (sin tocar lógica de datos) ----------
   const isLoadingColumns = !optimisticData || isPlaceholderData;
   const isLoadingContacts = isPlaceholderData && (!dataContacts || dataContacts.length === 0);
   const isLoadingPending = isPlaceholderData && (!dataPending || dataPending.length === 0);
@@ -509,21 +462,19 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     >
       {(optimisticData ?? []).map((col, idx) => {
         const patients = Array.isArray(col.patients) ? col.patients : [];
-        const sorted = [...patients].sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
+        const sorted = [...patients].sort((a, b) => Number(a.position) - Number(b.position));
 
         const pageSize = 5;
-        const colCurrentPage = columnPages[col._id || ''] || 1;
+        const colCurrentPage = columnPages[col._id || ""] || 1;
         const colTotalPages = Math.ceil(sorted.length / pageSize);
         const startIndex = (colCurrentPage - 1) * pageSize;
         const endIndex = startIndex + pageSize;
         const paginatedPatients = sorted.slice(startIndex, endIndex);
 
-        // ✅ Dnd-kit: los items deben coincidir con los hijos renderizados
-        const items = paginatedPatients.length > 0
-          ? paginatedPatients.map(d => d._id)
-          : [`placeholder-${col._id}`];
+        // 🔧 Muy importante: items debe coincidir con lo que se renderiza
+        const items = paginatedPatients.length > 0 ? paginatedPatients.map(d => d._id) : [`placeholder-${col._id}`];
 
-        const isLast = idx === (optimisticData.length - 1);
+        const isLast = idx === lastIndex;
 
         return (
           <Fade in key={col._id}>
@@ -604,37 +555,36 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                           item={item}
                         >
                           <Grid templateColumns="1fr" templateRows="auto" w="100%">
-                            <div />
-                            <div>
+                            <GridItem>
                               <HStack>
                                 <Icon as={TimeIcon} color="green" />
                                 <Text color="gray.500">
                                   {formatDateWS(item.selectedAppDates?.[0])}
                                 </Text>
                               </HStack>
-                            </div>
-                            <div>
+                            </GridItem>
+                            <GridItem>
                               <HStack>
                                 <Text fontWeight="bold">
                                   {item.nameInput} {item.lastNameInput}
                                 </Text>
                                 <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
-                                  <Icon as={iconMap[item.treatment?.minIcon as keyof typeof iconMap]} color={item.treatment?.color} fontSize="24px" />
+                                  <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
                                 </Tooltip>
                                 <ArchiveItemButton id={item._id} modelName="Appointment" />
                               </HStack>
-                            </div>
-                            <div>
+                            </GridItem>
+                            <GridItem>
                               <HStack>
                                 <Tooltip
                                   label={
-                                    item.selectedAppDates?.[0]?.status === 'Pending'
-                                      ? 'Pending'
-                                      : item.selectedAppDates?.[0]?.status === 'Confirmed'
-                                      ? 'Confirmed'
-                                      : item.selectedAppDates?.[0]?.status === 'Rejected'
-                                      ? 'Rejected'
-                                      : 'NoContacted'
+                                    item.selectedAppDates[0]?.status === "Pending"
+                                      ? "Pending"
+                                      : item.selectedAppDates[0]?.status === "Confirmed"
+                                        ? "Confirmed"
+                                        : item.selectedAppDates[0].status === 'Rejected'
+                                          ? "Rejected"
+                                          : "NoContacted"
                                   }
                                   placement="top"
                                   fontSize="sm"
@@ -643,13 +593,13 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                   <Icon
                                     as={LiaSmsSolid}
                                     color={
-                                      item.selectedAppDates?.[0]?.status === 'Pending'
-                                        ? 'yellow.500'
-                                        : item.selectedAppDates?.[0]?.status === 'Confirmed'
-                                        ? 'green.500'
-                                        : item.selectedAppDates?.[0]?.status === 'Rejected'
-                                        ? 'red.500'
-                                        : 'blackAlpha.400'
+                                      item.selectedAppDates[0].status === "Pending"
+                                        ? "yellow.500"
+                                        : item.selectedAppDates[0].status === "Confirmed"
+                                          ? "green.500"
+                                          : item.selectedAppDates[0].status === 'Rejected'
+                                            ? "red.500"
+                                            : "blackAlpha.400"
                                     }
                                   />
                                 </Tooltip>
@@ -658,7 +608,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                   {formatAusPhoneNumber(item.phoneInput)}
                                 </Text>
                               </HStack>
-                            </div>
+                            </GridItem>
                           </Grid>
                         </SortableItem>
                       ))
@@ -693,7 +643,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     isPlaceholderData={isPlaceholderData}
                     totalPages={colTotalPages}
                     currentPage={colCurrentPage}
-                    onPageChange={(page) => handlePageChange(col._id || '', page)}
+                    onPageChange={(page) => handlePageChange(col._id || "", page)}
                   />
                 )}
               </CardFooter>
@@ -707,7 +657,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         );
       })}
 
-      {/* Contacts */}
+      {/* Panel de Contacts */}
       {lastColPainted && (
         <Fade in>
           <Card
@@ -798,23 +748,23 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     _hover={{ borderColor: 'black', cursor: 'pointer' }}
                   >
                     <Grid templateColumns="1fr" templateRows="auto" w="100%">
-                      <div />
-                      <div>
+                      <GridItem />
+                      <GridItem>
                         <HStack>
                           <Text fontWeight="bold">
                             {item.nameInput} {item.lastNameInput}
                           </Text>
                           <DeleteContactButton item={item} modelName="Appointment" />
                         </HStack>
-                      </div>
-                      <div>
+                      </GridItem>
+                      <GridItem>
                         <HStack>
                           <Icon as={PhoneIcon} color="green" />
                           <Text color="gray.500">
                             {formatAusPhoneNumber(item.phoneInput)}
                           </Text>
                         </HStack>
-                      </div>
+                      </GridItem>
                     </Grid>
                   </Box>
                 ))
@@ -849,7 +799,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         </Fade>
       )}
 
-      {/* Pending Approvals */}
+      {/* Panel de Pending Approvals */}
       {lastColPainted && (
         <Fade in >
           <Card
@@ -941,22 +891,23 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     _hover={{ borderColor: 'black', cursor: 'pointer' }}
                   >
                     <Grid templateColumns="1fr" templateRows="auto" w="100%">
-                      <div />
-                      <div>
+                      <GridItem />
+                      <GridItem>
                         <HStack>
                           <Text fontWeight="bold">
                             {item.nameInput} {item.lastNameInput}
                           </Text>
+
                         </HStack>
-                      </div>
-                      <div>
+                      </GridItem>
+                      <GridItem>
                         <HStack>
                           <Icon as={PhoneIcon} color="green" />
                           <Text color="gray.500">
                             {formatAusPhoneNumber(item.phoneInput)}
                           </Text>
                         </HStack>
-                      </div>
+                      </GridItem>
                     </Grid>
                   </Box>
                 ))
@@ -995,27 +946,27 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             bg="white"
           >
             <Grid templateColumns="1fr" templateRows="auto" w="100%">
-              <div>
+              <GridItem>
                 <HStack>
                   <Icon as={TimeIcon} color="green" />
                   <Text color="gray.500">
                     {formatDateWS(activeItem.selectedAppDates?.[0])}
                   </Text>
                 </HStack>
-              </div>
-              <div>
+              </GridItem>
+              <GridItem>
                 <Text fontWeight="bold">
                   {activeItem.nameInput} {activeItem.lastNameInput}
                 </Text>
-              </div>
-              <div>
+              </GridItem>
+              <GridItem>
                 <HStack>
                   <Icon as={PhoneIcon} color="green" />
                   <Text color="gray.500">
                     {formatAusPhoneNumber(activeItem.phoneInput)}
                   </Text>
                 </HStack>
-              </div>
+              </GridItem>
             </Grid>
           </Box>
         )}

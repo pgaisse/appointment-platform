@@ -39,6 +39,7 @@ app.use('/api', SMS);
 app.use('/api', require('./routes/secure'));
 app.use('/api', require('./routes/auth0-sync'));
 app.use('/api', require('./routes/debug-auth'));
+app.use('/api', require('./routes/priority-list'));
 app.use('/api', Routes);
 app.use('/api', Topics);
 app.use('/api/socket.io', SocketRoutes);
