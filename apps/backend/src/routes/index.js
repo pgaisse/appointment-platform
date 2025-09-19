@@ -273,11 +273,22 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
   }
 });
 
+router.post('/appointments/exists', async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const valid = ids.filter((x) => mongoose.isValidObjectId(x));
+  if (!valid.length) return res.json({ exists: {} });
 
+  const rows = await Appointment.find({ _id: { $in: valid } })
+    .select('_id')
+    .lean();
+  const set = new Set(rows.map((r) => String(r._id)));
+  const map = Object.fromEntries(valid.map((id) => [id, set.has(id)]));
+  return res.json({ exists: map });
+});
 
 router.patch("/update-items", jwtCheck, async (req, res) => {
   const { org_id, sub } = await helpers.getTokenInfo(req.headers.authorization);
-
+ console.log("BodySE entró aupdate_______________________", req.body)
   const updates = Array.isArray(req.body) ? req.body : [req.body];
   const results = [];
 
@@ -325,7 +336,7 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
           ],
         }
         : { [id_field]: id_value };
-
+        console.log("----------------------------------------------->",filter, data)
       const updatedDoc = await Model.findOneAndUpdate(
         filter,
         { $set: data },

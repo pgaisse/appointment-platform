@@ -4,9 +4,24 @@ const { isValidObjectId } = mongoose;
 const Topic  = require('../models/Organizer/Topic');
 const Column = require('../models/Organizer/Column');
 const Card   = require('../models/Organizer/Card');
+const { emitInvalidate } = require('../socket/bus');
 
 const BASE_GAP = 1000;
 const CARD_GAP = 1000;
+
+
+exports.updateCard = async function updateCard(cardId, patch, orgId) {
+  // 1) persistir
+  const updated = await doUpdateCard(cardId, patch); // tu lógica actual
+
+  // 2) emitir señales mínimas necesarias
+  const topicId = String(updated.topicId);
+  emitInvalidate(orgId.toLowerCase(), ['topic-board', topicId], { exact: false });
+  emitInvalidate(orgId.toLowerCase(), ['card', String(updated.id)], { exact: true });
+
+  return updated;
+};
+
 
 // ------------------------ Helpers ------------------------
 function normalizePatch(patch, topic) {

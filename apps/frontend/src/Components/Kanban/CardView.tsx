@@ -43,14 +43,7 @@ const initialsFrom = (name?: string | null, email?: string | null, id?: string) 
   return (parts[0][0] + parts[1][0]).toUpperCase();
 };
 
-export default function CardView({
-  card,
-  onOpen,
-  onToggleComplete,
-}: {
-  card: Card;
-  onOpen?: (card: Card) => void;
-  onToggleComplete?: (cardId: string, next: boolean) => void;
+export default function CardView({card,onOpen,onToggleComplete,}: {card: Card;onOpen?: (card: Card) => void; onToggleComplete?: (cardId: string, next: boolean) => void;
 }) {
   const labels = card.labels ?? [];
   const memberIds = card.members ?? [];

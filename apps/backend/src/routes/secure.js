@@ -3,6 +3,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const NS = process.env.JWT_CLAIMS_NAMESPACE || 'https://letsmarter.com/';
+
 router.get('/me', requireAuth, (req, res) => {
   res.json({
     ok: true,

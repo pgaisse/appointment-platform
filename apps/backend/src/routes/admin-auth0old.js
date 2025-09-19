@@ -167,114 +167,46 @@ router.get('/roles/:roleId/permissions', guard, async (req, res) => {
 // ---------------------------------
 // USUARIOS (búsqueda/paginación)
 // ---------------------------------
-
-function isAdmin(req) {
-  const perms = Array.isArray(req.dbUser?.permissions) ? req.dbUser.permissions : (req.user?.permissions || []);
-  const roles = Array.isArray(req.dbUser?.roles) ? req.dbUser.roles : (req.user?.roles || []);
-  return perms.includes('dev-admin') || perms.includes('admin:*') || roles.includes('admin');
-}
-function callerOrgs(req) {
-  return Array.isArray(req.user?.orgs) ? req.user.orgs
-    : Array.isArray(req.dbUser?.orgs) ? req.dbUser.orgs
-      : [];
-}
-router.get('/users', requireAuth, async (req, res) => {
+router.get('/users', guard, async (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase();
   const page = Number(req.query.page || 0);
   const per_page = Math.min(Number(req.query.per_page || 20), 100);
 
-  const admin = isAdmin(req);
-
-  // org_id solicitada o, por defecto, la del caller si existe
+  // Si no te pasan org_id, usa la del caller (desde claims unificados en attachUserInfo)
   const callerOrg = req.user?.org_id || null;
-  const requestedOrg = String(req.query.org_id || '').trim();
-  const org_id = requestedOrg || (callerOrg || '');
+  const org_id = String(req.query.org_id || callerOrg || '').trim();
 
-  // --- NO ADMIN: forzar búsquedas restringidas a su organización ---
-  if (!admin) {
-    if (!org_id) {
-      return res.status(403).json({
-        error: 'forbidden',
-        message: 'Solo administradores pueden usar la búsqueda global. Provee org_id o pertenecer a una organización.',
-      });
-    }
-    // si pide una org distinta, validar pertenencia
-    const orgs = callerOrgs(req);
-    if (org_id !== callerOrg && !orgs.includes(org_id)) {
-      return res.status(403).json({
-        error: 'forbidden',
-        message: 'No puedes listar miembros de una organización a la que no perteneces.',
-      });
-    }
-  }
-
-  // --- BY ORG (miembros de organización) ---
+  // Si hay org_id => usa Organizations Members API
   if (org_id) {
     const base = `per_page=${per_page}&page=${page}&include_totals=true`;
     const out = await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members?${base}`);
 
+    // El shape típico viene como { members: [...], start, limit, total }
     const members = Array.isArray(out?.members) ? out.members : Array.isArray(out) ? out : [];
     const filtered = q
       ? members.filter(u => {
-        const email = (u.email || '').toLowerCase();
-        const name = (u.name || '').toLowerCase();
-        const id = (u.user_id || '').toLowerCase();
-        return email.includes(q) || name.includes(q) || id.includes(q);
-      })
+          const email = (u.email || '').toLowerCase();
+          const name  = (u.name || '').toLowerCase();
+          const id    = (u.user_id || '').toLowerCase();
+          return email.includes(q) || name.includes(q) || id.includes(q);
+        })
       : members;
 
-    // opcional: para no-admin podrías enviar sólo campos mínimos
-    // const sanitize = (u) => ({ user_id: u.user_id, email: u.email, name: u.name, picture: u.picture, status: u.blocked ? 'blocked' : 'active' });
-
     return res.json({
-      users: filtered, // .map(admin ? (u)=>u : sanitize)
+      users: filtered,
       total: out?.total ?? filtered.length,
       start: out?.start ?? page * per_page,
       limit: out?.limit ?? per_page,
       length: filtered.length,
       org_id,
-      scope: 'org',
     });
   }
 
-  // --- GLOBAL (sólo admin) ---
-  if (!admin) {
-    return res.status(403).json({
-      error: 'forbidden',
-      message: 'Búsqueda global solo para administradores.',
-    });
-  }
+  // Si NO hay org_id, se usa el buscador global (comportamiento anterior)
   const base = `per_page=${per_page}&page=${page}&include_totals=true`;
   const query = q ? `?q=${encodeURIComponent(q)}&search_engine=v3&${base}` : `?${base}`;
   const out = await callMgmt(`/users${query}`);
   return res.json(out);
-});
-
-
-// Asignar roles a un usuario (tenant-wide u Organization)
-router.post('/users/:userId/roles', guard, async (req, res) => {
-  const { userId } = req.params;
-  const { roleIds = [], org_id } = req.body || {};
-
-  if (!Array.isArray(roleIds) || roleIds.length === 0) {
-    return res.status(400).json({ error: 'roleIds[] requerido' });
-  }
-
-  if (org_id) {
-    // Asignar roles en una organización
-    await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members/${encodeURIComponent(userId)}/roles`, {
-      method: 'POST',
-      body: JSON.stringify({ roles: roleIds }),
-    });
-  } else {
-    // Asignar roles a nivel tenant
-    await callMgmt(`/users/${encodeURIComponent(userId)}/roles`, {
-      method: 'POST',
-      body: JSON.stringify({ roles: roleIds }),
-    });
-  }
-
-  res.json({ ok: true, assigned: roleIds, userId, org_id: org_id || null });
 });
 
 // Asignar roles a usuario (tenant-wide u Organization)
@@ -373,8 +305,6 @@ router.get(['/permissions', '/api-permissions', '/auth0/permissions'], guard, as
 // ---------------------------------
 // PERMISOS por usuario (directos)
 // ---------------------------------
-
-
 router.get('/users/:userId/permissions', guard, async (req, res) => {
   const { userId } = req.params;
   const per_page = Math.min(Number(req.query.per_page || 100), 100);

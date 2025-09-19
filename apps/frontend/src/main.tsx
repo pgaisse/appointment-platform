@@ -10,6 +10,7 @@ import theme from "./Components/Constants/Constants";
 import OrgGate from "./org/OrgGate";
 import AutoProvisionUser from "./Boot/AutoProvisionUser";
 import AuthAutoLogoutGuard from "./auth/AuthAutoLogoutGuard";
+import { useSocketInvalidate } from "./lib/useSocketInvalidate";
 
 const queryClient = new QueryClient();
 
@@ -21,6 +22,11 @@ const cfg = {
   audience: WENV.AUTH0_AUDIENCE ?? import.meta.env.VITE_AUTH0_AUDIENCE,
   orgId: WENV.AUTH0_ORG_ID ?? import.meta.env.VITE_AUTH0_ORG_ID, // opcional
 };
+function SocketLayer() {
+  // 👇 solo usarlo una vez en el árbol
+  useSocketInvalidate();
+  return null; // no renderiza nada
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -47,6 +53,7 @@ createRoot(document.getElementById("root")!).render(
           <AutoProvisionUser />
            <AuthAutoLogoutGuard />
           <OrgGate>
+            <SocketLayer />
             <RouterProvider router={router} />
           </OrgGate>
         </Auth0Provider>

@@ -204,6 +204,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
       setLocal(card ? JSON.parse(JSON.stringify(card)) : null);
     }
   }, [card, isOpen]);
+  console.log("card",card)
 
   // ---- Cola de guardado (debounced + coalesced) ----
   const saveQueueRef = useRef<Partial<Card>>({});
@@ -347,6 +348,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
                   {/* Avatares actuales */}
                   <HStack spacing={3}>
                     {selectedUsers.map((u) => {
+                      console.log("u",u)
                       const nm = u.name || u.email || 'User';
                       return (
                         <Tooltip key={u.id} label={nm}>

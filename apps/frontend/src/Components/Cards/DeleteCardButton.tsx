@@ -3,6 +3,7 @@ import { IconButton, Tooltip, useDisclosure, useToast } from '@chakra-ui/react';
 import { DeleteIcon } from '@chakra-ui/icons';
 import ConfirmDeleteDialog from '@/Components/Common/ConfirmDeleteDialog';
 import { useDeletion } from '@/Hooks/useDeletion.ts';
+import { IoCloseSharp } from 'react-icons/io5';
 
 type Props = {
   topicId?: string;         // 👈 pásalo para invalidar el tablero correcto
@@ -59,10 +60,10 @@ const DeleteCardButton: React.FC<Props> = ({
       <Tooltip label="Delete card" hasArrow>
         <IconButton
           aria-label="Delete card"
-          icon={<DeleteIcon />}
+          icon={<IoCloseSharp />}
           size={size}
           variant={variant}
-          colorScheme="red"
+          colorScheme="gray.500"
           isDisabled={deleteCard.isPending}
           data-card-action="delete"
           onMouseDown={stop}

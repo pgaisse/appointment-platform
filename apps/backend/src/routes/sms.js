@@ -315,8 +315,12 @@ router.post('/sendMessageAsk', async (req, res) => {
       type: MsgType.Confirmation,
       index: msg.index,          // 👈 clave para orden estable
     };
+      try{
+    await Message.insertOne(docs);
+    }catch(err){
 
-    await Message.insertMany(docs);
+      console.error("Error saving message to DB:", err);
+    }
     // #endregion Registro en DB
 
     // #region  Enviar a Twilio

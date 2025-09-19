@@ -4,7 +4,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const { attachUserInfo, jwtCheck, checkJwt, decodeToken, ensureUser } = require('../middleware/auth');
 
-router.use(jwtCheck,jwtCheck,attachUserInfo,ensureUser);
+router.use(jwtCheck, jwtCheck, attachUserInfo, ensureUser);
 
 const svc = require('../helpers/topics.service');              // (topics/board/cards/labels)
 const appearanceSvc = require('../helpers/appearance.service');// apariencia
@@ -22,9 +22,20 @@ const {
   requireAllPermissions,
 } = require('../middleware/rbac');
 
+// 🆕 Cola de invalidaciones vía socket (solo señales)
+const { queueInvalidate, flushInvalidate } = require('../socket/invalidate-queue');
+
 // ✅ Aplica JWT check + attachUserInfo + ensureUser para todo este router
 router.use(requireAuth);
 router.use(jwtCheck, attachUserInfo, ensureUser);
+
+// 🆕 Auto-flush al finalizar la respuesta con 2xx
+router.use((req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode < 400) flushInvalidate(res);
+  });
+  next();
+});
 
 // #region Appearances
 // GET/PUT user preferences (per user) → basta estar autenticado
@@ -43,6 +54,8 @@ router.put(
     try {
       const userId = req.user?.id || req.user?.sub || req.auth?.sub;
       const out = await appearanceSvc.updateUserPreferences(userId, req.body);
+      // Opcional: si tienes una queryKey para prefs
+      // queueInvalidate(res, req.dbUser?.org_id, ['user-preferences', userId]);
       res.json(out);
     } catch (e) { res.status(e?.status || 500).json({ error: e.message }); }
   }
@@ -51,7 +64,7 @@ router.put(
 // GET/PATCH topic appearance
 router.get(
   '/topics/:topicId/appearance',
-  requireAnyPermission('board:read', 'dev-admin'), // RBAC: leer apariencia = permiso de lectura del board
+  requireAnyPermission('board:read', 'dev-admin'),
   async (req, res) => {
     try {
       const out = await appearanceSvc.getTopicAppearance(req.params.topicId);
@@ -62,11 +75,15 @@ router.get(
 
 router.patch(
   '/topics/:topicId/appearance',
-  requireAnyPermission('card:edit', 'dev-admin'), // RBAC: editar apariencia
+  requireAnyPermission('card:edit', 'dev-admin'),
   validate(appearanceSchemas.updateTopicAppearance),
   async (req, res) => {
     try {
       const out = await appearanceSvc.updateTopicAppearance(req.params.topicId, req.body);
+      // 🔔 Invalida apariencia del tópico (y opcionalmente board por cambios visuales)
+      const orgId = req.dbUser?.org_id;
+      queueInvalidate(res, orgId, ['topic-appearance', req.params.topicId]);
+      queueInvalidate(res, orgId, ['topic-board', req.params.topicId]);
       res.json(out);
     } catch (e) {
       const status = e?.status || 500;
@@ -79,11 +96,14 @@ router.patch(
 // PATCH card cover
 router.patch(
   '/cards/:cardId/cover',
-  requireAnyPermission('card:edit', 'dev-admin'),  // RBAC: editar cover
+  requireAnyPermission('card:edit', 'dev-admin'),
   validate(appearanceSchemas.updateCardCover),
   async (req, res) => {
     try {
       const out = await appearanceSvc.updateCardCover(req.params.cardId, req.body);
+      // 🔔 La portada afecta el board
+      const orgId = req.dbUser?.org_id;
+      queueInvalidate(res, orgId, ['topic-board']); // sin topicId: invalida todos los boards en cache
       res.json({ card: out });
     } catch (e) { res.status(e?.status || 500).json({ error: e.message }); }
   }
@@ -93,7 +113,7 @@ router.patch(
 // #region Topics
 router.get(
   '/topics',
-  requireAnyPermission('board:read', 'dev-admin'), // RBAC: listar topics
+  requireAnyPermission('board:read', 'dev-admin'),
   async (req, res) => {
     try {
       const data = await svc.listTopics();
@@ -107,11 +127,13 @@ router.get(
 
 router.post(
   '/topics',
-  // validate(schemas.createTopic), // activa cuando tengas el schema listo
-  requireRole('admin'), // RBAC: crear topic solo admin (puedes cambiar a un permiso si lo defines)
+  // validate(schemas.createTopic),
+  requireRole('admin'),
   async (req, res) => {
     try {
       const created = await svc.createTopic(req.body || {});
+      // 🔔 Lista de topics
+      queueInvalidate(res, req.dbUser?.org_id, ['topics']);
       return res.json({ topic: created });
     } catch (e) {
       const status = e?.status || (e?.code === 11000 ? 409 : 500);
@@ -123,7 +145,7 @@ router.post(
 
 router.get(
   '/topics/:topicId/board',
-  requireAnyPermission('board:read', 'dev-admin'), // RBAC
+  requireAnyPermission('board:read', 'dev-admin'),
   async (req, res, next) => {
     try { res.json(await svc.getTopicBoard(req.params.topicId)); } catch (e) { next(e); }
   }
@@ -132,7 +154,7 @@ router.get(
 router.post(
   '/topics/:topicId/columns',
   // validate(schemas.createColumn),
-  requireRole('admin'), // RBAC: crear columnas → admin (ajusta si defines un permiso específico)
+  requireRole('admin'),
   async (req, res) => {
     try {
       const { topicId } = req.params;
@@ -140,6 +162,8 @@ router.post(
         return res.status(400).json({ error: 'Invalid topicId' });
       }
       const out = await svc.createColumn(topicId, req.body || {});
+      // 🔔 Board del tópico
+      queueInvalidate(res, req.dbUser?.org_id, ['topic-board', topicId]);
       return res.json({ column: out });
     } catch (e) {
       const status = e?.status || 500;
@@ -151,9 +175,14 @@ router.post(
 
 router.patch(
   '/topics/:topicId/columns/reorder',
-  requireAnyPermission('card:edit', 'dev-admin'), // RBAC: reordenar columnas ~ edición
+  requireAnyPermission('card:edit', 'dev-admin'),
   async (req, res, next) => {
-    try { await svc.reorderColumns(req.params.topicId, req.body.orderedColumnIds); res.json({ ok: true }); } catch (e) { next(e); }
+    try {
+      await svc.reorderColumns(req.params.topicId, req.body.orderedColumnIds);
+      // 🔔 Board del tópico
+      queueInvalidate(res, req.dbUser?.org_id, ['topic-board', req.params.topicId]);
+      res.json({ ok: true });
+    } catch (e) { next(e); }
   }
 );
 // #endregion
@@ -162,7 +191,7 @@ router.patch(
 router.post(
   '/topics/:topicId/cards',
   validate(schemas?.createCard),
-  requireAnyPermission('list:create_card', 'card:edit', 'dev-admin'), // RBAC: crear card
+  requireAnyPermission('list:create_card', 'card:edit', 'dev-admin'),
   async (req, res) => {
     try {
       const { topicId } = req.params;
@@ -170,6 +199,8 @@ router.post(
         return res.status(400).json({ error: 'Invalid topicId' });
       }
       const card = await svc.createCard(topicId, req.body || {});
+      // 🔔 Board del tópico
+      queueInvalidate(res, req.dbUser?.org_id, ['topic-board', topicId]);
       return res.json({ card });
     } catch (e) {
       const status = e?.status || 500;
@@ -181,7 +212,7 @@ router.post(
 
 router.patch(
   '/cards/:cardId',
-  requireAllPermissions('card:edit'), // RBAC: requiere TODOS (aquí sólo uno)
+  requireAllPermissions('card:edit'),
   async (req, res) => {
     try {
       const { cardId } = req.params;
@@ -189,6 +220,10 @@ router.patch(
         return res.status(400).json({ error: 'Invalid cardId' });
       }
       const card = await svc.updateCard(cardId, req.body ?? {});
+      // 🔔 Card puntual + board (prefijo sin topicId)
+      const orgId = req.dbUser?.org_id;
+      queueInvalidate(res, orgId, ['card', card.id]);
+      queueInvalidate(res, orgId, ['topic-board']); // sin topicId para cubrir cualquier tablero que lo muestre
       return res.json({ card });
     } catch (e) {
       const msg = e?.message || 'Internal Server Error';
@@ -202,9 +237,9 @@ router.patch(
 
 router.patch(
   '/cards/:cardId/move',
-  requireAnyPermission('card:edit', 'dev-admin'), // RBAC
+  requireAnyPermission('card:edit', 'dev-admin'),
   async (req, res) => {
-    console.log("mover tarjeta",req.dbUser)
+    console.log("mover tarjeta", req.dbUser);
     try {
       const { cardId } = req.params;
       let { toColumnId, before, after } = req.body || {};
@@ -217,6 +252,8 @@ router.patch(
       after = okId(after) && after !== cardId ? after : undefined;
 
       const result = await svc.moveCard({ cardId, toColumnId, before, after });
+      // 🔔 Board (posición cambió)
+      queueInvalidate(res, req.dbUser?.org_id, ['topic-board']);
       return res.json(result);
     } catch (e) {
       console.error('[PATCH /cards/:cardId/move] ERROR:', e?.message, e?.stack || '');
@@ -229,7 +266,7 @@ router.patch(
 // #region Labels
 router.get(
   '/topics/:topicId/labels',
-  requireAnyPermission('board:read', 'dev-admin'), // RBAC
+  requireAnyPermission('board:read', 'dev-admin'),
   async (req, res) => {
     try {
       const out = await svc.listTopicLabels(req.params.topicId);
@@ -245,10 +282,16 @@ router.get(
 router.post(
   '/topics/:topicId/labels',
   validate(schemas?.createLabel),
-  requireAnyPermission('card:edit', 'dev-admin'), // RBAC: crear label
+  requireAnyPermission('card:edit', 'dev-admin'),
   async (req, res) => {
     try {
       const lbl = await svc.createTopicLabel(req.params.topicId, req.body);
+      const orgId = req.dbUser?.org_id;
+      // 🔔 Catálogo de labels del tópico + board (badges cambian)
+      queueInvalidate(res, orgId, [
+        ['topic-labels', req.params.topicId],
+        ['topic-board',  req.params.topicId],
+      ]);
       return res.json({ label: lbl });
     } catch (e) {
       const status = e?.status || 500;
@@ -261,10 +304,15 @@ router.post(
 router.patch(
   '/topics/:topicId/labels/:labelId',
   validate(schemas?.updateLabel),
-  requireAnyPermission('card:edit', 'dev-admin'), // RBAC: editar label
+  requireAnyPermission('card:edit', 'dev-admin'),
   async (req, res) => {
     try {
       const lbl = await svc.updateTopicLabel(req.params.topicId, req.params.labelId, req.body);
+      const orgId = req.dbUser?.org_id;
+      queueInvalidate(res, orgId, [
+        ['topic-labels', req.params.topicId],
+        ['topic-board',  req.params.topicId],
+      ]);
       return res.json({ label: lbl });
     } catch (e) {
       const status = e?.status || 500;
@@ -276,10 +324,15 @@ router.patch(
 
 router.delete(
   '/topics/:topicId/labels/:labelId',
-  requireAnyPermission('card:edit', 'dev-admin'), // RBAC: borrar label
+  requireAnyPermission('card:edit', 'dev-admin'),
   async (req, res) => {
     try {
       await svc.deleteTopicLabel(req.params.topicId, req.params.labelId);
+      const orgId = req.dbUser?.org_id;
+      queueInvalidate(res, orgId, [
+        ['topic-labels', req.params.topicId],
+        ['topic-board',  req.params.topicId],
+      ]);
       return res.json({ ok: true });
     } catch (e) {
       const status = e?.status || 500;
@@ -295,12 +348,14 @@ const isId = (v) => typeof v === 'string' && /^[0-9a-fA-F]{24}$/.test(v);
 
 router.delete(
   '/cards/:cardId',
-  requireAnyPermission('card:delete', 'dev-admin'), // RBAC
+  requireAnyPermission('card:delete', 'dev-admin'),
   async (req, res) => {
     try {
       const { cardId } = req.params;
       if (!isId(cardId)) return res.status(400).json({ error: 'Invalid cardId' });
       await svc.deleteCard(cardId);
+      // 🔔 Board
+      queueInvalidate(res, req.dbUser?.org_id, ['topic-board']);
       return res.json({ ok: true, deletedId: cardId });
     } catch (e) {
       const msg = e?.message || 'Internal Server Error';
@@ -313,12 +368,14 @@ router.delete(
 
 router.delete(
   '/columns/:columnId',
-  requireRole('admin'), // RBAC
+  requireRole('admin'),
   async (req, res) => {
     try {
       const { columnId } = req.params;
       if (!isId(columnId)) return res.status(400).json({ error: 'Invalid columnId' });
       const out = await svc.deleteColumn(columnId);
+      // 🔔 Board
+      queueInvalidate(res, req.dbUser?.org_id, ['topic-board']);
       return res.json({ ok: true, deletedId: columnId, deletedCards: out.deletedCards });
     } catch (e) {
       const msg = e?.message || 'Internal Server Error';
@@ -331,12 +388,18 @@ router.delete(
 
 router.delete(
   '/topics/:topicId',
-  requireRole('admin'), // RBAC
+  requireRole('admin'),
   async (req, res) => {
     try {
       const { topicId } = req.params;
       if (!isId(topicId)) return res.status(400).json({ error: 'Invalid topicId' });
       const out = await svc.deleteTopic(topicId);
+      // 🔔 Lista de topics + board del topic eliminado
+      const orgId = req.dbUser?.org_id;
+      queueInvalidate(res, orgId, [
+        ['topics'],
+        ['topic-board', topicId],
+      ]);
       return res.json({
         ok: true,
         deletedId: topicId,
@@ -353,9 +416,7 @@ router.delete(
 );
 // #endregion
 
-
 // #region Coments
-
 router.get('/cards/:cardId/comments', async (req, res) => {
   try {
     const { cardId } = req.params;
@@ -377,11 +438,10 @@ router.post('/cards/:cardId/comments', validate(schemas.createComment), async (r
     if (!mongoose.isValidObjectId(cardId)) {
       return res.status(400).json({ error: 'Invalid cardId' });
     }
-
-    // upsert de usuario desde el token (Auth0)
-    const dbUser = req.dbUser
+    const dbUser = req.dbUser;
     const out = await svc.addCardComment(cardId, dbUser._id, req.body.text);
-
+    // 🔔 Solo comments de la card
+    queueInvalidate(res, req.dbUser?.org_id, ['card-comments', cardId]);
     return res.json({ comment: out });
   } catch (e) {
     const status = e?.status || 500;
@@ -396,13 +456,13 @@ router.delete('/cards/:cardId/comments/:commentId', async (req, res) => {
     if (!mongoose.isValidObjectId(cardId)) {
       return res.status(400).json({ error: 'Invalid cardId' });
     }
-    // commentId es subdoc _id; no necesita ser ObjectId “global” pero usualmente lo es
-   
     const dbUser = req.dbUser;
     const roles = Array.isArray(dbUser.roles) ? dbUser.roles : [];
     const isAdmin = roles.includes('admin');
 
     const out = await svc.deleteCardComment(cardId, commentId, dbUser._id, isAdmin);
+    // 🔔 Solo comments de la card
+    queueInvalidate(res, req.dbUser?.org_id, ['card-comments', cardId]);
     return res.json(out);
   } catch (e) {
     const status = e?.status || 500;
@@ -410,5 +470,6 @@ router.delete('/cards/:cardId/comments/:commentId', async (req, res) => {
     return res.status(status).json({ error: e?.message || 'Internal Server Error' });
   }
 });
+// #endregion
 
 module.exports = router;
