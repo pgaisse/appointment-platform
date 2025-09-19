@@ -250,6 +250,33 @@ router.get('/users', requireAuth, async (req, res) => {
   return res.json(out);
 });
 
+
+// Asignar roles a un usuario (tenant-wide u Organization)
+router.post('/users/:userId/roles', guard, async (req, res) => {
+  const { userId } = req.params;
+  const { roleIds = [], org_id } = req.body || {};
+
+  if (!Array.isArray(roleIds) || roleIds.length === 0) {
+    return res.status(400).json({ error: 'roleIds[] requerido' });
+  }
+
+  if (org_id) {
+    // Asignar roles en una organización
+    await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members/${encodeURIComponent(userId)}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ roles: roleIds }),
+    });
+  } else {
+    // Asignar roles a nivel tenant
+    await callMgmt(`/users/${encodeURIComponent(userId)}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ roles: roleIds }),
+    });
+  }
+
+  res.json({ ok: true, assigned: roleIds, userId, org_id: org_id || null });
+});
+
 // Asignar roles a usuario (tenant-wide u Organization)
 router.get('/roles', guard, async (req, res) => {
   const per_page = Math.min(Number(req.query.per_page || 100), 100);
@@ -346,6 +373,8 @@ router.get(['/permissions', '/api-permissions', '/auth0/permissions'], guard, as
 // ---------------------------------
 // PERMISOS por usuario (directos)
 // ---------------------------------
+
+
 router.get('/users/:userId/permissions', guard, async (req, res) => {
   const { userId } = req.params;
   const per_page = Math.min(Number(req.query.per_page || 100), 100);
