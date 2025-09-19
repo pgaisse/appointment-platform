@@ -170,6 +170,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
   const [attachUrl, setAttachUrl] = useState('');
   const [attachName, setAttachName] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
+  const [checkDraft, setCheckDraft] = useState(''); // ✅ NUEVO: texto del input para checklist
   const [isPickerOpen, setPickerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -295,6 +296,16 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
     queueChanged({ members: next }, 'Members updated');
   };
 
+  // helper para añadir item checklist desde el input/botón
+  const addChecklistFromDraft = () => {
+    const t = checkDraft.trim();
+    if (!t) return;
+    const checklist = [...(local.checklist || []), { id: uid(), text: t, done: false }];
+    setLocal({ ...local, checklist });
+    setCheckDraft('');
+    queueChanged({ checklist }, 'Checklist saved');
+  };
+
   // ---------- render ----------
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl">
@@ -348,7 +359,6 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
                   {/* Avatares actuales */}
                   <HStack spacing={3}>
                     {selectedUsers.map((u) => {
-                      console.log("u",u)
                       const nm = u.name || u.email || 'User';
                       return (
                         <Tooltip key={u.id} label={nm}>
@@ -381,7 +391,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
                     })}
                   </HStack>
 
-                  {/* Popover controlado (click fuera cierra via useOutsideClick en el content) */}
+                  {/* Popover controlado */}
                   <Popover
                     isOpen={isPickerOpen}
                     onClose={() => setPickerOpen(false)}
@@ -431,24 +441,19 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
                 <HStack mb={2}>
                   <Input
                     placeholder="Add checklist item"
+                    value={checkDraft}
+                    onChange={(e) => setCheckDraft(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
-                        const t = (e.currentTarget.value || '').trim();
-                        if (!t) return;
-                        const checklist = [...(local.checklist || []), { id: uid(), text: t, done: false }];
-                        setLocal({ ...local, checklist });
-                        queueChanged({ checklist }, 'Checklist saved');
-                        e.currentTarget.value = '';
+                        e.preventDefault();
+                        addChecklistFromDraft();
                       }
                     }}
                   />
-                  <Button onClick={() => {
-                    const t = prompt('Checklist item')?.trim();
-                    if (!t) return;
-                    const checklist = [...(local.checklist || []), { id: uid(), text: t, done: false }];
-                    setLocal({ ...local, checklist });
-                    queueChanged({ checklist }, 'Checklist saved');
-                  }}>
+                  <Button
+                    onClick={addChecklistFromDraft}
+                    isDisabled={!checkDraft.trim()}
+                  >
                     + Add
                   </Button>
                 </HStack>

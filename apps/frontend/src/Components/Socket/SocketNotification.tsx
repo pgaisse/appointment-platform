@@ -22,6 +22,7 @@ type MSG = {
 };
 
 export const SocketNotification = () => {
+    
     const { socket, connected } = useSocket();
     const [, setMessages] = useState<MSG[]>([]);
     const toast = useToast();
@@ -32,7 +33,7 @@ export const SocketNotification = () => {
 
         const handleSMS = (data: MSG) => {
             if (!data.notification) return;
-
+console.log('SocketNotification - decision:', data.decision);
             setMessages((prev) => [...prev, data]);
 
             const baseProps = {
@@ -90,6 +91,7 @@ export const SocketNotification = () => {
                 });
 
             // Render según decisión enviada por backend
+            
             if (data.decision === 'confirmed') {
                 renderToast(
                     'success',

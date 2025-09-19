@@ -19,7 +19,7 @@ const client = require('twilio')(accountSid, authToken);
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { findConversationByPhoneTwilioOnly } = require("../helpers/findConversationByPhoneSafely");
-
+const PhoneConversationLink = require('../models/PhoneConversationLink');
 const DOMPurify = require('isomorphic-dompurify');
 const { exist } = require('joi');
 
@@ -554,90 +554,84 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
 router.post('/add', jwtCheck, async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ error: 'No authorization header provided' });
-    }
+    if (!authHeader) return res.status(401).json({ error: 'No authorization header provided' });
 
-    // 🔐 Extraer org_id (y opcionalmente user_id) del token
     const { org_id, sub, org_name } = await helpers.getTokenInfo(authHeader);
-    const orgName = helpers.cleanOrgName(org_name)
-    if (!org_id) {
-      return res.status(400).json({ error: 'org_id not found in token' });
-    }
-    
+    const orgName = helpers.cleanOrgName(org_name);
+    if (!org_id) return res.status(400).json({ error: 'org_id not found in token' });
+
     const { modelName, data } = req.body;
-
-    // ✅ Validaciones básicas
-    if (!modelName || typeof modelName !== 'string') {
+    if (!modelName || typeof modelName !== 'string')
       return res.status(400).json({ error: 'modelName is required and must be a string' });
-    }
-
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    if (!data || typeof data !== 'object' || Array.isArray(data))
       return res.status(400).json({ error: 'data must be a valid object' });
-    }
-
-    if (!req.dbUser || !req.dbUser._id) {
+    if (!req.dbUser?._id)
       return res.status(401).json({ error: 'User not resolved (ensureUser did not attach req.dbUser)' });
-    }
 
+    const proxyAddress = process.env.TWILIO_FROM_MAIN;
     let sid;
-    const proxyAddress = process.env.TWILIO_FROM_MAIN
-    //asociar conversación con nuevo contacto creado
-    if (modelName == models.Appointment.modelName) {
-      const formattedPhone = helpers.localToE164AU(data.phoneInput);
-      //Buscar si es que el numero del nuevo contacto ya tiene una conversación asignada
-      console.log("formattedPhone", formattedPhone)
-      //const existingSid = await findConversationByPhoneSafely(formattedPhone)
-      const existingSid = await findConversationByPhoneTwilioOnly(formattedPhone);
-      console.log("existingSid", existingSid)
-      //no->crear una nueva conversacion con atributos personalizados
+
+    if (modelName === models.Appointment.modelName) {
+      const phoneE164 = helpers.localToE164AU(data.phoneInput);
+
+      // 1) Busca/crea conv. singleton en Twilio (idempotente)
       const meta = {
         phone: data.phoneInput,
-        name: data.nameInput,
-        patientId: data.nameInput._id,
-        org_id: org_id,
+        nameInput: data.nameInput,
+        patientId: data?.nameInput?._id,
+        org_id,
       };
-      sid = !existingSid
-        ? await sms.createConversationAndAddParticipant(formattedPhone, proxyAddress, meta, req.dbUser._id)
-        //si->unirlo
-        : existingSid
-      // await sms.addSmsParticipantToConversation(existingSid,formattedPhone, "+61482088223")
 
+      sid = await sms.getOrCreatePhoneConversation({
+        client, org_id, phoneE164, proxyAddress, meta, createdByUserId: req.dbUser._id,
+      });
+
+      // 2) Upsert en enlace DB con índice único
+      await PhoneConversationLink.findOneAndUpdate(
+        { org_id, phoneE164 },
+        { conversationSid: sid, proxyAddress },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      // 3) (Opcional) sincroniza en Appointment
+      await models.Appointment.updateMany(
+        { org_id, phoneInput: phoneE164 },
+        { $set: { conversationSid: sid, proxyAddress, user: req.dbUser._id } }
+      );
     }
 
-
-
-
-    // 🔐 Asociar org_id (y opcional user_id si lo deseas)
-    console.log("User______________________________________________________-------------------<", req.dbUser)
+    // Data enriquecida para el doc a crear
     const enrichedData = {
       ...data,
       org_id,
-      ...(sid && { sid }), // ← esto agrega `sid` solo si existe
-      ...(proxyAddress && { proxyAddress }), // agrega `proxyAddress` solo si existe
+      ...(sid && { sid }),
+      ...(proxyAddress && { proxyAddress }),
       lastMessage: new Date(),
-      unknown: false, // forzamos unknown=false
+      unknown: false,
       org_name: orgName,
       createdBy: sub,
       createdAt: new Date(),
-      user: req.dbUser._id
+      user: req.dbUser._id,
     };
 
-
-    // 📦 Obtener o definir el modelo dinámico (usando esquema flexible)
     const Model = models[modelName] || mongoose.model(
       modelName,
       new mongoose.Schema({}, { strict: false, collection: modelName })
     );
 
-    // 💾 Guardar documento
-    const newDoc = new Model(enrichedData);
-    console.log("enrichedData",enrichedData)
-    const savedDoc = await newDoc.save();
-
+    const savedDoc = await new Model(enrichedData).save();
     return res.status(201).json({ message: 'Document created successfully', document: savedDoc });
 
   } catch (error) {
+    // Si el error es por índice único (conflicto DB), vuelve a leer el SID y reintenta
+    if (error?.code === 11000) {
+      const { org_id } = await helpers.getTokenInfo(req.headers.authorization);
+      const phoneE164 = helpers.localToE164AU(req.body?.data?.phoneInput);
+      const link = await PhoneConversationLink.findOne({ org_id, phoneE164 });
+      return res.status(200).json({
+        message: 'Document created with existing conversation (deduped)',
+        conversationSid: link?.conversationSid || null,
+      });
+    }
     console.error('[POST /add] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -922,11 +916,7 @@ router.get('/appointments/:id', async (req, res) => {
         model: 'TimeBlock',
         select: '_id org_id blockNumber label short from to',
       })
-      .populate({
-        path: 'selectedAppDates.contactedId',
-        model: 'ContactAppointment',
-        select: 'status startDate endDate context cSid pSid createdAt updatedAt',
-      })
+  
       .lean({ virtuals: true });
 
     if (!doc) return res.status(404).json({ error: 'Appointment not found' });

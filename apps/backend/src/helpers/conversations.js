@@ -677,6 +677,136 @@ if (require.main === module) {
     main(appointmentId);
 }
 
+// sms.js
+const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
+if (!serviceSid) throw new Error('Falta TWILIO_CONVERSATIONS_SERVICE_SID');
+
+const isE164AU = v => /^\+61\d{9}$/.test(v);
+const genUniqueName = (orgId, phone) => `sms:${orgId || 'global'}:${phone}`;
+
+/**
+ * Busca conversación por participante (address) y proxy.
+ * Si la encuentras, retorna CH..., si no, null.
+ */
+async function findConversationByPhoneTwilioOnly(client, phone, proxyAddress) {
+    const list = await client.conversations.v1
+        .services(serviceSid)
+        .participantConversations
+        .list({ address: phone, proxyAddress, limit: 1 });
+    return list[0]?.conversationSid || null;
+}
+
+/**
+ * Garantiza 1:1 (org_id, phone) -> Conversation:
+ * - Primero intenta hallar por participante (address/proxy)
+ * - Luego intenta fetch por uniqueName
+ * - Si no existe, la crea con uniqueName (idempotente, maneja 409)
+ * - Asegura que SOLO ese phone externo esté en la conversación
+ * - Añade participante SMS de forma idempotente
+ */
+async function getOrCreatePhoneConversation({
+    client,
+    org_id,
+    phoneE164,
+    proxyAddress,
+    meta = {},
+    createdByUserId,
+}) {
+    if (!isE164AU(phoneE164)) throw new Error('El número debe estar en E.164 +61XXXXXXXXX');
+
+    const uniqueName = genUniqueName(org_id, phoneE164);
+
+    // 1) ¿Ya existe por address/proxy?
+    const byParticipantSid = await findConversationByPhoneTwilioOnly(client, phoneE164, proxyAddress);
+    if (byParticipantSid) {
+        // Opcional: intenta etiquetar con uniqueName si la conv. aún no lo tiene
+        try {
+            const conv = await client.conversations.v1.conversations(byParticipantSid).fetch();
+            if (!conv.uniqueName) {
+                await client.conversations.v1.conversations(byParticipantSid).update({ uniqueName });
+            }
+        } catch (_) { /* no esencial */ }
+        return byParticipantSid;
+    }
+
+    // 2) ¿Existe ya por uniqueName?
+    let convo = null;
+    try {
+        // Nota: Twilio permite accesso por unique_name como "id" lógico en /conversations(uniqueName)
+        convo = await client.conversations.v1
+            .services(serviceSid)
+            .conversations(uniqueName)
+            .fetch();
+    } catch (err) {
+        if (err?.status !== 404) throw err;
+    }
+
+    // 3) Si no existe, crear con uniqueName (manejo de carrera con 409)
+    if (!convo) {
+        try {
+            convo = await client.conversations.v1
+                .services(serviceSid)
+                .conversations
+                .create({
+                    uniqueName,
+                    friendlyName: `Chat ${meta.nameInput || 'Paciente'}`,
+                    attributes: JSON.stringify({
+                        phone: phoneE164,
+                        org_id: org_id || '',
+                        patientId: meta.patientId || null,
+                        name: meta.nameInput || '',
+                        createdBy: createdByUserId || null,
+                    }),
+                });
+        } catch (err) {
+            const conflict = err?.status === 409 || /unique/i.test(err?.message || '');
+            if (conflict) {
+                // Alguien la creó en paralelo → fetch y seguimos
+                convo = await client.conversations.v1
+                    .services(serviceSid)
+                    .conversations(uniqueName)
+                    .fetch();
+            } else {
+                throw err;
+            }
+        }
+    }
+
+    // 4) Asegurar que la conv. NO tenga otro teléfono externo
+    // (Listamos participantes que tengan messagingBinding.address)
+    const participants = await client.conversations.v1
+        .conversations(convo.sid)
+        .participants
+        .list({ limit: 50 });
+
+    const externalPhones = participants
+        .map(p => (p.messagingBinding && p.messagingBinding.address) ? String(p.messagingBinding.address) : null)
+        .filter(Boolean);
+
+    const distinctPhones = [...new Set(externalPhones)];
+    if (distinctPhones.length > 0 && (distinctPhones.length > 1 || distinctPhones[0] !== phoneE164)) {
+        // Esta conversación ya está asociada a otro número → NO reutilizar
+        // (Cierra esta y crea otra con uniqueName alternativo, o lanza error)
+        throw new Error(`La conversación ${convo.sid} ya está unida a otro número (${distinctPhones.join(', ')}).`);
+    }
+
+    // 5) Añadir el participante SMS (idempotente)
+    try {
+        await client.conversations.v1
+            .conversations(convo.sid)
+            .participants
+            .create({
+                "messagingBinding.address": phoneE164,
+                "messagingBinding.proxyAddress": proxyAddress,
+            });
+    } catch (err) {
+        const dup = /already exists/i.test(err?.message || '') || String(err?.code) === '50433' || String(err?.code) === '50437';
+        if (!dup) throw err; // si es duplicado, seguimos
+    }
+
+    return convo.sid;
+}
+
 
 
 async function createConversationAndAddParticipant(phoneNumber, proxyNumber, meta = {}, userId) {
@@ -711,7 +841,7 @@ async function createConversationAndAddParticipant(phoneNumber, proxyNumber, met
     // 3. Guardar conversationSid en MongoDB
     const update = await Appointment.findOneAndUpdate(
         { phoneInput: phoneNumber },
-        { conversationSid: conversation.sid,  user: userId },
+        { conversationSid: conversation.sid, user: userId },
         { new: true }
     );
 
@@ -965,5 +1095,7 @@ module.exports = {
     createConversationAndAddParticipant,
     main,
     convertToLocalMobile,
-    findConversationByPhoneSafely
+    findConversationByPhoneSafely,
+    findConversationByPhoneTwilioOnly,
+    getOrCreatePhoneConversation,
 };

@@ -1,3 +1,5 @@
+// apps/frontend/src/Components/DraggableCards/DraggableColumns.tsx
+
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
 import { PhoneIcon, TimeIcon } from '@chakra-ui/icons';
@@ -40,8 +42,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Appointment, GroupedAppointment } from '@/types';
-import { UpdatePayload, useUpdateItems } from '@/Hooks/Query/useUpdateItems';
+import type { Appointment, GroupedAppointment } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { iconMap } from '../CustomIcons';
 import Pagination from '../Pagination';
@@ -52,12 +53,15 @@ import ArchiveItemButton from './ArchiveItemButton';
 import DeleteContactButton from './DeleteContactButton';
 import { LiaSmsSolid } from 'react-icons/lia';
 
+// ✅ Hook dedicado para Priority List
+import { useMovePriorityItems, type PriorityMove } from '@/Hooks/Query/useMovePriorityItems';
+
 type Props = {
   onCardClick?: (item: Appointment) => void;
   dataAP2: GroupedAppointment[] | undefined;
   dataContacts: Appointment[];
   isPlaceholderData: boolean;
-  dataPending: Appointment[]
+  dataPending: Appointment[];
 };
 
 // ---- Helper: ejecutar callback después del paint (no altera lógica) ----
@@ -207,7 +211,7 @@ function SortableItem({
   );
 }
 
-// ---------- Util: mover items (sin cambios de lógica) ----------
+// ---------- Util: mover items (con ajuste de índice intra-columna) ----------
 function moveItem(
   data: GroupedAppointment[],
   itemId: string,
@@ -235,8 +239,12 @@ function moveItem(
       console.warn('⚠️ moveItem: item no encontrado en lista de pacientes de la columna');
       return data;
     }
+    // 👇 ajuste cuando arrastras hacia abajo: después de remover, el índice objetivo baja 1
+    const insertIndex =
+      currentIndex < toIndex ? Math.max(0, toIndex - 1) : toIndex;
+
     newPatients.splice(currentIndex, 1);
-    newPatients.splice(toIndex, 0, item);
+    newPatients.splice(insertIndex, 0, item);
     sourceCol.patients = newPatients.map((p, idx) => ({ ...p, position: idx }));
   } else {
     sourceCol.patients = sourceCol.patients.filter(p => p._id !== itemId);
@@ -250,7 +258,7 @@ function moveItem(
 export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending }: Props) {
   const toast = useToast();
   const searchRef = useRef<SearchBarRef>(null);
-  const { mutate } = useUpdateItems();
+  const { mutate: moveMutate } = useMovePriorityItems(); // ✅ hook dedicado
   const [activeItem, setActiveItem] = useState<Appointment | null>(null);
   const [optimisticData, setOptimisticData] = useState<GroupedAppointment[] | null>(null);
   const [sourceCol, setSourceCol] = useState<GroupedAppointment | undefined>();
@@ -276,7 +284,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     setLastColPainted(false);
   }, [cols.length, isPlaceholderData]);
 
-  // ---------- Handlers memoizados (mantienen tamaño constante en DndContext) ----------
+  // ---------- Handlers memoizados ----------
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const { active } = event;
     const id = active.id as string;
@@ -325,40 +333,36 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     const overIndex = destinationCol.patients.findIndex(p => p._id === overId);
     const index = overIndex === -1 ? destinationCol.patients.length : overIndex;
 
+    // ✨ update optimista en memoria (con moveItem que ajusta índice intra-columna)
     const updatedData = moveItem(optimisticData, activeId, fromId, toId, index);
     setOptimisticData(updatedData);
+    queryClient.setQueryData(['DraggableCards'], updatedData);
 
+    // 🔁 construir MOVES (reenviamos columnas afectadas)
     const updatedSource = updatedData.find(col => col._id === fromId);
     const updatedDest = updatedData.find(col => col._id === toId);
 
-    const payload: UpdatePayload[] = [];
+    const moves: PriorityMove[] = [];
     if (updatedSource) {
       updatedSource.patients.forEach((p, i) => {
-        payload.push({
-          table: 'Appointment',
-          id_field: '_id',
-          id_value: p._id,
-          data: { position: i, priority: updatedSource._id },
-        });
+        moves.push({ id: p._id, position: i, priority: updatedSource._id ?? undefined });
       });
     }
     if (updatedDest && updatedDest._id !== fromId) {
       updatedDest.patients.forEach((p, i) => {
-        payload.push({
-          table: 'Appointment',
-          id_field: '_id',
-          id_value: p._id,
-          data: { position: i, priority: updatedDest._id },
-        });
+        moves.push({ id: p._id, position: i, priority: updatedDest._id ?? undefined });
       });
     }
 
-    queryClient.setQueryData(['DraggableCards'], updatedData);
-    setOptimisticData(updatedData);
+    if (moves.length === 0) {
+      setSourceCol(undefined);
+      setActiveItem(null);
+      return;
+    }
 
-    mutate(payload, {
+    moveMutate(moves, {
       onSuccess: (response: any) => {
-        const failed = response.results?.filter((r: { status: string }) => r.status === 'failed');
+        const failed = response?.results?.filter((r: { status: string }) => r.status === 'failed');
         if (failed?.length > 0) {
           toast({
             title: 'Some updates failed',
@@ -382,10 +386,10 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         setActiveItem(null);
       },
       onError: (error: any) => {
-        console.error('❌ Mutate error:', error);
+        console.error('❌ Move error:', error);
         toast({
           title: 'Error al mover cita',
-          description: error.message,
+          description: error?.message || 'No se pudo guardar el reordenamiento.',
           status: 'error',
           duration: 2000,
           isClosable: true,
@@ -394,7 +398,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         setOptimisticData(null);
       },
     });
-  }, [optimisticData, sourceCol, queryClient, mutate, toast]);
+  }, [optimisticData, sourceCol, queryClient, moveMutate, toast]);
 
   const handleDragCancel = useCallback(() => {
     setActiveItem(null);
@@ -466,7 +470,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         const startIndex = (colCurrentPage - 1) * pageSize;
         const endIndex = startIndex + pageSize;
         const paginatedPatients = sorted.slice(startIndex, endIndex);
-        const items = sorted.length > 0 ? sorted.map(d => d._id) : [`placeholder-${col._id}`];
+
+        // 🔧 Muy importante: items debe coincidir con lo que se renderiza
+        const items = paginatedPatients.length > 0 ? paginatedPatients.map(d => d._id) : [`placeholder-${col._id}`];
 
         const isLast = idx === lastIndex;
 
@@ -570,7 +576,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                             </GridItem>
                             <GridItem>
                               <HStack>
-
                                 <Tooltip
                                   label={
                                     item.selectedAppDates[0]?.status === "Pending"
@@ -585,14 +590,18 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                   fontSize="sm"
                                   hasArrow
                                 >
-                                  <Icon as={LiaSmsSolid} color={
-                                    item.selectedAppDates[0].status === "Pending"
-                                      ? "yellow.500"
-                                      : item.selectedAppDates[0].status === "Confirmed"
-                                        ? "green.500"
-                                        : item.selectedAppDates[0].status === 'Rejected'
-                                          ? "red.500"
-                                          : "blackAlpha.400"} />
+                                  <Icon
+                                    as={LiaSmsSolid}
+                                    color={
+                                      item.selectedAppDates[0].status === "Pending"
+                                        ? "yellow.500"
+                                        : item.selectedAppDates[0].status === "Confirmed"
+                                          ? "green.500"
+                                          : item.selectedAppDates[0].status === 'Rejected'
+                                            ? "red.500"
+                                            : "blackAlpha.400"
+                                    }
+                                  />
                                 </Tooltip>
                                 <Icon as={PhoneIcon} color="green" />
                                 <Text color="gray.500">
@@ -648,7 +657,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         );
       })}
 
-      {/* Panel de Contacts: se monta únicamente cuando el último col ya se pintó */}
+      {/* Panel de Contacts */}
       {lastColPainted && (
         <Fade in>
           <Card
@@ -790,7 +799,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         </Fade>
       )}
 
-      {/* Panel de Contacts: se monta únicamente cuando el último col ya se pintó */}
+      {/* Panel de Pending Approvals */}
       {lastColPainted && (
         <Fade in >
           <Card
@@ -848,10 +857,10 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               {isPlaceholderData ? (
                 <Skeleton height="38px" borderRadius="md" mb={3} />
               ) : (
-                <SearchBar ref={searchRef} data={dataPending || []} onFilter={setFilteredItems} who="contact" />
+                <SearchBar ref={searchRef} data={dataPending || []} onFilter={setFilteredPending} who="contact" />
               )}
 
-              {isPlaceholderData && currentItems.length === 0 ? (
+              {isPlaceholderData && currentPending.length === 0 ? (
                 <Stack spacing={3}>
                   {Array.from({ length: 5 }).map((_, i) => (
                     <Box key={i} p={4} borderRadius={10} border="1px" borderColor="gray.50" boxShadow="md" bg="white" >
@@ -904,8 +913,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                 ))
               )}
             </CardBody>
-
-
 
             <CardFooter minH="50px" maxH="50px">
               {isPlaceholderData ? (
