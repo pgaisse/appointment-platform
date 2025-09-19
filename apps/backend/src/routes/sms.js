@@ -208,7 +208,7 @@ router.post("/test-socket", async (req, res) => {
     }
 
     // Emitir evento a la sala (orgId)
-    req.io.to(orgId).emit("confirmationResolved", {
+    req.io.to(`org:${orgId}`).emit("confirmationResolved", {
       notification: true, // 👈 para que tu frontend lo acepte
       conversationId: "test-conv-123",
       respondsTo: "test-msg-456",
@@ -219,7 +219,7 @@ router.post("/test-socket", async (req, res) => {
       date: new Date().toISOString(),
       receivedAt: new Date(),
     });
-
+    console.log("test-socket, orgId:", orgId);
     return res.json({
       success: true,
       emitted: {
@@ -294,7 +294,7 @@ router.post('/sendMessageAsk', async (req, res) => {
       .create({
         author: org_id,
         body: safeBody,
-        attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1, user:req.dbUser._id }),
+        attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1, user: req.dbUser._id }),
       });
 
     console.log("Twilio creó:", msg);
@@ -315,9 +315,9 @@ router.post('/sendMessageAsk', async (req, res) => {
       type: MsgType.Confirmation,
       index: msg.index,          // 👈 clave para orden estable
     };
-      try{
-    await Message.insertOne(docs);
-    }catch(err){
+    try {
+      await Message.insertOne(docs);
+    } catch (err) {
 
       console.error("Error saving message to DB:", err);
     }
@@ -639,7 +639,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
         updateDoc,
         { upsert: true, new: true }
       );
-     
+
 
       // 3) Correlación SOLO para inbound: ver si responde a la última Confirmation outbound
       if (isInbound) {
@@ -659,6 +659,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
         if (prev) {
           console.log("preDesition: ", saved.body)
           const decision = decideFromBody(saved.body || "");
+          console.log("decision:_______________________________-----------------------------------> ", decision)
           const lastOutBound = await Message.findOne({ sid: prev.sid });
           const q = await Appointment.findOne({ sid: payload.ConversationSid, unknown: { $ne: true } }, // excluye unknown:true
             { selectedAppDates: 1, nameInput: 1, lastNameInput: 1, org_id: 1 }
@@ -692,7 +693,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                 await session.withTransaction(async () => {
                   // 1) Crear/actualizar el documento ContactAppointment
                   const contactDoc = await ContactAppointment.create([{
-                    user:prev.user,
+                    user: prev.user,
                     org_id: q.org_id,
                     appointment: q._id,
                     status: ContactStatus.Confirmed,     // usa el enum
@@ -727,6 +728,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                 session.endSession();
               }
             } else if (decision === "declined") {
+              console.log("decision declined ________________________________-------------------")
               const session = await mongoose.startSession();
               try {
                 await session.withTransaction(async () => {
@@ -734,7 +736,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                   const startDate = q.selectedAppDates[0]?.proposed?.startDate;
                   const endDate = q.selectedAppDates[0]?.proposed?.endDate;
                   const contactDoc = await ContactAppointment.create([{
-                    user:prev.user,
+                    user: prev.user,
                     org_id: q.org_id,
                     appointment: q._id,
                     status: ContactStatus.Rejected,     // usa el enum
@@ -746,13 +748,13 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
                   }], { session });
 
-
+console.log("conversationId: ", payload.ConversationSid)
                   // 2) Actualizar el Appointment y referenciar el contactedId en el slot
                   await Appointment.updateOne(
-                    { sid: payload.ConversationSid },
+                    { sid: payload.ConversationSid, unknown: { $ne: true }  },
                     {
                       $set: {
-                        "selectedAppDates.$[slot].status": "Rejected",
+                        "selectedAppDates.$[slot].status": ContactStatus.Rejected,
                         "selectedAppDates.$[slot].rescheduleRequested": false,
                         "selectedAppDates.$[slot].confirmation.decision": "declined",
                         "selectedAppDates.$[slot].confirmation.decidedAt": now,
@@ -766,25 +768,13 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
               } finally {
                 session.endSession();
               }
-            } else if (decision === "reschedule") {
-              await Appointment.updateOne(
-                { sid: payload.ConversationSid },
-                {
-                  $set: {
-                    "selectedAppDates.$[slot].status": "Pending",
-                    "selectedAppDates.$[slot].rescheduleRequested": true,
-                    "selectedAppDates.$[slot].confirmation.decision": "reschedule",
-                    "selectedAppDates.$[slot].confirmation.decidedAt": now,
-                    "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
-                  },
-                },
-                { arrayFilters }
-              );
             }
+
           }
 
           // Notificar a la UI
-          req.io.to(orgId).emit("confirmationResolved", {
+
+          req.io.to(`org:${orgId}`).emit("confirmationResolved", {
             conversationId: payload.ConversationSid,
             respondsTo: prev.sid,
             decision,
@@ -799,7 +789,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
       }
 
       // 4) Emitir el newMessage a la organización
-      req.io.to(orgId).emit("newMessage", {
+      req.io.to(`org:${orgId}`).emit("newMessage", {
         sid: saved.sid,
         index: saved.index,
         conversationId: saved.conversationId,
@@ -825,7 +815,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
       );
 
       if (updated) {
-        req.io.to(orgId).emit("messageUpdated", {
+        req.io.to(`org:${orgId}`).emit("messageUpdated", {
           sid: updated.sid,
           conversationId: updated.conversationId,
           status: updated.status,
