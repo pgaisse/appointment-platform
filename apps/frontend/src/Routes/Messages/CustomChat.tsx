@@ -27,6 +27,7 @@ import type { ConversationChat, Message } from "@/types";
 import { FaUserAlt } from "react-icons/fa";
 import { Avatar, HStack } from "@chakra-ui/react";
 import ChatCategorizationPanel from "@/Components/Chat/CustomMessages/ChatCategorizationPanel";
+import AddPatientButton from "@/Components/DraggableCards/AddPatientButton";
 
 export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
@@ -225,6 +226,13 @@ export default function CustomChat() {
               </Text>
               <Box mt={3}>
                 <NewChatButton setChat={setChat} dataConversation={dataConversation} />
+              </Box>
+              <Box>
+                <AddPatientButton onlyPatient={true} label='+'
+                            formProps={{
+                              typeButonVisible: false, phoneFieldReadOnly: false,
+                              mode: "EDITION"
+                            }} /> 
               </Box>
             </Box>
 

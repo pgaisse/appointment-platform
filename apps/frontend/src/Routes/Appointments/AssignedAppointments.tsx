@@ -1,103 +1,108 @@
-import EventCards from '@/Components/CustomTemplates/EventCards';
-import CustomCalendar, { Data } from '@/Components/Scheduler/CustomCalendar';
-import CustomMinCalendar from '@/Components/Scheduler/CustomMinCalendar';
-import { createEvents } from '@/Functions/CreateEvents';
-import { useGetCollection } from '@/Hooks/Query/useGetCollection';
-import { Appointment } from '@/types';
-import { isEqual, isSameDay, startOfDay } from 'date-fns';
+// apps/frontend/src/Components/Scheduler/AssignedAppointments.tsx
+import { useMemo, useState, useCallback } from "react";
 import {
-  Box,
-  Grid,
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalCloseButton,
-  useDisclosure,
-  useColorModeValue
-} from '@chakra-ui/react';
-import { useEffect, useState } from 'react';
-import { View, Views } from 'react-big-calendar';
-import PremiumAppointmentModal from '@/Components/Modal/AppointmentModal';
-import AppointmentModal from '@/Components/Modal/AppointmentModal';
+  Box, Grid, Center, HStack, Text, Spinner,
+  useDisclosure, useColorModeValue, Skeleton
+} from "@chakra-ui/react";
+import { View, Views } from "react-big-calendar";
+import { isSameDay } from "date-fns";
+
+import CustomCalendar, { Data } from "@/Components/Scheduler/CustomCalendar";
+import CustomMinCalendar from "@/Components/Scheduler/CustomMinCalendar";
+import { createEvents } from "@/Functions/CreateEvents";
+import { useGetCollection } from "@/Hooks/Query/useGetCollection";
+import { Appointment } from "@/types";
+import AppointmentModal from "@/Components/Modal/AppointmentModal";
+
+const CALENDAR_STEP = 15 as const;
 
 const AssignedAppointments = () => {
-  const [markedEvents, setMarkedEvents] = useState<Data[]>();
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedEvent, setSelectedEvent] = useState<Appointment | undefined>(undefined);
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  // ---------- Hooks SIEMPRE al tope ----------
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [calendarView, setCalendarView] = useState<View>(Views.WEEK);
+  const [selectedEvent, setSelectedEvent] = useState<Appointment | null>(null);
+  const { isOpen, onOpen, onClose } = useDisclosure();
 
-  const query = {};
-  const populateFields = [
-    { path: "priority", select: "id description notes durationHours name color" },
-    { path: "treatment", select: "_id name notes duration icon color minIcon" },
-    { path: "selectedDates.days.timeBlocks" }
-  ];
-  const limit = 100;
-  const { data, isLoading, isPlaceholderData, refetch, isFetching } = useGetCollection<Appointment>("Appointment", {
-    query,
-    limit,
-    populate: populateFields
-  });
+  const overlayBg = useColorModeValue("whiteAlpha.700", "blackAlpha.700");
+  const border = useColorModeValue("gray.200", "whiteAlpha.300");
 
-  useEffect(() => {
-    if (!isFetching && Array.isArray(data) && data.length > 0) {
-      const events = createEvents(data);
-      setMarkedEvents(events);
-    }
-  }, [data, isFetching]);
+  // ❗ Estabiliza identidades para el hook de datos
+  const populateFields = useMemo(
+    () => [
+      { path: "priority",  select: "id description notes durationHours name color" },
+      { path: "treatment", select: "_id name notes duration icon color minIcon" },
+      { path: "selectedDates.days.timeBlocks" },
+    ] as const,
+    []
+  );
 
+  const queryBase = useMemo(() => ({} as const), []);
+  const options = useMemo(
+    () => ({ query: queryBase, limit: 100, populate: populateFields as unknown as any }),
+    [queryBase, populateFields]
+  );
 
+  // ✅ useGetCollection NUNCA condicional y con opciones estables
+  const { data, isFetching } = useGetCollection<Appointment>("Appointment", options);
 
-  const eventDates = markedEvents?.map(e => new Date(e.start).toDateString());
+  // ---------- Derivados ----------
+  const events: Data[] = useMemo(
+    () => (Array.isArray(data) ? createEvents(data) : []),
+    [data]
+  );
 
-  const handleNavigate = (date: Date) => {
-    setCurrentDate(date);
-  };
+  const eventDates = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of events) s.add(new Date(e.start).toDateString());
+    return Array.from(s);
+  }, [events]);
 
+  const filteredEvents: Data[] = useMemo(() => {
+    if (calendarView !== Views.DAY) return events;
+    return events.filter((e) => isSameDay(new Date(e.start), currentDate));
+  }, [events, calendarView, currentDate]);
 
-  const handleSelectEvent = (event: Data) => {
-    const result = data?.find((item) => item._id === event._id);
-
-    setSelectedEvent(result);
-    onOpen();
-  };
-
-  const modalBg = useColorModeValue("white", "gray.800");
-
-
-  const handleViewChange = (view: View) => {
-    setCalendarView(view);
-    setCurrentDate(new Date()); // o simplemente mantén la fecha actual
-  };
-
-  const handleNavigateCalendar = (newDate: Date, view: View) => {
+  // ---------- Callbacks estables ----------
+  const handleViewChange = useCallback((view: View) => setCalendarView(view), []);
+  const handleNavigate = useCallback((newDate: Date, view?: View) => {
     setCurrentDate(newDate);
-    setCalendarView(view);
-  };
-  const filteredEvents = markedEvents?.filter((event) => {
-    if (calendarView === Views.DAY) {
-      return isEqual(startOfDay(new Date(event.start)), startOfDay(currentDate));
-    }
-    return true;
-  });
+    if (view) setCalendarView(view);
+  }, []);
 
+  const handleSelectEvent = useCallback(
+    (event: Data) => {
+      const found = (data ?? []).find((item) => item._id === event._id) || null;
+      setSelectedEvent(found);
+      if (found) onOpen();
+    },
+    [data, onOpen]
+  );
 
+  // ---------- Render ----------
   return (
     <>
-      <Grid
-        templateColumns={{ base: "100%", md: "80% 20%" }}
-        templateRows="auto auto"
-        gap={4}
-        width="100%"
-      >
-        <Box p={4}>
+      <Grid templateColumns={{ base: "100%", md: "80% 20%" }} gap={4} w="100%">
+        <Box p={4} position="relative">
+          {isFetching && (
+            <Center
+              position="absolute"
+              inset={0}
+              zIndex={2}
+              bg={overlayBg}
+              backdropFilter="blur(2px)"
+              aria-busy="true"
+            >
+              <HStack>
+                <Spinner size="lg" />
+                <Text>Cargando agenda…</Text>
+              </HStack>
+            </Center>
+          )}
+
           <Box mb={4}>
             <CustomCalendar
               onView={handleViewChange}
-              height="100vh"
+              height="80vh"
               calView={calendarView}
               setDate={setCurrentDate}
               selectable={false}
@@ -105,53 +110,41 @@ const AssignedAppointments = () => {
               onSelectEvent={handleSelectEvent}
               isFetching={isFetching}
               events={filteredEvents}
-              onNavigate={handleNavigateCalendar}
-              step={15}
+              onNavigate={(d, v) => handleNavigate(d, v)}
+              step={CALENDAR_STEP}
+              toolbar
             />
           </Box>
         </Box>
 
         <Box p={4} display={{ base: "none", md: "block" }}>
-          <Box mb={4}>
-            <CustomMinCalendar
-              height="250px"
-              width="200px"
-              step={15}
-              onSelectSlot={() => { }}
-              calView={Views.MONTH}
-              onNavigate={handleNavigate}
-              eventDates={eventDates}
-            />
+          <Box mb={4} borderWidth="1px" borderColor={border} borderRadius="xl" p={3}>
+            <Text fontWeight="bold" mb={2}>Resumen mensual</Text>
+            <Skeleton isLoaded={!isFetching} borderRadius="lg">
+              <CustomMinCalendar
+                height="250px"
+                width="100%"
+                step={CALENDAR_STEP}
+                onSelectSlot={() => {}}
+                calView={Views.MONTH}
+                onNavigate={(d) => handleNavigate(d)}
+                eventDates={eventDates}
+              />
+            </Skeleton>
           </Box>
         </Box>
-
-
       </Grid>
 
-      {/* Modal Premium */}
-      <Modal isOpen={isOpen} onClose={onClose} size="xl" isCentered motionPreset="scale">
-        <ModalOverlay
-          bg="blackAlpha.500"
-          backdropFilter="blur(4px)"
+      {selectedEvent && (
+        <AppointmentModal
+          id={selectedEvent._id ?? ""}
+          isOpen={isOpen}
+          onClose={() => {
+            onClose();
+            setSelectedEvent(null);
+          }}
         />
-        <ModalContent
-          bg={modalBg}
-          borderRadius="2xl"
-          boxShadow="2xl"
-          p={2}
-        >
-          <ModalHeader fontWeight="bold" fontSize="2xl" textAlign="center">
-            Detalles del Evento
-          </ModalHeader>
-          <ModalCloseButton />
-          <ModalBody pb={6}>
-
-            {selectedEvent && (
-                <AppointmentModal id={selectedEvent._id?? ""} isOpen={isOpen} onClose={onClose} />
-            )}
-          </ModalBody>
-        </ModalContent>
-      </Modal>
+      )}
     </>
   );
 };

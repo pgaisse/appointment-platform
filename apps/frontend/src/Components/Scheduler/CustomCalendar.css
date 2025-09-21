@@ -55,3 +55,103 @@
 .rbc-event {
   transition: top 0.15s ease, height 0.15s ease;
 }
+
+/* Líneas de grupo de tiempo más suaves */
+.rbc-time-view .rbc-timeslot-group {
+  border-top: 1px solid var(--rbc-color-border, rgba(125, 125, 125, 0.18));
+}
+
+/* Suaviza líneas de slots */
+.rbc-slot--soft {
+  background-image: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.04) 50%);
+  background-size: 100% 2px;
+}
+
+/* Hoy resaltado (alto contraste sutil) */
+.rbc-day--today-premium {
+  background: linear-gradient(180deg, rgba(56,189,248,0.08), transparent 35%);
+}
+
+/* Fines de semana con leve sombreado */
+.rbc-day--weekend {
+  background-color: rgba(128,128,128,0.05);
+}
+
+/* Evento premium: hover/focus accesibles */
+.rbc-event--premium:focus,
+.rbc-event--premium:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.18), inset 0 0 1px rgba(255,255,255,0.45);
+  outline: 2px solid rgba(255,255,255,0.35);
+  outline-offset: 0;
+}
+
+/* Mejora contraste de bordes */
+.rbc-time-content,
+.rbc-time-header,
+.rbc-header {
+  border-color: rgba(125, 125, 125, 0.25);
+}
+
+/* Gutter de horas */
+.rbc-time-gutter.rbc-time-column {
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.03));
+}
+
+/* Scrollbars finos */
+.rbc-time-view,
+.rbc-month-view {
+  scrollbar-width: thin;
+}
+.rbc-time-view::-webkit-scrollbar,
+.rbc-month-view::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.rbc-time-view::-webkit-scrollbar-thumb,
+.rbc-month-view::-webkit-scrollbar-thumb {
+  background: rgba(120,120,120,0.35);
+  border-radius: 8px;
+}
+/* Altura por grupo (1h) = slotsPerGroup * altura-slot */
+.rbc-time-view .rbc-timeslot-group {
+  min-height: calc(var(--rbc-slot-h, 22px) * var(--rbc-slots-per-group, 4));
+}
+
+/* Asegura que el contenido llene el wrapper */
+.rbc-event,
+.rbc-event-content {
+  height: 100%;
+}
+.rbc-event-content > * {
+  height: 100%;
+  width: 100%;
+}
+/* El wrapper y el contenido deben poder encoger para que el ellipsis funcione */
+.rbc-event,
+.rbc-event-content {
+  height: 100%;
+  min-width: 0; /* 👈 clave para ellipsis dentro de flex */
+}
+
+.rbc-event-content > * {
+  height: 100%;
+  width: 100%;
+  min-width: 0; /* 👈 clave para ellipsis dentro de flex */
+}
+/* Oculta la etiqueta de horas dentro del evento */
+.rbc-event-label { 
+  display: none !important; 
+}
+
+/* Asegura truncado en flex */
+.rbc-event,
+.rbc-event-content {
+  height: 100%;
+  min-width: 0;
+}
+.rbc-event-content > * {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+}
