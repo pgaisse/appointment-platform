@@ -11,13 +11,19 @@ services:
       - MONGO_INITDB_DATABASE=productionDB
     volumes:
       - mongo_dev_data:/data/db
-      - ../mongo/keys/mongo-keyfile:/etc/mongo-keyfile:ro
+      - ../mongo/keys/mongo-keyfile:/etc/mongo-keyfile:romongo-backup/productionDB/productionDB
+      - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/01-init-user.sh:ro
+      - /home/appointment-platform/mongo-backup:/backup_dev
+      - ./../mongo/dev-init/01-init-restore.sh:/docker-entrypoint-initdb.d/02-restore.sh:ro
       # (deja tus scripts de init/restauración como los tenías)
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      test: ["CMD", "mongosh", "--quiet",
+             "--username=pgaisse", "--password=Patoch-2202", "--authenticationDatabase=admin",
+             "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 5s
       timeout: 5s
       retries: 10
+
     networks: [app_network_dev]
 
   # 👇 Job para inicializar el replica set una sola vez
@@ -67,6 +73,7 @@ services:
       - MONGO_URI=                # 👈 override a vacío si en tu .env existía (para que no se use)
     expose:
       - "3003"
+      - "3001"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
       - ../..:/repo
@@ -89,6 +96,7 @@ services:
     depends_on:
       - backend
     expose:
+      - "3000"
       - "3004"
     volumes:
       - ../..:/repo
