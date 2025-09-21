@@ -16,7 +16,7 @@ import { CiCalendarDate } from "react-icons/ci";
 
 interface EventDataItem {
   _id: string;
-  nameInput: string;
+  nameInput?: string;
   lastNameInput: string;
   selectedDates?: DateRange[];
   selectedAppDates?: DateRange[];
