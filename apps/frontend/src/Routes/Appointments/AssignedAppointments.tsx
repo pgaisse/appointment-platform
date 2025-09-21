@@ -19,6 +19,8 @@ import {
 } from '@chakra-ui/react';
 import { useEffect, useState } from 'react';
 import { View, Views } from 'react-big-calendar';
+import PremiumAppointmentModal from '@/Components/Modal/AppointmentModal';
+import AppointmentModal from '@/Components/Modal/AppointmentModal';
 
 const AssignedAppointments = () => {
   const [markedEvents, setMarkedEvents] = useState<Data[]>();
@@ -143,8 +145,9 @@ const AssignedAppointments = () => {
           </ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
+
             {selectedEvent && (
-              <EventCards data={selectedEvent} />
+                <AppointmentModal id={selectedEvent._id?? ""} isOpen={isOpen} onClose={onClose} />
             )}
           </ModalBody>
         </ModalContent>

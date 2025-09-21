@@ -1,10 +1,9 @@
-name: dev
 services:
   mongo:
     image: mongo:7
     container_name: mongo_dev
     command: ["--replSet","rs0","--bind_ip_all","--keyFile","/etc/mongo-keyfile"]
-    ports: ["27019:27017"]
+    ports: ["27019:27017"]             # host:27019 -> contenedor:27017
     environment:
       - MONGO_INITDB_ROOT_USERNAME=pgaisse
       - MONGO_INITDB_ROOT_PASSWORD=Patoch-2202
@@ -12,15 +11,19 @@ services:
     volumes:
       - mongo_dev_data:/data/db
       - ../mongo/keys/mongo-keyfile:/etc/mongo-keyfile:ro
-      # (deja tus scripts de init/restauración como los tenías)
+      - ./../mongo/init-user.sh:/docker-entrypoint-initdb.d/01-init-user.sh:ro
+      # ⚠️ Mueve el restore a un job separado (ver abajo)
+      # - ./../mongo/dev-init/01-init-restore.sh:/docker-entrypoint-initdb.d/02-restore.sh:ro
+      - /home/appointment-platform/mongo-backup:/backup_dev
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      test: ["CMD","mongosh","--quiet",
+             "--username=pgaisse","--password=Patoch-2202","--authenticationDatabase=admin",
+             "--eval","db.runCommand({ ping: 1 }).ok"]
       interval: 5s
       timeout: 5s
       retries: 10
     networks: [app_network_dev]
 
-  # 👇 Job para inicializar el replica set una sola vez
   mongo-init-replica:
     image: mongo:7
     depends_on:
@@ -49,7 +52,23 @@ services:
       done
       echo "❌ No se alcanzó PRIMARY"; exit 1
     networks: [app_network_dev]
-    
+
+  # (Opcional) job de restore DESPUÉS de tener PRIMARY
+  mongo-restore:
+    image: mongo:7
+    depends_on:
+      mongo-init-replica:
+        condition: service_completed_successfully
+    volumes:
+      - /home/appointment-platform/mongo-backup:/backup_dev
+    entrypoint: ["/bin/bash","-lc"]
+    command: |
+      echo "♻️ Restaurando backup..."
+      mongorestore --host mongo:27017 -u pgaisse -p 'Patoch-2202' --authenticationDatabase admin --drop /backup_dev/productionDB || exit 1
+      echo "✅ Restore listo"
+    networks: [app_network_dev]
+
+
   backend:
     image: node:20-alpine
     container_name: backend_dev
@@ -57,16 +76,10 @@ services:
     command: sh -lc "npm install --no-audit --no-fund && npm run dev"
     env_file:
       - ../../apps/backend/.env.backend.dev
-    environment:
-      # 👇 Fuerza a usar el nombre del servicio Docker como host
-      - MONGO_HOST=mongo
-      # 👇 Activa RS y TX en el backend; asegúrate de quitar MONGO_URI de tu .env
-      - MONGO_RS=rs0
-      - MONGO_USE_TRANSACTIONS=true
-      - MONGO_DIRECT_CONNECTION=false
-      - MONGO_URI=                # 👈 override a vacío si en tu .env existía (para que no se use)
+
     expose:
       - "3003"
+      - "3001"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
       - ../..:/repo
@@ -89,6 +102,7 @@ services:
     depends_on:
       - backend
     expose:
+      - "3000"
       - "3004"
     volumes:
       - ../..:/repo
