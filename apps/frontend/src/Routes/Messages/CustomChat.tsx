@@ -1,5 +1,5 @@
 // Components/Chat/CustomChat.tsx
-import { Box, Flex, Text, useColorModeValue } from "@chakra-ui/react";
+import { Box, Flex, Text, useColorModeValue, HStack, Avatar } from "@chakra-ui/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,9 +23,8 @@ import NewChatButton from "@/Components/Chat/NewChatButton";
 import { useChatSocket } from "@/Hooks/Query/useChatSocket";
 import { useConversations } from "@/Hooks/Query/useConversations";
 import { useAssignCategoryToConversation } from "@/Hooks/Query/useChatCategorization";
-import type { ConversationChat, Message } from "@/types";
+import type { ConversationChat } from "@/types";
 import { FaUserAlt } from "react-icons/fa";
-import { Avatar, HStack } from "@chakra-ui/react";
 import ChatCategorizationPanel from "@/Components/Chat/CustomMessages/ChatCategorizationPanel";
 import AddPatientButton from "@/Components/DraggableCards/AddPatientButton";
 
@@ -36,24 +35,24 @@ export default function CustomChat() {
   const queryClient = useQueryClient();
 
   const { data: dataConversation = [], isLoading: isLoadingConversation } = useConversations();
+
+  // keep selected chat fresh if list updates
   useEffect(() => {
     if (!chat?.conversationId || !dataConversation) return;
-    const fresh = dataConversation.find(c => c.conversationId === chat.conversationId);
-    if (fresh && fresh !== chat) setChat(fresh); // nueva referencia -> re-render
+    const fresh = dataConversation.find((c) => c.conversationId === chat.conversationId);
+    if (fresh && fresh !== chat) setChat(fresh);
   }, [dataConversation, chat?.conversationId]);
+
   // live updates
   useChatSocket(
     org_id,
     // onNewMessage
     (msg) => {
-      // notifica al ChatWindows
       window.dispatchEvent(new CustomEvent("chat:message", { detail: msg }));
-
-      // y de paso sincronizas caches si quieres
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
       queryClient.invalidateQueries({ queryKey: ["messages", msg.conversationId] });
     },
-    // onMessageUpdated (delivered/read/etc.)
+    // onMessageUpdated
     (msg) => {
       window.dispatchEvent(new CustomEvent("chat:message-delivery", { detail: msg }));
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -67,10 +66,7 @@ export default function CustomChat() {
     useSensor(KeyboardSensor)
   );
 
-  const ids = useMemo(
-    () => dataConversation.map((c) => c.conversationId),
-    [dataConversation]
-  );
+  const ids = useMemo(() => dataConversation.map((c) => c.conversationId), [dataConversation]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const byId = useMemo(() => {
@@ -92,18 +88,17 @@ export default function CustomChat() {
       setActiveId(null);
       if (!over) return;
 
-      // Dropped over a category panel area (CategoryDrop uses id="cat-<categoryId>")
       const overId = String(over.id);
       if (overId.startsWith("cat-")) {
         const chatCategoryId = overId.replace("cat-", "");
         const conversationSid = String(active.id);
-
         try {
           await assign.mutateAsync({ conversationSid, chatCategoryId });
           queryClient.invalidateQueries({
             queryKey: ["conversation-categories", conversationSid],
           });
         } catch (err) {
+          // swallow — upstream handles errors/UI
         }
       }
     },
@@ -115,26 +110,20 @@ export default function CustomChat() {
     "linear-gradient(180deg, rgba(246,248,255,0.85) 0%, rgba(241,243,255,0.75) 100%)",
     "linear-gradient(180deg, rgba(23,25,35,0.85) 0%, rgba(18,20,28,0.85) 100%)"
   );
-
   const panelBg = useColorModeValue("rgba(255,255,255,0.85)", "rgba(26,32,44,0.65)");
   const panelBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
-
   const sidebarHeaderBg = useColorModeValue("rgba(255,255,255,0.76)", "rgba(26,32,44,0.6)");
   const sidebarHeaderBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
-
   const scrollbarThumb = useColorModeValue("#CBD5E0", "#4A5568");
   const scrollbarTrack = useColorModeValue("#EDF2F7", "#2D3748");
+
   const handleOpenChat = useCallback((c: ConversationChat) => setChat(c), []);
+
   return (
-    <Box h="100%" w="100%" position="relative" overflow="hidden">
-      {/* page backdrop */}
-      <Box
-        position="absolute"
-        inset={0}
-        bgGradient={pageBg}
-        filter="blur(0px)"
-        zIndex={0}
-      />
+    // Full-viewport height on all devices, safe-area aware
+    <Box h="90dvh" minH="90dvh" w="100%" position="relative" overflow="hidden">
+      {/* Backdrop */}
+      <Box position="absolute" inset={0} bgGradient={pageBg} zIndex={0} />
 
       <DndContext
         sensors={sensors}
@@ -146,67 +135,59 @@ export default function CustomChat() {
         <Flex
           position="relative"
           zIndex={1}
-          h="full"
-          mt={5}
-          mx="auto"
-          borderRadius="2xl"
-          overflow="hidden"
-          gap={0}
-          // outer card container
+          h="100%"
+          // Column on phones (all three sections stacked), row on wide screens
+          direction={{ base: "column", xl: "row" }}
+          gap={{ base: 3, md: 4 }}
           px={{ base: 2, md: 4 }}
+          py={{ base: 2, md: 4 }}
+          mx="auto"
         >
           {/* Categories panel */}
           <Box
-            p={{ base: 3, md: 6 }}
-            w={{ base: "100%", xl: "20%" }}
+            // Equal-height sections on phones; fixed column on desktop
+            flex={{ base: "1 1 0", xl: "0 0 15%" }}
+            w={{ base: "100%", xl: "15%" }}
             maxW={{ xl: "520px" }}
+            minH={0}
+            maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
+            p={{ base: 3, md: 5 }}
             bg={panelBg}
             borderWidth="1px"
             borderColor={panelBorder}
             borderRadius="2xl"
             boxShadow="0 10px 30px rgba(0,0,0,0.10)"
             backdropFilter="saturate(140%) blur(6px)"
-            transition="box-shadow 200ms ease, transform 120ms ease"
-            _hover={{ boxShadow: "0 16px 40px rgba(0,0,0,0.14)" }}
-            mr={{ base: 0, xl: 4 }}
-            // scroll if content overflows
-            maxH="calc(100vh - 120px)"
-            overflowY="auto"
-            sx={{
-              "::-webkit-scrollbar": { width: "10px" },
-              "::-webkit-scrollbar-thumb": {
-                background: scrollbarThumb,
-                borderRadius: "10px",
-              },
-              "::-webkit-scrollbar-track": {
-                background: scrollbarTrack,
-              },
-            }}
+            overflow="hidden"
           >
-            <ChatCategorizationPanel
-              conversationSid={chat?.conversationId ?? ""}
-              conversations={dataConversation}
-              onOpenChat={handleOpenChat}
-              density="compact"
-            />
+            <Box h="100%" overflowY="auto" pr={1}
+              sx={{
+                "::-webkit-scrollbar": { width: "10px" },
+                "::-webkit-scrollbar-thumb": { background: scrollbarThumb, borderRadius: "10px" },
+                "::-webkit-scrollbar-track": { background: scrollbarTrack },
+              }}
+            >
+              <ChatCategorizationPanel
+                conversationSid={chat?.conversationId ?? ""}
+                conversations={dataConversation}
+                onOpenChat={handleOpenChat}
+                density="compact"
+              />
+            </Box>
           </Box>
 
           {/* Sidebar: conversations list */}
           <Box
+            flex={{ base: "1 1 0", xl: "0 0 20%" }}
             w={{ base: "100%", xl: "20%" }}
-            p={0}
-            borderRadius="2xl"
+            minH={0}
+            maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
+            bg={panelBg}
             borderWidth="1px"
             borderColor={panelBorder}
-            bg={panelBg}
+            borderRadius="2xl"
             boxShadow="0 10px 30px rgba(0,0,0,0.10)"
             backdropFilter="saturate(140%) blur(6px)"
-            transition="box-shadow 200ms ease, transform 120ms ease"
-            _hover={{ boxShadow: "0 16px 40px rgba(0,0,0,0.14)" }}
-            mr={{ base: 0, xl: 4 }}
-            display="flex"
-            flexDirection="column"
-            maxH="calc(100vh - 120px)"
             overflow="hidden"
           >
             {/* Sticky header */}
@@ -214,48 +195,36 @@ export default function CustomChat() {
               position="sticky"
               top={0}
               zIndex={2}
-              px={{ base: 3, md: 6 }}
-              py={4}
+              px={{ base: 3, md: 5 }}
+              py={{ base: 3, md: 4 }}
               bg={sidebarHeaderBg}
               borderBottomWidth="1px"
               borderColor={sidebarHeaderBorder}
               backdropFilter="saturate(140%) blur(6px)"
             >
-              <Text fontSize="2xl" fontWeight="bold">
+              <Text fontSize={{ base: "xl", md: "2xl" }} fontWeight="bold">
                 Messages
               </Text>
-              <HStack>
-                <Box mt={3}>
-                  <NewChatButton setChat={setChat} dataConversation={dataConversation} />
-                </Box>
-                <Box>
-                   
-                  <AddPatientButton onlyPatient={true} text="+ Add"
-                    formProps={{
-                      typeButonVisible: false, phoneFieldReadOnly: false,
-                      mode: "EDITION"
-                    }} />
-                    
-                   
-                </Box>
+              <HStack spacing={3} mt={3} wrap="wrap">
+                <NewChatButton setChat={setChat} dataConversation={dataConversation} />
+                <AddPatientButton
+                  onlyPatient={true}
+                  text="+ Add"
+                  formProps={{ typeButonVisible: false, phoneFieldReadOnly: false, mode: "EDITION" }}
+                />
               </HStack>
             </Box>
 
             {/* Scrollable list area */}
             <Box
-              flex="1"
-              px={{ base: 3, md: 6 }}
-              py={4}
+              h="calc(100% - 76px)" // leave room for sticky header; responsive header height handled by overflow
+              px={{ base: 3, md: 5 }}
+              py={{ base: 3, md: 4 }}
               overflowY="auto"
               sx={{
                 "::-webkit-scrollbar": { width: "10px" },
-                "::-webkit-scrollbar-thumb": {
-                  background: scrollbarThumb,
-                  borderRadius: "10px",
-                },
-                "::-webkit-scrollbar-track": {
-                  background: scrollbarTrack,
-                },
+                "::-webkit-scrollbar-thumb": { background: scrollbarThumb, borderRadius: "10px" },
+                "::-webkit-scrollbar-track": { background: scrollbarTrack },
               }}
             >
               <SortableContext items={ids} strategy={verticalListSortingStrategy}>
@@ -270,30 +239,24 @@ export default function CustomChat() {
 
           {/* Chat window */}
           <Box
-            flex="1"
+            flex={{ base: "1 1 0", xl: "1 1 auto" }}
             minW={0}
+            minH={0}
             bg={panelBg}
             borderWidth="1px"
             borderColor={panelBorder}
             borderRadius="2xl"
             boxShadow="0 10px 30px rgba(0,0,0,0.10)"
             backdropFilter="saturate(140%) blur(6px)"
-            transition="box-shadow 200ms ease, transform 120ms ease"
-            _hover={{ boxShadow: "0 16px 40px rgba(0,0,0,0.14)" }}
-            maxH="calc(100vh - 120px)"
             overflow="hidden"
+            maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
           >
             <ChatWindows chat={chat} isOpen={!!chat} />
           </Box>
         </Flex>
 
         {/* Drag preview */}
-        <DragOverlay
-          dropAnimation={{
-            duration: 180,
-            easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-          }}
-        >
+        <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }}>
           {activeConv ? <DragPreviewChatRow conv={activeConv} /> : null}
         </DragOverlay>
       </DndContext>
@@ -303,13 +266,12 @@ export default function CustomChat() {
 
 /* ---------- Visual clone shown in the DragOverlay ---------- */
 function DragPreviewChatRow({ conv }: { conv: ConversationChat }) {
-  const name =
-    conv.owner?.unknown ? undefined : conv.owner?.name || conv.lastMessage?.author || "No name";
+  const name = conv.owner?.unknown ? undefined : conv.owner?.name || conv.lastMessage?.author || "No name";
   const lastPreview = conv.lastMessage?.body
     ? conv.lastMessage.body
     : conv.lastMessage?.media?.length
-      ? "📷 Photo"
-      : "";
+    ? "📷 Photo"
+    : "";
 
   return (
     <HStack
