@@ -19,6 +19,8 @@ const { receiveMessage } = require('../controllers/message.controller');
 const Appointments = require('../models/Appointments');
 const { getSmsBindingFromWebhookPayload } = require('../utils/twilio-conversations-binding');
 const { Organization } = require("../models/Enviroment/Org")
+const { queueInvalidate, flushInvalidate } = require('../socket/invalidate-queue');
+
 const {
   decideFromBody,
   findPrevOutboundConfirmation,
@@ -748,10 +750,10 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
                   }], { session });
 
-console.log("conversationId: ", payload.ConversationSid)
+                  //console.log("conversationId: ", payload.ConversationSid)
                   // 2) Actualizar el Appointment y referenciar el contactedId en el slot
                   await Appointment.updateOne(
-                    { sid: payload.ConversationSid, unknown: { $ne: true }  },
+                    { sid: payload.ConversationSid, unknown: { $ne: true } },
                     {
                       $set: {
                         "selectedAppDates.$[slot].status": ContactStatus.Rejected,
@@ -789,6 +791,7 @@ console.log("conversationId: ", payload.ConversationSid)
       }
 
       // 4) Emitir el newMessage a la organización
+      queueInvalidate(res, orgId, ["messages", conversationId]);
       req.io.to(`org:${orgId}`).emit("newMessage", {
         sid: saved.sid,
         index: saved.index,

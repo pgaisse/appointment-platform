@@ -224,16 +224,21 @@ export default function CustomChat() {
               <Text fontSize="2xl" fontWeight="bold">
                 Messages
               </Text>
-              <Box mt={3}>
-                <NewChatButton setChat={setChat} dataConversation={dataConversation} />
-              </Box>
-              <Box>
-                <AddPatientButton onlyPatient={true} label='+'
-                            formProps={{
-                              typeButonVisible: false, phoneFieldReadOnly: false,
-                              mode: "EDITION"
-                            }} /> 
-              </Box>
+              <HStack>
+                <Box mt={3}>
+                  <NewChatButton setChat={setChat} dataConversation={dataConversation} />
+                </Box>
+                <Box>
+                   
+                  <AddPatientButton onlyPatient={true} text="+ Add"
+                    formProps={{
+                      typeButonVisible: false, phoneFieldReadOnly: false,
+                      mode: "EDITION"
+                    }} />
+                    
+                   
+                </Box>
+              </HStack>
             </Box>
 
             {/* Scrollable list area */}

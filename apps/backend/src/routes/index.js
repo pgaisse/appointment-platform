@@ -231,7 +231,7 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
       const parsedLimit = parseInt(req.query.limit, 10);
       if (!Number.isNaN(parsedLimit)) limit = parsedLimit;
     }
-    console.log(filters, projection, selectStr, populate, limit)
+    //console.log(filters, projection, selectStr, populate, limit)
     // --- construir query (retrocompatible) ---
     let query = Model.find(filters, projection);
 
@@ -258,7 +258,7 @@ router.get('/query/:collection', jwtCheck, async (req, res) => {
     }
 
     query = query.limit(limit);
-    console.log("filters", filters, Model.collection.name)
+    //console.log("filters", filters, Model.collection.name)
     const result = await query.lean();
     return res.status(200).json(result);
 

@@ -94,7 +94,7 @@ const AssignedAppointments = () => {
             >
               <HStack>
                 <Spinner size="lg" />
-                <Text>Cargando agenda…</Text>
+                <Text>Loading schedule…</Text>
               </HStack>
             </Center>
           )}
@@ -119,7 +119,7 @@ const AssignedAppointments = () => {
 
         <Box p={4} display={{ base: "none", md: "block" }}>
           <Box mb={4} borderWidth="1px" borderColor={border} borderRadius="xl" p={3}>
-            <Text fontWeight="bold" mb={2}>Resumen mensual</Text>
+            <Text fontWeight="bold" mb={2}>Monthly summary</Text>
             <Skeleton isLoaded={!isFetching} borderRadius="lg">
               <CustomMinCalendar
                 height="250px"

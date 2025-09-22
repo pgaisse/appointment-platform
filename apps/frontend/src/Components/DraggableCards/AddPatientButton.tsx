@@ -1,6 +1,7 @@
 // AddPatientButton.tsx
 import React from "react";
 import {
+  Text,
   Box,
   Flex,
   Modal,
@@ -35,13 +36,14 @@ type Props = {
   size?: "xs" | "sm" | "md" | "lg"; // tamaño IconButton
   variant?: string;                 // variant de Chakra para IconButton
   modalSize?: string;               // tamaño del Modal (por defecto 2xl)
+  text?:string
 };
 
 export default function AddPatientButton({
   priority,
   onlyPatient = false,
   label = "Add Patient",
-
+  text="",
   isOpen,
   onOpen,
   onClose,
@@ -80,7 +82,8 @@ export default function AddPatientButton({
         fontSize="12px"
         onClick={handleOpen}
         onPointerDown={(e) => e.stopPropagation()} // evita interferir con drag (dnd-kit)
-      />
+      >{text}</IconButton>
+      
     </Tooltip>
   );
 

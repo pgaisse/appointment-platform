@@ -34,7 +34,7 @@ function setupSocket(server) {
   function getKey(header, callback) {
     jwksClient.getSigningKey(header.kid, (err, key) => {
       if (err) {
-        console.error('[SOCKET][JWKS] Error obteniendo clave pública:', err?.message || err);
+        //console.error('[SOCKET][JWKS] Error obteniendo clave pública:', err?.message || err);
         return callback(new Error('JWKS error'));
       }
       callback(null, key.getPublicKey());
@@ -58,11 +58,11 @@ function setupSocket(server) {
 
   // Log de errores de engine (CORS/handshake/transporte)
   io.engine.on('connection_error', (err) => {
-    console.error('[SOCKET][ENGINE ERROR]', {
-      code: err.code,
-      message: err.message,
-      context: err.context,
-    });
+    //console.error('[SOCKET][ENGINE ERROR]', {
+    //  code: err.code,
+     // message: err.message,
+     // context: err.context,
+    //});
   });
 
   // Middleware de autenticación por socket (handshake)
@@ -84,7 +84,7 @@ function setupSocket(server) {
         },
         (err, decoded) => {
           if (err) {
-            console.error('[SOCKET][AUTH] Token inválido:', err.message);
+            //console.error('[SOCKET][AUTH] Token inválido:', err.message);
             return next(new Error('Unauthorized'));
           }
 
@@ -100,13 +100,13 @@ function setupSocket(server) {
           };
 
           if (!socket.user.org_id) {
-            console.warn('[SOCKET][AUTH] org_id ausente en token');
+            //console.warn('[SOCKET][AUTH] org_id ausente en token');
           }
           next();
         }
       );
     } catch (e) {
-      console.error('[SOCKET][AUTH] Error inesperado:', e?.message || e);
+      //console.error('[SOCKET][AUTH] Error inesperado:', e?.message || e);
       next(new Error('Unauthorized'));
     }
   });
@@ -114,10 +114,10 @@ function setupSocket(server) {
   // Conexión del cliente
   io.on('connection', (socket) => {
     const { id: userId, org_id } = socket.user || {};
-    console.log('[SOCKET][CONNECT]', { socketId: socket.id, userId, org_id });
+    //console.log('[SOCKET][CONNECT]', { socketId: socket.id, userId, org_id });
 
     if (!org_id) {
-      console.warn('[SOCKET] org_id vacío → disconnect');
+      //console.warn('[SOCKET] org_id vacío → disconnect');
       socket.disconnect(true);
       return;
     }
@@ -125,7 +125,7 @@ function setupSocket(server) {
     // Únete al room de la organización (minúsculas)
     const room = orgRoom(org_id);
     socket.join(room);
-    console.log('[SOCKET][JOIN]', { socketId: socket.id, room });
+   // console.log('[SOCKET][JOIN]', { socketId: socket.id, room });
 
     // Escucha genérica (útil al depurar; puedes silenciar en prod)
     socket.onAny((event, ...args) => {
@@ -134,16 +134,16 @@ function setupSocket(server) {
           try { return JSON.stringify(args)?.slice(0, 300); }
           catch { return '[unserializable]'; }
         })();
-        console.log('[SOCKET][IN]', event, { from: socket.id, argsPreview: preview });
+        //console.log('[SOCKET][IN]', event, { from: socket.id, argsPreview: preview });
       }
     });
 
     socket.on('disconnect', (reason) => {
-      console.log('[SOCKET][DISCONNECT]', { socketId: socket.id, reason });
+      //console.log('[SOCKET][DISCONNECT]', { socketId: socket.id, reason });
     });
 
     socket.on('error', (e) => {
-      console.error('[SOCKET][CLIENT ERROR]', e?.message || e);
+     // console.error('[SOCKET][CLIENT ERROR]', e?.message || e);
     });
   });
 

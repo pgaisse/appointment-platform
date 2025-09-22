@@ -173,7 +173,7 @@ mongo_dev:
 	docker exec -it mongo_dev mongosh "$$MONGO_URI_DEV"
 
 mongo_prod:
-	docker exec -it mongo_prod mongosh "mongodb://$$MONGO_USER:$$MONGO_PASS@mongo_prod:27017/productionDB?authSource=admin"
+	docker exec -it mongo_prod mongosh "mongodb://pgaisse:Patoch-2202@mongo_prod:27017/productionDB?authSource=admin"
 
 dev_api_logs:
 	docker logs -f backend_dev

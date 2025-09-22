@@ -14,7 +14,6 @@ import "react-big-calendar/lib/css/react-big-calendar.css";
 import "./CustomCalendar.css";
 
 import CustomDayHeader from "./CustomDayHeader";
-import CustomEventContent from "./CustomEventContent";
 import CustomTimeGutterHeader from "./CustomTimeGutterHeader";
 import { CustomTimeSlotWrapper } from "./CustomTimeSlotWrapper";
 
