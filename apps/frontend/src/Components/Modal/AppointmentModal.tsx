@@ -33,6 +33,8 @@ import { ContactAppointment } from "@/types";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { GrContact } from "react-icons/gr";
 import { CiUser } from "react-icons/ci";
+import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
+import { mayusName } from "@/Functions/mayusName";
 
 // -----------------------------
 // Tipos basados en tus esquemas Mongoose (actualizados)
@@ -339,10 +341,10 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                 <SectionCard title={<HStack><Icon as={FiUser} /><Text>Contact</Text></HStack>}>
                                     <Grid templateColumns={{ base: "1fr", sm: "1fr 1fr" }} gap={4}>
                                         <GridItem>
-                                            <LabeledRow icon={FiUser} label="Name" value={fullName} />
+                                            <LabeledRow icon={FiUser} label="Name" value={mayusName(fullName)} />
                                         </GridItem>
                                         <GridItem>
-                                            <LabeledRow icon={FiPhone} label="Phone" value={appointment?.phoneInput} copyable />
+                                            <LabeledRow icon={FiPhone} label="Phone" value={formatAustralianMobile(appointment?.phoneInput?appointment?.phoneInput:"")} copyable />
                                         </GridItem>
                                         <GridItem>
                                             <LabeledRow icon={FiMail} label="Email" value={appointment?.emailInput} copyable />

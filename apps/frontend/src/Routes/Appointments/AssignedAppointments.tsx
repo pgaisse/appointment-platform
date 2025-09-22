@@ -82,7 +82,7 @@ const AssignedAppointments = () => {
   return (
     <>
       <Grid templateColumns={{ base: "100%", md: "80% 20%" }} gap={4} w="100%">
-        <Box p={4} position="relative">
+        <Box p={2} position="relative">
           {isFetching && (
             <Center
               position="absolute"
@@ -102,7 +102,7 @@ const AssignedAppointments = () => {
           <Box mb={4}>
             <CustomCalendar
               onView={handleViewChange}
-              height="80vh"
+              height="100dvh"
               calView={calendarView}
               setDate={setCurrentDate}
               selectable={false}
@@ -117,12 +117,12 @@ const AssignedAppointments = () => {
           </Box>
         </Box>
 
-        <Box p={4} display={{ base: "none", md: "block" }}>
+        <Box p={2} display={{ base: "none", md: "block" }}>
           <Box mb={4} borderWidth="1px" borderColor={border} borderRadius="xl" p={3}>
             <Text fontWeight="bold" mb={2}>Monthly summary</Text>
             <Skeleton isLoaded={!isFetching} borderRadius="lg">
               <CustomMinCalendar
-                height="250px"
+                height="350px"
                 width="100%"
                 step={CALENDAR_STEP}
                 onSelectSlot={() => {}}

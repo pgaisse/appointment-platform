@@ -303,7 +303,7 @@ const CustomCalendar = ({
   return (
     <Box
       w="100%"
-      height={height}
+      
       overflow="hidden"
       borderRadius="2xl"
       borderWidth="1px"
