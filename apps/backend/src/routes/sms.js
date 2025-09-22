@@ -775,7 +775,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
           }
 
           // Notificar a la UI
-
+          queueInvalidate(res, orgId, ["DraggableCards"]);
           req.io.to(`org:${orgId}`).emit("confirmationResolved", {
             conversationId: payload.ConversationSid,
             respondsTo: prev.sid,
