@@ -535,14 +535,8 @@ function CustomEntryForm({ children, dates,
                               isDisabled={isPending || editIsPending}
                               colorScheme="blue"
                               key={index}
-                              onClick={() => {
-                                const updated = field.value.filter((_, i) => i !== index);
-                                field.onChange(updated); // actualiza el valor registrado en RHF
-                                setSelectedAppDates(updated); // actualiza tu estado local (si aún lo necesitas)
-                                if (setDatesApp) setDatesApp(updated);
-                                trigger("selectedAppDates"); // opcional
-                              }}
-                              rightIcon={<IoMdClose />}
+                              
+                              
                             >
                               {start.format("YYYY/MM/DD HH:mm")} - {end.format("HH:mm")}
                             </Button>
