@@ -8,25 +8,33 @@ import {
 } from "react-big-calendar";
 import { format, parse, startOfWeek, getDay } from "date-fns";
 import { enUS } from "date-fns/locale/en-US";
-import "react-big-calendar/lib/css/react-big-calendar.css";
-import "./CustomCalendar.css";
 import CustomToolbar from "./CustomToolBar";
 import CustomDayHeader from "./CustomDayHeader";
 import { Box, useColorModeValue } from "@chakra-ui/react";
 import { useMemo, useState, useCallback } from "react";
+import "react-big-calendar/lib/css/react-big-calendar.css";
 
+/** Locales date-fns */
 const locales = { "en-US": enUS };
 
+/** ✅ Usa el `date` provisto por RBC (evita desalinear semanas) */
 const localizer = dateFnsLocalizer({
   format,
   parse,
-  startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 1 }),
+  startOfWeek: (date: Date) => startOfWeek(date, { weekStartsOn: 1 }),
   getDay,
   locales,
 });
 
+type EventLike = {
+  start: Date | string | number;
+  end?: Date | string | number;
+  allDay?: boolean;
+  [k: string]: any;
+};
+
 type Props = {
-  events?: unknown[];
+  events?: EventLike[];
   eventDates?: string[];
   toolbar?: boolean;
   step?: number;
@@ -34,19 +42,60 @@ type Props = {
   min?: Date;
   max?: Date;
   width?: string;
-  calView?: View; // ya no permitimos cambiar, pero lo mantenemos por compat
+  calView?: View; // fijo en month, se mantiene por compat
   height?: string | number;
   onNavigate?: (newDate: Date, view: View, action: NavigateAction) => void;
   onSelectSlot?: (slotInfo: SlotInfo) => void;
   onSelectEvent?: (slotInfo: SlotInfo) => void;
   onClick?: (event: { start: Date; end: Date }) => void;
+
+  /** Opcional: fuerza tratar eventos como “de día” (sin hora). Por defecto false. */
+  forceDateOnly?: boolean;
 };
+
+/* ========================  Helpers TZ / Normalización  ======================== */
+
+/** Parser seguro para Date | string | number */
+function parseAny(value: any): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") return new Date(value);
+  return new Date(value as any);
+}
+
+/**
+ * Crea una fecha LOCAL a las 00:00 preservando Y/M/D en **UTC** del Date original.
+ * Ej: "2025-10-04T14:00:00Z" -> toma UTC(Y=2025,M=9,D=4) y crea new Date(2025,9,4,00:00 local).
+ * Esto ancla el día calendario y evita que "salte" por la zona horaria.
+ */
+function fixToLocalCalendarDayFromUTC(d: Date): Date {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  return new Date(y, m, day, 0, 0, 0, 0);
+}
+
+/** Heurística: ¿parece "fecha sin hora" (medianoche o casi)? */
+function looksDateOnly(d: Date): boolean {
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const s = d.getSeconds();
+  const ms = d.getMilliseconds();
+  return (h === 0 && m === 0 && s === 0 && ms === 0) || h < 1; // tolera <1h (DST)
+}
+
+/** ¿Se comporta como all-day? Si el backend no envía allDay, inferimos. */
+function isAllDayLike(ev: EventLike, start: Date, end?: Date): boolean {
+  if (ev.allDay) return true;
+  if (!end) return looksDateOnly(start);
+  return looksDateOnly(start) && looksDateOnly(end);
+}
+
+/* ============================================================================ */
 
 function CustomMinCalendar({
   width,
   toolbar = true,
-  // forzamos vista mensual; ignoramos calView si viene distinto
-  calView = Views.MONTH,
+  calView = Views.MONTH, // fijo mensual
   timeSlots = 1,
   min = new Date(2025, 0, 1, 9, 30),
   max = new Date(2025, 0, 1, 19, 0),
@@ -57,10 +106,37 @@ function CustomMinCalendar({
   onSelectEvent,
   onClick,
   events = [],
+  forceDateOnly = false,
 }: Props) {
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // colores (usar hooks aquí, no dentro de callbacks)
+  /** 🎯 Normaliza eventos antes de pasarlos a RBC (evita corrimientos de día) */
+  const normalizedEvents = useMemo(() => {
+    return (events as EventLike[]).map((raw) => {
+      const start0 = parseAny(raw.start);
+      const end0 = raw.end ? parseAny(raw.end) : start0;
+
+      // Tratamiento de "fecha sin hora" o all-day
+      if (forceDateOnly || isAllDayLike(raw, start0, end0)) {
+        const startLocal = fixToLocalCalendarDayFromUTC(start0);
+        // Para RBC all-day, el end es exclusivo (día siguiente)
+        const desiredEnd =
+          raw.end ? fixToLocalCalendarDayFromUTC(end0) : new Date(startLocal.getFullYear(), startLocal.getMonth(), startLocal.getDate() + 1);
+
+        const endLocal =
+          desiredEnd.getTime() === startLocal.getTime()
+            ? new Date(startLocal.getFullYear(), startLocal.getMonth(), startLocal.getDate() + 1)
+            : desiredEnd;
+
+        return { ...raw, allDay: true, start: startLocal, end: endLocal };
+      }
+
+      // Eventos con hora real: se dejan como Date (local)
+      return { ...raw, start: start0, end: end0 };
+    });
+  }, [events, forceDateOnly]);
+
+  // Colores (hooks SOLO aquí)
   const bg = useColorModeValue("white", "gray.900");
   const border = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
   const subtle = useColorModeValue("gray.50", "whiteAlpha.100");
@@ -88,11 +164,7 @@ function CustomMinCalendar({
     return set;
   }, [eventDates]);
 
-  const handleNavigate = (
-    newDate: Date,
-    view: View,
-    action: NavigateAction
-  ) => {
+  const handleNavigate = (newDate: Date, view: View, action: NavigateAction) => {
     setCurrentDate(newDate);
     onNavigate?.(newDate, view, action);
   };
@@ -102,6 +174,7 @@ function CustomMinCalendar({
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 
+  /** Estilo por-día (sin hooks) */
   const dayPropGetter = useCallback(
     (date: Date) => {
       const { dStr, ymd } = normalizeKey(date);
@@ -127,6 +200,7 @@ function CustomMinCalendar({
     showMore: (total: number) => `+${total} more`,
   };
 
+  /** CSS premium, scopeado al wrapper para no interferir con otros calendarios */
   const premiumCss = `
   [data-rbc="premium"] .rbc-month-view { border: none !important; background: transparent !important; }
   [data-rbc="premium"] .rbc-toolbar {
@@ -182,13 +256,12 @@ function CustomMinCalendar({
       >
         <Calendar
           localizer={localizer}
-          events={(events as any) ?? []}
+          events={normalizedEvents}      // ✅ eventos ya corregidos
           startAccessor="start"
           endAccessor="end"
           date={currentDate}
-          view={Views.MONTH}                 // 🔒 fija vista mensual
-          views={{ month: true }}            // 🔒 solo mes disponible
-          // sin onView: no permitimos cambio
+          view={Views.MONTH}             // 🔒 solo mensual
+          views={{ month: true }}
           onNavigate={handleNavigate}
           timeslots={timeSlots}
           min={min}
@@ -203,13 +276,16 @@ function CustomMinCalendar({
           toolbar={toolbar}
           popup
           messages={messages}
-          // ❌ sin drilldown a día/semana
-          // drilldownView eliminado
           formats={{
             weekdayFormat: (d: Date) => format(d, "EEE").toUpperCase(),
             monthHeaderFormat: (d: Date) => format(d, "MMMM yyyy"),
           }}
-          style={{ fontSize: "12px", border: "none", background: "transparent", height: "100%" }}
+          style={{
+            fontSize: "12px",
+            border: "none",
+            background: "transparent",
+            height: "100%",
+          }}
           components={{ toolbar: CustomToolbar, header: CustomDayHeader }}
         />
       </Box>

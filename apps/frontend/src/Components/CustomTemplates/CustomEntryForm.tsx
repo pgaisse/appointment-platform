@@ -168,7 +168,7 @@ function CustomEntryForm({ children, dates,
   //const { mutate, isPending } = useEntryForm("Appointment");
   const { mutate, isPending } = useInsertToCollection<{ message: string; document: any }>("Appointment");
   //const { mutate: editItem, isPending: editIsPending } = useEditItem({ model: "Appointment" });
-  const { mutate: editItem, isPending: editIsPending } = useUpdateItems();
+  const { mutate: editItem, isPending: editIsPending } = useUpdateItems(isAnAppointment?"update-items":"update-items-contacts");
   const queryClient = useQueryClient();
   const toast = useToast();
   const {
@@ -277,7 +277,6 @@ function CustomEntryForm({ children, dates,
         id_value: idVal ?? "",   // valor PK, fallback to empty string if undefined
         data: cleanedData
       }];
-
       editItem(payload,
         {
 
@@ -578,7 +577,7 @@ function CustomEntryForm({ children, dates,
                               offset={duration}
                               selectedAppDates={selectedAppDates}
                               setSelectedAppDates={setSelectedAppDates}
-                              trigger={trigger}
+                              trigger={trigger as any}
                               setValue={setValue}
                               onClose={onCloseApp}
                             />

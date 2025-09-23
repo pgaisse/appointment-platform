@@ -285,8 +285,86 @@ router.post('/appointments/exists', async (req, res) => {
   const map = Object.fromEntries(valid.map((id) => [id, set.has(id)]));
   return res.json({ exists: map });
 });
-
 router.patch("/update-items", jwtCheck, async (req, res) => {
+  const { org_id } = await helpers.getTokenInfo(req.headers.authorization);
+  const updates = Array.isArray(req.body) ? req.body : [req.body];
+  const results = [];
+
+  // Tablas donde sí queremos forzar proxyAddress
+  const TABLES_ENFORCING_PROXY = new Set(["Message", "Conversation"]);
+
+  try {
+    for (const update of updates) {
+      const { table, id_field, id_value } = update;
+      let { data } = update;
+
+      if (!table || !id_field || !id_value || !data) {
+        results.push({ status: "failed", update, reason: "Missing required fields" });
+        continue;
+      }
+
+      const Model = models[table];
+      if (!Model) {
+        results.push({ status: "failed", update, reason: `Model "${table}" not found` });
+        continue;
+      }
+
+      // Normalizaciones seguras
+      data = { ...data, unknown: !!data.unknown && data.unknown === true ? true : false };
+      if (org_id && data.org_id == null) data.org_id = org_id;
+
+      // ---- Filtro dinámico ----
+      // Cast del ID si es _id
+      let castedId = id_value;
+      if (id_field === "_id" && typeof id_value === "string" && mongoose.isValidObjectId(id_value)) {
+        castedId = new mongoose.Types.ObjectId(id_value);
+      }
+
+      const filter = { [id_field]: castedId };
+
+      // Solo aplica filtro por organización si el esquema la tiene
+      if (org_id && Model.schema.path("org_id")) {
+        filter.$or = [{ org_id }, { org_id: { $exists: false } }];
+      }
+
+      // Solo fuerza proxyAddress en tablas que realmente lo requieren
+      if (TABLES_ENFORCING_PROXY.has(table) && Model.schema.path("proxyAddress")) {
+        filter.proxyAddress = process.env.TWILIO_FROM_MAIN;
+      }
+
+      // Usa updateOne para obtener matched/modified
+      const r = await Model.updateOne(filter, { $set: data });
+
+      if (r.matchedCount === 0) {
+        results.push({
+          status: "failed",
+          id: id_value,
+          reason: "Document not found for filter (org/proxy mismatch or invalid id)",
+        });
+      } else if (r.modifiedCount === 0) {
+        results.push({ status: "noop", id: id_value }); // Matcheó pero no cambió (mismos datos)
+      } else {
+        results.push({ status: "success", id: id_value });
+      }
+    }
+
+    const anyFailed = results.some((r) => r.status === "failed");
+    const anySuccess = results.some((r) => r.status === "success");
+    const code = anyFailed && anySuccess ? 207 : anyFailed ? 404 : 200;
+
+    return res.status(code).json({
+      message: anyFailed && anySuccess ? "Some updates failed" : anyFailed ? "All updates failed" : "All updates applied",
+      results,
+    });
+  } catch (err) {
+    console.error("❌ Critical error in /update-items:", err.stack || err);
+    return res.status(500).json({
+      error: "Critical failure while processing update-items",
+      details: err.message,
+    });
+  }
+});
+router.patch("/update-items-contacts", jwtCheck, async (req, res) => {
   const { org_id, sub } = await helpers.getTokenInfo(req.headers.authorization);
  console.log("BodySE entró aupdate_______________________", req.body)
   const updates = Array.isArray(req.body) ? req.body : [req.body];

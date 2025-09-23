@@ -1,73 +1,73 @@
-.rbc-timeslot-group {
-    min-height: 20px;
-  }
-  .rbc-allday-cell {
-    display: none !important;
-  }
+/* ======== Base / Normalizaciones ======== */
 
-  .rbc-time-gutter {
-  background-color: #f0f0f0; /* Fondo gris claro */
-  
-  color: #333;               /* Color texto */
-  font-weight: bold;
-  border-right: 1px solid #ddd; /* Línea separadora */
+/* Todas las alturas derivan de variables para no romper si cambias step/slots */
+:root {
+  /* altura visual de un slot de 15min aprox */
+  --rbc-slot-h: 22px;
+  /* slots por hora (15min -> 4; 30min -> 2) */
+  --rbc-slots-per-hour: 4;
 }
+
+/* Ajusta la altura de cada grupo de 1h = slot-h * slotsPorHora */
+.rbc-time-view .rbc-timeslot-group {
+  min-height: calc(var(--rbc-slot-h) * var(--rbc-slots-per-hour));
+  border-top: 1px solid var(--rbc-color-border, rgba(125, 125, 125, 0.18));
+}
+
+/* Oculta fila "All day" correctamente */
+.rbc-allday-cell,
+.rbc-allday-events,
+.rbc-time-header .rbc-allday-cell {
+  display: none !important;
+}
+
+/* Encabezado de time view */
+.rbc-time-header {
+  background-color: #f0f0f0;
+  color: #333;
+  font-weight: bold;
+  font-size: 20px;
+  border-bottom: 1px solid #ddd;
+  border-color: rgba(125, 125, 125, 0.25);
+}
+
+/* Gutter de horas (columna izquierda) */
+.rbc-time-gutter {
+  background-color: #f0f0f0;
+  color: #333;
+  font-weight: bold;
+  border-right: 1px solid #ddd;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.03));
+}
+
+/* La altura del label acompaña al alto del grupo (1h) */
 .rbc-time-gutter .rbc-label {
-  height: 60px; /* Duplicar altura para combinar 2 medias horas */
-  line-height: 60px;
+  height: calc(var(--rbc-slot-h) * var(--rbc-slots-per-hour));
+  line-height: calc(var(--rbc-slot-h) * var(--rbc-slots-per-hour));
   border-bottom: 2px solid #ccc;
 }
-.rbc-time-header{
-  background-color: #f0f0f0; /* Fondo gris claro */
-  color: #333;               /* Color texto */
-  font-weight: bold;
-  font-size: 20px; /* Tamaño de fuente */
-  border-bottom: 1px solid #ddd; /* Línea separadora */
-}
 
-
-
-/* RESET en vista "day" para que ocupe todo el ancho */
+/* Vista día: que ocupe todo el ancho disponible */
 .rbc-time-view-day .rbc-day-slot,
 .rbc-time-view-day .rbc-time-content .rbc-day-slot {
   width: 100% !important;
   display: block !important;
 }
-/* Solo cuando hay 7 días (vista semana completa) */
-.rbc-time-view:not(.rbc-time-view-day):not(.rbc-time-view-agenda) 
-  .rbc-time-header .rbc-header:nth-child(7),
-.rbc-time-view:not(.rbc-time-view-day):not(.rbc-time-view-agenda)
-  .rbc-time-content .rbc-day-slot:nth-child(7) {
-  display: none !important;
+
+/* Mejor contraste de bordes en vistas de tiempo */
+.rbc-time-content,
+.rbc-time-header,
+.rbc-header {
+  border-color: rgba(125, 125, 125, 0.25);
 }
 
-/* Recalcula el ancho de los otros días (ahora 6 días visibles) */
-.rbc-time-header .rbc-header,
-.rbc-time-view .rbc-day-slot,
-.rbc-allday-cell,
-.rbc-time-content .rbc-day-slot {
-  width: calc(100% / 6);
-}
-.rbc-time-slot,
-.rbc-day-slot {
-  cursor: pointer;
-}
-.rbc-event {
-  transition: top 0.15s ease, height 0.15s ease;
-}
-
-/* Líneas de grupo de tiempo más suaves */
-.rbc-time-view .rbc-timeslot-group {
-  border-top: 1px solid var(--rbc-color-border, rgba(125, 125, 125, 0.18));
-}
-
-/* Suaviza líneas de slots */
+/* Líneas suaves de slots (opcional, efecto sutil) */
 .rbc-slot--soft {
   background-image: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.04) 50%);
   background-size: 100% 2px;
 }
 
-/* Hoy resaltado (alto contraste sutil) */
+/* Hoy resaltado (sutil) */
 .rbc-day--today-premium {
   background: linear-gradient(180deg, rgba(56,189,248,0.08), transparent 35%);
 }
@@ -77,7 +77,11 @@
   background-color: rgba(128,128,128,0.05);
 }
 
-/* Evento premium: hover/focus accesibles */
+/* Eventos: transición suave y accesible en hover/focus */
+.rbc-event {
+  transition: top 0.15s ease, height 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
 .rbc-event--premium:focus,
 .rbc-event--premium:hover {
   transform: translateY(-1px);
@@ -86,19 +90,24 @@
   outline-offset: 0;
 }
 
-/* Mejora contraste de bordes */
-.rbc-time-content,
-.rbc-time-header,
-.rbc-header {
-  border-color: rgba(125, 125, 125, 0.25);
+/* Oculta la etiqueta de horas dentro del evento para ganar espacio */
+.rbc-event-label { 
+  display: none !important; 
 }
 
-/* Gutter de horas */
-.rbc-time-gutter.rbc-time-column {
-  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.03));
+/* Contenido del evento con truncado fiable dentro de flex */
+.rbc-event,
+.rbc-event-content {
+  height: 100%;
+  min-width: 0; /* clave para ellipsis en flex */
+}
+.rbc-event-content > * {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
 }
 
-/* Scrollbars finos */
+/* Scrollbars finos (WebKit + Firefox) */
 .rbc-time-view,
 .rbc-month-view {
   scrollbar-width: thin;
@@ -113,45 +122,5 @@
   background: rgba(120,120,120,0.35);
   border-radius: 8px;
 }
-/* Altura por grupo (1h) = slotsPerGroup * altura-slot */
-.rbc-time-view .rbc-timeslot-group {
-  min-height: calc(var(--rbc-slot-h, 22px) * var(--rbc-slots-per-group, 4));
-}
 
-/* Asegura que el contenido llene el wrapper */
-.rbc-event,
-.rbc-event-content {
-  height: 100%;
-}
-.rbc-event-content > * {
-  height: 100%;
-  width: 100%;
-}
-/* El wrapper y el contenido deben poder encoger para que el ellipsis funcione */
-.rbc-event,
-.rbc-event-content {
-  height: 100%;
-  min-width: 0; /* 👈 clave para ellipsis dentro de flex */
-}
-
-.rbc-event-content > * {
-  height: 100%;
-  width: 100%;
-  min-width: 0; /* 👈 clave para ellipsis dentro de flex */
-}
-/* Oculta la etiqueta de horas dentro del evento */
-.rbc-event-label { 
-  display: none !important; 
-}
-
-/* Asegura truncado en flex */
-.rbc-event,
-.rbc-event-content {
-  height: 100%;
-  min-width: 0;
-}
-.rbc-event-content > * {
-  height: 100%;
-  width: 100%;
-  min-width: 0;
-}
+/*

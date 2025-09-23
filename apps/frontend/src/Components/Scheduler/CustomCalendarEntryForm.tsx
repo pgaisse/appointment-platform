@@ -23,8 +23,8 @@ import { CalendarEvent, EventDropArg, EventResizeDoneArg } from "@/types";
 import eventStyleGetter from "./eventStyleGetter";
 import { DateRange } from "@/Hooks/Handles/useSlotSelection";
 import { UseFormSetValue, UseFormTrigger } from "react-hook-form";
-import { appointmentsSchemaFormData } from "@/schemas/AppointmentsSchema";
 import { Box } from "@chakra-ui/react";
+import { AppointmentForm } from "@/schemas/AppointmentsSchema";
 
 // Locales para date-fns
 const locales = {
@@ -46,7 +46,7 @@ const Calendar = withDragAndDrop<CalendarEvent>(BaseCalendar);
 type Props = {
   setSelectedAppDates?: React.Dispatch<React.SetStateAction<DateRange[]>>
   selectedAppDates?: DateRange[]
-  trigger?: UseFormTrigger<appointmentsSchemaFormData>;
+  trigger?: UseFormTrigger<AppointmentForm>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setValue?: UseFormSetValue<any>;
   height: string;
