@@ -109,7 +109,7 @@ function SortableChatRow({
     if (contact.lastMessage?.media?.length) return "📷 Photo";
     return "";
   })();
-  const formatedNumber=formatFromE164(contact.owner?.phone?contact.owner?.phone:"")
+  const formatedNumber = formatFromE164(contact.owner?.phone ? contact.owner?.phone : "")
 
 
   return (
@@ -141,10 +141,10 @@ function SortableChatRow({
             {contact.owner?.name || contact.lastMessage?.author || "No name"}
 
           </Text>
-          {contact.owner?.unknown ? <AddPatientButton onlyPatient={true} label='New Contact'
+          {contact.owner?.unknown ? <AddPatientButton color="blue" px={0} py={0} mb={0} onlyPatient={true} label='Add Contact'
             formProps={{
               typeButonVisible: false, phoneVal: formatedNumber, phoneFieldReadOnly: true,
-              mode: "EDITION", idVal: contact.owner._id, conversationId:contact.conversationId
+              mode: "EDITION", idVal: contact.owner._id, conversationId: contact.conversationId
             }} /> : undefined}
         </HStack>
 

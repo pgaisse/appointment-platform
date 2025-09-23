@@ -12,6 +12,7 @@ import {
   useDisclosure,
   IconButton,
   Tooltip,
+  Button,
 } from "@chakra-ui/react";
 import { AiOutlineUserAdd } from "react-icons/ai";
 import CustomEntryForm from "../CustomTemplates/CustomEntryForm";
@@ -22,7 +23,9 @@ type Props = {
   priority?: Priority;
   onlyPatient?: boolean;
   label?: string;
-
+  px?: number,
+  py?: number,
+  mb?: number,
   /** Control del modal desde el padre (opcional). Si no se provee, usa modo no controlado */
   isOpen?: boolean;
   onOpen?: () => void;
@@ -36,18 +39,24 @@ type Props = {
   size?: "xs" | "sm" | "md" | "lg"; // tamaño IconButton
   variant?: string;                 // variant de Chakra para IconButton
   modalSize?: string;               // tamaño del Modal (por defecto 2xl)
-  text?:string
+  text?: string
+  color?:string
+  tooltip?:boolean
 };
 
 export default function AddPatientButton({
   priority,
   onlyPatient = false,
   label = "Add Patient",
-  text="",
+  text = "",
+  tooltip=true,
   isOpen,
+  color,
   onOpen,
   onClose,
-
+  px = 4,
+  py = 2,
+  mb = 3,
   formProps,
 
   inline = false,
@@ -73,17 +82,23 @@ export default function AddPatientButton({
   };
 
   const Trigger = (
-    <Tooltip label={label} placement="top" fontSize="sm" hasArrow>
-      <IconButton
+    <Tooltip label={tooltip?label:""} placement="top" fontSize="sm" hasArrow>
+      <Button
         aria-label={label}
-        icon={<AiOutlineUserAdd style={{ boxSizing: "content-box" }} />}
-        size={size}
-        variant={variant}
-        fontSize="12px"
+        variant="ghost"
+        colorScheme="gray"
+        leftIcon={<AiOutlineUserAdd style={{ boxSizing: "content-box" }} color={color?color:undefined} />}
+        px={px}
+        py={py}
+        mb={mb}
+        borderRadius="lg"
+        fontWeight="medium"
+        fontSize="md"
+        _hover={{ bg: "gray.100" }}
         onClick={handleOpen}
         onPointerDown={(e) => e.stopPropagation()} // evita interferir con drag (dnd-kit)
-      >{text}</IconButton>
-      
+      >{text}</Button>
+
     </Tooltip>
   );
 

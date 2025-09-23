@@ -209,7 +209,9 @@ export default function CustomChat() {
                 <NewChatButton setChat={setChat} dataConversation={dataConversation} />
                 <AddPatientButton
                   onlyPatient={true}
-                  text="+ Add"
+                  text="New Contact"
+                  label="Add Contact"
+                  tooltip={false}
                   formProps={{ typeButonVisible: false, phoneFieldReadOnly: false, mode: "EDITION" }}
                 />
               </HStack>
