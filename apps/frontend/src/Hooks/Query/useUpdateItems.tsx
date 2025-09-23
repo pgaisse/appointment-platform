@@ -4,7 +4,6 @@ import {
 } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
-import { env } from "@/types";
 
 export type UpdatePayload = {
   table: string;
@@ -13,82 +12,84 @@ export type UpdatePayload = {
   data: { [key: string]: any };
 };
 
+// Helper: junta base + endpoint sin dobles barras
+const joinURL = (base: string, endpoint: string) => {
+  if (!endpoint) throw new Error("Endpoint requerido");
+  // Si ya es absoluta, úsala tal cual
+  if (/^https?:\/\//i.test(endpoint)) return endpoint;
+  const b = base?.replace(/\/+$/, "") ?? "";
+  const e = endpoint.replace(/^\/+/, "");
+  return `${b}/${e}`;
+};
+
 const updateItems = async ({
   payload,
   token,
+  endpoint,
 }: {
   payload: UpdatePayload[];
   token: string;
+  endpoint: string; // ← ahora es dinámico
 }) => {
-  const res = await axios.patch(
-    `${import.meta.env.VITE_BASE_URL}/update-items`,
-    payload,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
+  const url = joinURL(import.meta.env.VITE_BASE_URL as string, endpoint);
+  const res = await axios.patch(url, payload, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   return res.data;
 };
 
-export const useUpdateItems = () => {
+/**
+ * Hook para actualizar items con endpoint configurable.
+ * @param endpoint Ruta relativa (p.ej. "/update-items" o "appointments/update") o URL absoluta.
+ * @param options  Config para cache (queryKey que optimizamos/invalida).
+ */
+export const useUpdateItems = (
+  endpoint: string = "/update-items",
+  options?: {
+    optimisticKey?: unknown[];        // key a optimizar (por defecto ["items"])
+    invalidateKeys?: unknown[][];     // keys a invalidar al terminar
+  }
+) => {
   const queryClient = useQueryClient();
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+
+  const optimisticKey = options?.optimisticKey ?? ["items"];
+  const invalidateKeys = options?.invalidateKeys ?? [optimisticKey];
 
   return useMutation({
     mutationFn: async (payload: UpdatePayload[]) => {
       if (!isAuthenticated) throw new Error("Usuario no autenticado");
-
       const token = await getAccessTokenSilently({
-        authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-        },
+        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
-
-      return await updateItems({ payload, token });
+      return await updateItems({ payload, token, endpoint });
     },
 
-    // OPTIMISTIC UPDATE
+    // --- OPTIMISTIC UPDATE (igual que tu versión actual) ---
     onMutate: async (updatedPayload) => {
-      // Cancelar queries pendientes para evitar sobreescritura
-      await queryClient.cancelQueries({ queryKey: ["items"] });
+      await queryClient.cancelQueries({ queryKey: optimisticKey });
+      const previousData = queryClient.getQueryData<any>(optimisticKey);
 
-      // Guardar datos anteriores para rollback
-      const previousData = queryClient.getQueryData<any>(["items"]);
-
-      // Actualizar cache optimistamente
-      queryClient.setQueryData(["items"], (oldData: any) => {
+      queryClient.setQueryData(optimisticKey, (oldData: any) => {
         if (!oldData) return oldData;
 
-        // Por simplicidad asumo estructura array de columnas con .patients
-        // Copia profunda superficial
+        // Copia superficial y lógica de mover/ordenar que ya tenías
         const newData = oldData.map((col: any) => {
           let patients = col.patients ? [...col.patients] : [];
 
-          // Primero remover pacientes que van a moverse de esta columna
           updatedPayload.forEach((update) => {
-            if (update.data.priority !== col._id) {
-              // no es de esta columna, no toca
-              return;
-            }
-            // Remover duplicados
+            if (update.data.priority !== col._id) return;
             patients = patients.filter((p) => p._id !== update.id_value);
           });
 
-          // Insertar pacientes actualizados en posición correcta
           updatedPayload
             .filter((u) => u.data.priority === col._id)
             .sort((a, b) => a.data.position - b.data.position)
             .forEach((u) => {
-              // Buscar item actualizado en previousData
-              const updatedItem = previousData
+              const updatedItem = (previousData as any)
                 .flatMap((c: any) => c.patients)
                 .find((p: any) => p._id === u.id_value);
-
-              if (updatedItem) {
-                patients.splice(u.data.position, 0, updatedItem);
-              }
+              if (updatedItem) patients.splice(u.data.position, 0, updatedItem);
             });
 
           return { ...col, patients };
@@ -100,16 +101,16 @@ export const useUpdateItems = () => {
       return { previousData };
     },
 
-    onError: (err, variables, context) => {
-      // Rollback si falla
+    onError: (_err, _variables, context) => {
       if (context?.previousData) {
-        queryClient.setQueryData(["items"], context.previousData);
+        queryClient.setQueryData(optimisticKey, context.previousData);
       }
     },
 
     onSettled: () => {
-      // Refrescar cache siempre al terminar
-      queryClient.invalidateQueries({ queryKey: ["items"] });
+      invalidateKeys.forEach((key) =>
+        queryClient.invalidateQueries({ queryKey: key })
+      );
     },
   });
 };
