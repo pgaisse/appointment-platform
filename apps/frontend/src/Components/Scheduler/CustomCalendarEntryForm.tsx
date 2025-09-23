@@ -6,18 +6,17 @@ import {
   SlotInfo,
   View,
   DateLocalizer,
-
+  dateFnsLocalizer,
 } from "react-big-calendar";
 import withDragAndDrop, { EventInteractionArgs } from "react-big-calendar/lib/addons/dragAndDrop";
-import { format, parse, startOfWeek, getDay } from "date-fns";
+import { format, parse, startOfWeek as dfStartOfWeek, getDay } from "date-fns";
 import { enUS } from "date-fns/locale/en-US";
-import { dateFnsLocalizer } from "react-big-calendar";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 import "./CustomCalendar.css";
 
 import CustomDayHeader from "./CustomDayHeader";
-import { CustomTimeSlotWrapper } from "./CustomTimeSlotWrapper";
+// ⚠️ Renombrado para no chocar con el import previo:
 import CustomTimeGutterHeader from "./CustomTimeGutterHeader";
 import { CalendarEvent, EventDropArg, EventResizeDoneArg } from "@/types";
 import eventStyleGetter from "./eventStyleGetter";
@@ -27,15 +26,13 @@ import { Box } from "@chakra-ui/react";
 import { AppointmentForm } from "@/schemas/AppointmentsSchema";
 
 // Locales para date-fns
-const locales = {
-  "en-US": enUS,
-};
+const locales = { "en-US": enUS };
 
-// Localizador de fechas
+// Localizador de fechas (firma correcta del startOfWeek)
 const localizer = dateFnsLocalizer({
   format,
   parse,
-  startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 1 }),
+  startOfWeek: (date: Date) => dfStartOfWeek(date, { weekStartsOn: 1 }),
   getDay,
   locales,
 });
@@ -43,11 +40,32 @@ const localizer = dateFnsLocalizer({
 // Wrap del Calendar para habilitar drag & drop
 const Calendar = withDragAndDrop<CalendarEvent>(BaseCalendar);
 
+// ---------- Utils de fecha seguros ----------
+const toDate = (v: unknown): Date | null => {
+  if (v instanceof Date) return v;
+  const d = new Date(v as any);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const coerceEvent = (e: Partial<CalendarEvent>): CalendarEvent | null => {
+  const start = toDate(e.start as any);
+  const end = toDate(e.end as any);
+  if (!start || !end) return null;
+  return { title: e.title ?? "", start, end, desc: e.desc || "", color: (e as any).color };
+};
+
+const coerceRange = (r: DateRange): DateRange | null => {
+  const s = toDate(r.startDate);
+  const e = toDate(r.endDate);
+  if (!s || !e) return null;
+  return { startDate: s, endDate: e };
+};
+// --------------------------------------------
+
 type Props = {
-  setSelectedAppDates?: React.Dispatch<React.SetStateAction<DateRange[]>>
-  selectedAppDates?: DateRange[]
+  setSelectedAppDates?: React.Dispatch<React.SetStateAction<DateRange[]>>;
+  selectedAppDates?: DateRange[];
   trigger?: UseFormTrigger<AppointmentForm>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setValue?: UseFormSetValue<any>;
   height: string;
   calView?: View;
@@ -72,144 +90,125 @@ function CustomCalendarEntryForm({
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentView, setCurrentView] = useState<View>(Views.WEEK);
   const [selectedDate] = useState<Date>(new Date(2025, 4, 3));
-  const [range, setRange] = useState<DateRange[] | null>(selectedAppDates ? selectedAppDates : null);
-  const [event, setEvents] = useState<CalendarEvent[]>();
+
+  // ✅ Normaliza de entrada lo que venga por props
+  const initialRange: DateRange[] | null =
+    selectedAppDates
+      ? selectedAppDates.map(coerceRange).filter(Boolean) as DateRange[]
+      : null;
+
+  const [range, setRange] = useState<DateRange[] | null>(initialRange);
+
+  // ✅ events como array (no undefined)
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+
   const timeSlots = 4;
-  const min = new Date(2025, 0, 1, 9, 30);
-  const max = new Date(2025, 0, 1, 18, 0);
   const step = 15;
+
+  // min/max anclados al día visible
+  const dayMin = new Date(currentDate); dayMin.setHours(9, 30, 0, 0);
+  const dayMax = new Date(currentDate); dayMax.setHours(18, 0, 0, 0);
 
   const handleNavigate = (newDate: Date, view: View, action: NavigateAction): void => {
     setCurrentDate(newDate);
   };
 
   const handleSelectSlot = (slotInfo: SlotInfo): void => {
-    const start: Date = new Date(slotInfo.start);
-    const end: Date = new Date(start.getTime() + offset * 60 * 60 * 1000);
+    const start = toDate(slotInfo.start);
+    if (!start) return;
+    const end = new Date(start.getTime() + offset * 60 * 60 * 1000);
     const newRange = [{ startDate: start, endDate: end }];
-
     setRange(newRange);
-
-    // Cierra el modal 1 segundo después
-    /*if (onClose) {
-      setTimeout(() => {
-        onClose();
-      }, 1000);
-    }*/
   };
 
-  const handleSelectEvent = (event: CalendarEvent): void => {
-    const startTime = event.start?.getTime();
-    const endTime = event.end?.getTime();
+  const handleSelectEvent = (ev: CalendarEvent): void => {
+    const startTime = ev.start?.getTime();
+    const endTime = ev.end?.getTime();
     if (!startTime || !endTime) return;
 
-    setEvents((prev) =>
-      (prev ?? []).filter(
-        (e) =>
-          e.start?.getTime() !== startTime || e.end?.getTime() !== endTime
-      )
-    );
+    setEvents(prev => prev.filter(
+      e => (e.start?e.start:new Date()).getTime() !== startTime || (e.end?e.end:new Date()).getTime() !== endTime
+    ));
 
-    setRange((prev) =>
-      (prev ?? []).filter(
-        (r) =>
-          r.startDate.getTime() !== startTime || r.endDate.getTime() !== endTime
-      )
-    );
-
+    setRange(prev => (prev ?? []).filter(
+      r => r.startDate.getTime() !== startTime || r.endDate.getTime() !== endTime
+    ));
   };
 
   const handleEventDrop = (args: EventInteractionArgs<CalendarEvent>) => {
     const { event: droppedEvent, start, end } = args;
-
-    // Convierte string|Date a Date estrictamente
-    const startDate = start instanceof Date ? start : new Date(start);
-    const endDate = end instanceof Date ? end : new Date(end);
+    const startDate = toDate(start);
+    const endDate = toDate(end);
+    if (!startDate || !endDate) return;
 
     const updated = { ...droppedEvent, start: startDate, end: endDate };
 
-    setEvents((prev) =>
-      (prev ?? []).map((e) => (e === droppedEvent ? updated : e))
-    );
+    setEvents(prev => prev.map(e => (e === droppedEvent ? updated : e)));
 
-    setRange((prev) =>
-      (prev ?? []).map((r) =>
-        r.startDate.getTime() === droppedEvent.start?.getTime() &&
-          r.endDate.getTime() === droppedEvent.end?.getTime()
-          ? { startDate: startDate, endDate: endDate }
-          : r
-      )
-    );
+    setRange(prev => (prev ?? []).map(r =>
+      r.startDate.getTime() === ((droppedEvent.start?droppedEvent.start:new Date()).getTime()) &&
+      r.endDate.getTime() === (droppedEvent.end?droppedEvent.end:new Date()).getTime()
+        ? { startDate: startDate, endDate: endDate }
+        : r
+    ));
   };
 
   const handleEventResize = (args: EventInteractionArgs<CalendarEvent>) => {
     const { event: resizedEvent, start, end } = args;
-
-    const startDate = start instanceof Date ? start : new Date(start);
-    const endDate = end instanceof Date ? end : new Date(end);
+    const startDate = toDate(start);
+    const endDate = toDate(end);
+    if (!startDate || !endDate) return;
 
     const updated = { ...resizedEvent, start: startDate, end: endDate };
 
-    setEvents((prev) =>
-      (prev ?? []).map((e) => (e === resizedEvent ? updated : e))
-    );
+    setEvents(prev => prev.map(e => (e === resizedEvent ? updated : e)));
 
-    setRange((prev) =>
-      (prev ?? []).map((r) =>
-        r.startDate.getTime() === resizedEvent.start?.getTime() &&
-          r.endDate.getTime() === resizedEvent.end?.getTime()
-          ? { startDate: startDate, endDate: endDate }
-          : r
-      )
-    );
+    setRange(prev => (prev ?? []).map(r =>
+      r.startDate.getTime() === (resizedEvent.start?resizedEvent.start:new Date()).getTime() &&
+      r.endDate.getTime() === (resizedEvent.end?resizedEvent.end:new Date()).getTime()
+        ? { startDate: startDate, endDate: endDate }
+        : r
+    ));
   };
 
+  // ✅ Cada vez que cambia range, re-construimos events con fechas coaccionadas a Date
   useEffect(() => {
-    const newMarkedEvents: CalendarEvent[] | undefined = range?.map((item) => ({
-      title: "",
-      start: item?.startDate,
-      end: item?.endDate,
-      desc: "Date Selected",
-      color: colorEvent,
-    }));
-    if (newMarkedEvents) setEvents(newMarkedEvents);
+    const newEvents =
+      (range ?? [])
+        .map(item => coerceEvent({
+          title: "",
+          start: item?.startDate,
+          end: item?.endDate,
+          desc: "Date Selected",
+          color: colorEvent,
+        }))
+        .filter(Boolean) as CalendarEvent[];
+
+    setEvents(newEvents);
+
     if (setSelectedAppDates && range) setSelectedAppDates(range);
     if (setValue) setValue("selectedAppDates", range);
     if (trigger) trigger("selectedAppDates");
-    //if(onClose)onClose();
-  }, [range, colorEvent]);
+  }, [range, colorEvent, setSelectedAppDates, setValue, trigger]);
 
-
-
-
-
-
-  const CustomTimeSlotWrapper = ({ value, localizer }: { value?: Date; localizer: DateLocalizer }) => {
-    const customTimeLabel = value ? localizer.format(value, "h:mm a") : "";
-    return (
-      <div style={{ fontSize: 12, textAlign: "center", color: "gray" }}>
-        {customTimeLabel}
-      </div>
-    );
+  // 🏷️ Etiqueta simple de tiempos (sin chocar nombres)
+  const TimeLabel = ({ value, localizer }: { value?: Date; localizer: DateLocalizer }) => {
+    const txt = value ? localizer.format(value, "h:mm a") : "";
+    return <div style={{ fontSize: 12, textAlign: "center", color: "gray" }}>{txt}</div>;
   };
 
-  // Wrapper que cumple con la firma que espera react-big-calendar
   const TimeSlotWrapperAdapter: React.FC = (props) => {
-    // `props` puede tener más props internas, pero aquí solo nos interesa pasar `value` y el localizer
-    return <CustomTimeSlotWrapper {...(props as any)} localizer={localizer} />;
+    return <TimeLabel {...(props as any)} localizer={localizer} />;
   };
-  return (
-    <Box
-      w="100%"
-      overflow="auto"
-      height={height}
 
-    >
+  return (
+    <Box w="100%" overflow="auto" height={height}>
       <Calendar
         localizer={localizer}
-        events={event}
-        startAccessor="start"
-        endAccessor="end"
+        events={events}                       // ✅ array siempre
+        // ✅ accesores en forma de función: convierten por si acaso
+        startAccessor={(e) => toDate(e.start)!}
+        endAccessor={(e) => toDate(e.end)!}
         date={currentDate}
         view={currentView}
         defaultView={calView}
@@ -218,9 +217,9 @@ function CustomCalendarEntryForm({
         views={[Views.WEEK, Views.DAY]}
         step={step}
         timeslots={timeSlots}
-        min={min}
-        max={max}
-        selected={selectedDate}
+        min={dayMin}
+        max={dayMax}
+        // `selected` no es necesario para seleccionar fecha; lo quito para evitar confusiones
         onSelectSlot={handleSelectSlot}
         onSelectEvent={handleSelectEvent}
         onEventDrop={handleEventDrop}
@@ -233,11 +232,10 @@ function CustomCalendarEntryForm({
         components={{
           header: CustomDayHeader,
           timeSlotWrapper: TimeSlotWrapperAdapter,
-          // otros componentes...
-
           timeGutterHeader: CustomTimeGutterHeader,
         }}
-      /></Box>
+      />
+    </Box>
   );
 }
 
