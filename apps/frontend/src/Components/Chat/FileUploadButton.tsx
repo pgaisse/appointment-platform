@@ -70,12 +70,11 @@ export function FileUploadButton({ onFilesReady, isSending = false, hasText = fa
   const handleFileSelection = (filesList: FileList | null) => {
     if (!filesList || filesList.length === 0) return;
 
-
     const files = Array.from(filesList).filter(isImageFile);
     if (files.length === 0) {
       toast({
-        title: "Solo imágenes",
-        description: "Selecciona archivos de tipo imagen (jpg, png, etc.)",
+        title: "Images only",
+        description: "Please select image files (jpg, png, etc.)",
         status: "warning",
         duration: 3500,
         isClosable: true,
@@ -208,14 +207,14 @@ export function FileUploadButton({ onFilesReady, isSending = false, hasText = fa
             <HStack justify="space-between" align="center">
               <VStack spacing={0} align="start">
                 <Text fontSize="lg" fontWeight="semibold" bgGradient={titleGrad} bgClip="text">
-                  Previsualizar imágenes
+                  Preview images
                 </Text>
                 <Text fontSize="sm" color={subTextColor}>
-                  {queue.length} archivo{queue.length !== 1 ? "s" : ""} · {formatBytes(totalSize)}
+                  {queue.length} file{queue.length !== 1 ? "s" : ""} · {formatBytes(totalSize)}
                 </Text>
               </VStack>
               <IconButton
-                aria-label="Cerrar"
+                aria-label="Close"
                 icon={<CloseIcon />}
                 variant="ghost"
                 onClick={() => !isSending && onClose()}
@@ -229,14 +228,14 @@ export function FileUploadButton({ onFilesReady, isSending = false, hasText = fa
               <Box mb={3}>
                 <Progress value={progress} borderRadius="full" colorScheme="blue" />
                 <Text mt={1} fontSize="xs" color="whiteAlpha.700">
-                  Preparando… {Math.round(progress)}%
+                  Preparing… {Math.round(progress)}%
                 </Text>
               </Box>
             )}
 
             {queue.length === 0 ? (
               <Box py={10} textAlign="center" color="whiteAlpha.600">
-                No hay imágenes seleccionadas.
+                No images selected.
               </Box>
             ) : (
               <Grid templateColumns={{ base: "repeat(3, 1fr)", md: "repeat(6, 1fr)" }} gap={3}>
@@ -276,7 +275,7 @@ export function FileUploadButton({ onFilesReady, isSending = false, hasText = fa
                       {formatBytes(item.file.size)}
                     </Badge>
                     <IconButton
-                      aria-label="Eliminar"
+                      aria-label="Remove"
                       icon={<CloseIcon boxSize={2.5} />}
                       size="xs"
                       variant="solid"
@@ -295,10 +294,10 @@ export function FileUploadButton({ onFilesReady, isSending = false, hasText = fa
 
           <DrawerFooter gap={2}>
             <Button variant="ghost" onClick={clearQueue} isDisabled={queue.length === 0 || isSending} rounded="full">
-              Vaciar
+              Clear
             </Button>
             <Button onClick={() => inputRef.current?.click()} variant="outline" isDisabled={isSending} rounded="full">
-              Agregar más
+              Add more
             </Button>
             <Button
               colorScheme="blue"
@@ -307,7 +306,7 @@ export function FileUploadButton({ onFilesReady, isSending = false, hasText = fa
               rounded="full"
               boxShadow="0 10px 24px rgba(59,130,246,0.35)"
             >
-              Enviar {queue.length > 0 ? `(${queue.length})` : ""}
+              Send {queue.length > 0 ? `(${queue.length})` : ""}
             </Button>
           </DrawerFooter>
         </DrawerContent>

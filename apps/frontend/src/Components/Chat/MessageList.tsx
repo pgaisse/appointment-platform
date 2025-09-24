@@ -8,6 +8,7 @@ import {
   Stack,
   Skeleton,
   Text,
+  Divider,
 } from "@chakra-ui/react";
 import React from "react";
 import { FaUserAlt } from "react-icons/fa";
@@ -103,7 +104,7 @@ function SortableChatRow({
     contact.owner?.unknown
       ? undefined
       : contact.owner?.name || contact.lastMessage?.author;
-
+  console.log("contact From messageList",contact)
   const lastPreview = (() => {
     if (contact.lastMessage?.body) return contact.lastMessage.body;
     if (contact.lastMessage?.media?.length) return "📷 Photo";
@@ -116,7 +117,7 @@ function SortableChatRow({
     <HStack
       ref={setNodeRef}
       style={style}
-      p={3}
+      px={3}
       borderRadius="xl"
       transition="background 0.2s ease, transform 0.2s ease"
       _hover={{ bg: "blackAlpha.50", _dark: { bg: "whiteAlpha.100" } }}
@@ -151,7 +152,10 @@ function SortableChatRow({
         <Text fontSize="sm" color="gray.500" noOfLines={1}>
           {lastPreview}
         </Text>
+
       </Box>
+
     </HStack>
+
   );
 }

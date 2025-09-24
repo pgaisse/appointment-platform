@@ -30,6 +30,7 @@ import AddPatientButton from "@/Components/DraggableCards/AddPatientButton";
 
 export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
+  console.log("Chat",chat)
   const { user } = useAuth0();
   const org_id = (user as any)?.org_id?.toLowerCase?.() ?? "";
   const queryClient = useQueryClient();
@@ -146,8 +147,8 @@ export default function CustomChat() {
           {/* Categories panel */}
           <Box
             // Equal-height sections on phones; fixed column on desktop
-            flex={{ base: "1 1 0", xl: "0 0 15%" }}
-            w={{ base: "100%", xl: "15%" }}
+            flex={{ base: "1 1 0", xl: "0 0 18%" }}
+            w={{ base: "100%", xl: "18%" }}
             maxW={{ xl: "520px" }}
             minH={0}
             maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}

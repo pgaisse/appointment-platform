@@ -534,6 +534,7 @@ router.get('/DraggableCards', jwtCheck, async (req, res) => {
             {
               $group: {
                 _id: "$_id",
+                sid: { $first: "$sid" },             // ← agregado
                 nameInput: { $first: "$nameInput" },
                 emailInput: { $first: "$emailInput" },
                 phoneInput: { $first: "$phoneInput" },

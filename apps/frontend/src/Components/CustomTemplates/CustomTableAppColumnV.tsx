@@ -24,6 +24,7 @@ const CustomTableAppColumnV = () => {
   const [] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
 
   const { data: dataAP2, isPlaceholderData } = useDraggableCards();
+  console.log("dataAP2",dataAP2)
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
   const query = {

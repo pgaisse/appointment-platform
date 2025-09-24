@@ -24,6 +24,8 @@ import {
   SkeletonCircle,
   Fade,
   Stack,
+  useDisclosure,
+  IconButton,
 } from '@chakra-ui/react';
 import {
   closestCenter,
@@ -41,8 +43,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { Appointment, GroupedAppointment } from '@/types';
+import React, { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react';
+import type { Appointment, GroupedAppointment, ConversationChat } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { iconMap } from '../CustomIcons';
 import Pagination from '../Pagination';
@@ -55,6 +57,10 @@ import { LiaSmsSolid } from 'react-icons/lia';
 
 // ✅ Hook dedicado para Priority List
 import { useMovePriorityItems, type PriorityMove } from '@/Hooks/Query/useMovePriorityItems';
+// ⛔️ Eliminado: import ChatWindowModal from '../Modal/ChatWindowModal';
+// ✅ Lazy load (se carga SOLO cuando se abre)
+const ChatWindowModalLazy = lazy(() => import('../Modal/ChatWindowModal'));
+import { FaCommentSms } from 'react-icons/fa6';
 
 type Props = {
   onCardClick?: (item: Appointment) => void;
@@ -272,6 +278,41 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
+  // ---------- Chat modal global (fuera de loops) ----------
+  const { isOpen: isChatOpen, onOpen: onChatOpen, onClose: onChatClose } = useDisclosure();
+  const [chatToOpen, setChatToOpen] = useState<ConversationChat | undefined>(undefined);
+  // ✅ Estado para montar/desmontar realmente el modal (lazy)
+  const [shouldMountChat, setShouldMountChat] = useState(false);
+
+  const openChatForItem = useCallback((item: Appointment) => {
+    setChatToOpen({
+      conversationId: item.sid,
+      lastMessage: {
+        author: item.nameInput || "",
+        body: "",
+        conversationId: item.sid || "",
+        createdAt: new Date().toISOString(),
+        direction: "outbound",
+        media: [],
+        sid: "temp-lastmessage",
+        status: "delivered",
+        updatedAt: new Date().toISOString(),
+      },
+      owner: {
+        email: item.emailInput,
+        lastName: item.lastNameInput,
+        name: item.nameInput,
+        org_id: item.org_id,
+        phone: item.phoneInput,
+        unknown: false,
+        _id: item._id,
+      },
+    });
+    // 👇 Monta y abre SOLO al hacer click
+    setShouldMountChat(true);
+    onChatOpen();
+  }, [onChatOpen]);
+
   // Inicializar optimisticData con data de la query
   useEffect(() => {
     setOptimisticData(dataAP2 ?? null);
@@ -475,7 +516,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         const items = paginatedPatients.length > 0 ? paginatedPatients.map(d => d._id) : [`placeholder-${col._id}`];
 
         const isLast = idx === lastIndex;
-
         return (
           <Fade in key={col._id}>
             <Card
@@ -554,62 +594,88 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                           onClick={onCardClick}
                           item={item}
                         >
-                          <Grid templateColumns="1fr" templateRows="auto" w="100%">
-                            <GridItem>
-                              <HStack>
-                                <Icon as={TimeIcon} color="green" />
-                                <Text color="gray.500">
-                                  {formatDateWS(item.selectedAppDates?.[0])}
-                                </Text>
-                              </HStack>
-                            </GridItem>
-                            <GridItem>
-                              <HStack>
-                                <Text fontWeight="bold">
-                                  {item.nameInput} {item.lastNameInput}
-                                </Text>
-                                <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
-                                  <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
-                                </Tooltip>
-                                <ArchiveItemButton id={item._id} modelName="Appointment" />
-                              </HStack>
-                            </GridItem>
-                            <GridItem>
-                              <HStack>
-                                <Tooltip
-                                  label={
-                                    item.selectedAppDates[0]?.status === "Pending"
-                                      ? "Pending"
-                                      : item.selectedAppDates[0]?.status === "Confirmed"
-                                        ? "Confirmed"
-                                        : item.selectedAppDates[0].status === 'Rejected'
-                                          ? "Rejected"
-                                          : "NoContacted"
-                                  }
-                                  placement="top"
-                                  fontSize="sm"
-                                  hasArrow
-                                >
-                                  <Icon
-                                    as={LiaSmsSolid}
-                                    color={
-                                      item.selectedAppDates[0].status === "Pending"
-                                        ? "yellow.500"
-                                        : item.selectedAppDates[0].status === "Confirmed"
-                                          ? "green.500"
+                          <Box position="relative">
+                            <Box
+                              position="absolute"
+                              top="2"
+                              right="2"
+                              zIndex={2}
+                              onClick={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => e.stopPropagation()}
+                            >
+                              <ArchiveItemButton id={item._id} modelName="Appointment" />
+                            </Box>
+
+                            <Grid templateColumns="1fr" templateRows="auto" w="100%">
+                              <GridItem>
+                                <HStack>
+                                  <Icon as={TimeIcon} color="green" />
+                                  <Text color="gray.500">
+                                    {formatDateWS(item.selectedAppDates?.[0])}
+                                  </Text>
+                                </HStack>
+                              </GridItem>
+                              <GridItem>
+                                <HStack>
+                                  <Text fontWeight="bold">
+                                    {item.nameInput} {item.lastNameInput}
+                                  </Text>
+                                  <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
+                                    <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
+                                  </Tooltip>
+
+                                </HStack>
+                              </GridItem>
+                              <GridItem>
+                                <HStack>
+                                  <Tooltip
+                                    label={
+                                      item.selectedAppDates[0]?.status === "Pending"
+                                        ? "Pending"
+                                        : item.selectedAppDates[0]?.status === "Confirmed"
+                                          ? "Confirmed"
                                           : item.selectedAppDates[0].status === 'Rejected'
-                                            ? "red.500"
-                                            : "blackAlpha.400"
+                                            ? "Rejected"
+                                            : "NoContacted"
                                     }
-                                  />
-                                </Tooltip>
-                                <Icon as={PhoneIcon} color="green" />
-                                <Text color="gray.500">
-                                  {formatAusPhoneNumber(item.phoneInput)}
-                                </Text>
-                              </HStack>
-                            </GridItem>
-                          </Grid>
+                                    placement="top"
+                                    fontSize="sm"
+                                    hasArrow
+                                  >
+                                    <Icon
+                                      as={LiaSmsSolid}
+                                      color={
+                                        item.selectedAppDates[0].status === "Pending"
+                                          ? "yellow.500"
+                                          : item.selectedAppDates[0].status === "Confirmed"
+                                            ? "green.500"
+                                            : item.selectedAppDates[0].status === 'Rejected'
+                                              ? "red.500"
+                                              : "blackAlpha.400"
+                                      }
+                                    />
+                                  </Tooltip>
+                                  <Icon as={PhoneIcon} color="green" />
+                                  <Text color="gray.500">
+                                    {formatAusPhoneNumber(item.phoneInput)}
+                                  </Text>
+
+                                  {/* Botón para abrir Chat Modal */}
+                                  <Tooltip label="Open chat" hasArrow>
+                                    <IconButton
+                                      aria-label="Open chat"
+                                      icon={<FaCommentSms size={20} color='green'/>}
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openChatForItem(item);
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </HStack>
+                              </GridItem>
+                            </Grid></Box>
                         </SortableItem>
                       ))
                     ) : (
@@ -932,6 +998,26 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             </CardFooter>
           </Card>
         </Fade>
+      )}
+
+      {/* === Modal global del chat === */}
+      {shouldMountChat && isChatOpen && (
+        <Suspense
+          fallback={
+            <Box position="fixed" inset={0} bg="blackAlpha.600" display="flex" alignItems="center" justifyContent="center" zIndex={2000}>
+              <Spinner size="xl" thickness="4px" />
+            </Box>
+          }
+        >
+          <ChatWindowModalLazy
+            onOpen={onChatOpen}
+            isOpen={isChatOpen}
+            onClose={() => { onChatClose(); setShouldMountChat(false); }}
+            trigger={<IconButton aria-label="Open chat" icon={<FaCommentSms  />} variant="ghost" />}
+            initial={{ appId: chatToOpen?.owner._id }}
+            contact={chatToOpen}
+          />
+        </Suspense>
       )}
 
       <DragOverlay>
