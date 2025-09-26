@@ -1,5 +1,5 @@
 // apps/frontend/src/Routes/routerFactory.tsx
-import React, { JSX } from "react";
+import { JSX } from "react";
 import { createBrowserRouter, Outlet, type RouteObject, Navigate } from "react-router-dom";
 import Gate from "@/auth/Gate";
 import type { RouteLink, GateLike } from "./routes.config";
@@ -24,7 +24,7 @@ function withGate(node: RouteLink, el: JSX.Element): JSX.Element {
     g.requireAuth && g.redirectToOnUnauthed
       ? <Navigate to={g.redirectToOnUnauthed} replace />
       : g.fallback;
-
+console.log("Este es el g", g)
   return (
     <Gate
       requireAuth={g.requireAuth}

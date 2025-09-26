@@ -20,7 +20,6 @@ import {
   AlertDialogFooter,
   Button,
 } from '@chakra-ui/react';
-import { ImInsertTemplate } from 'react-icons/im';
 import { CloseIcon } from '@chakra-ui/icons';
 import { useMemo, useRef, useState } from 'react';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
@@ -28,15 +27,19 @@ import { Appointment, MessageTemplate, TemplateToken } from '@/types';
 import { applyTemplateTokens } from '@/Functions/applyTemplateTokens';
 import { useDeleteItem } from '@/Hooks/Query/useDeleteItem';
 import { useQueryClient } from '@tanstack/react-query';
+import { GoProjectTemplate } from "react-icons/go";
+import { AiFillLayout } from 'react-icons/ai';
 
 interface ShowTemplateButtonProps {
   onSelectTemplate: (text: string) => void;
   selectedPatient?: string;
+  tooltipText?:string
+  colorIcon?:string
 }
 
 export type MinimalAppointment = Pick<Appointment, 'nameInput' | 'lastNameInput' | 'phoneInput' | 'selectedAppDates'>;
 
-export default function ShowTemplateButton({ onSelectTemplate, selectedPatient }: ShowTemplateButtonProps) {
+export default function ShowTemplateButton({ onSelectTemplate, selectedPatient,tooltipText="Custom messages",colorIcon="gray" }: ShowTemplateButtonProps) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const btnRef = useRef(null);
   const queryClient = useQueryClient();
@@ -112,11 +115,11 @@ export default function ShowTemplateButton({ onSelectTemplate, selectedPatient }
 
   return (
     <>
-      <Tooltip label="Mensajes predeterminados" hasArrow>
+      <Tooltip label={tooltipText} hasArrow>
         <IconButton
           ref={btnRef}
-          aria-label="Mostrar mensajes predeterminados"
-          icon={<ImInsertTemplate size={20} />}
+          aria-label="Show custom messages"
+          icon={<AiFillLayout  color={colorIcon} size={20} />}
           onClick={onOpen}
           variant="ghost"
           size="sm"

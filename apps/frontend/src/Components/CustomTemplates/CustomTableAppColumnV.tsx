@@ -104,7 +104,7 @@ const CustomTableAppColumnV = () => {
         justifyContent="flex-end"  // Empuja contenido a la derecha
         color="gray.300"
       >
-        <DateRangeSelector onFilterRange={handleRangeChange} />
+        {dataAP2 &&<DateRangeSelector onFilterRange={handleRangeChange} />}
 
       </Box>
       <Box px={4} py={6}>

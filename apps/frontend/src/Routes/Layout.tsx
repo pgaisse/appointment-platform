@@ -17,6 +17,8 @@ import paths, { navLinks, NavLink } from "./path";
 import { FaUserCircle } from "react-icons/fa";
 
 const NS = "https://letsmarter.com/";
+const AUDIENCE =
+  (window as any).__ENV__?.AUTH0_AUDIENCE ?? import.meta.env.VITE_AUTH0_AUDIENCE;
 
 // ───────────────────────── helpers ─────────────────────────
 const toLowerArr = (a: unknown) =>
@@ -24,6 +26,8 @@ const toLowerArr = (a: unknown) =>
     .map((x) => (x == null ? "" : String(x)))
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+
+const uniq = (arr: string[]) => Array.from(new Set(arr));
 
 const match = (pattern: string, value: string) => {
   const p = (pattern || "").toLowerCase();
@@ -34,16 +38,29 @@ const match = (pattern: string, value: string) => {
   return false;
 };
 
+// Decodificador mínimo de JWT (sin dependencias)
+function jwtPayload<T = any>(token: string | null | undefined): T | null {
+  try {
+    if (!token) return null;
+    const [, payloadB64] = token.split(".");
+    if (!payloadB64) return null;
+    const json = atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(decodeURIComponent(escape(json)));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Verifica visibilidad según sesión y permisos.
- * Usa SOLO claims del ID token (user).
+ * Usa claims (roles/permisos) ya "fusionados" en el objeto recibido.
  * Extra: roles generan "permisos virtuales" rol:* (Admin → admin:*)
  */
-function hasAccess(link: NavLink, isAuthenticated: boolean, user: any) {
+function hasAccess(link: NavLink, isAuthenticated: boolean, claims: any) {
   if (link.requireAuth && !isAuthenticated) return false;
 
-  const roles = toLowerArr(user?.[NS + "roles"] ?? user?.roles);
-  const perms = toLowerArr(user?.[NS + "permissions"] ?? user?.permissions);
+  const roles = toLowerArr(claims?.[NS + "roles"] ?? claims?.roles);
+  const perms = toLowerArr(claims?.[NS + "permissions"] ?? claims?.permissions);
 
   const derived = new Set<string>(perms);
   for (const r of roles) derived.add(`${r}:*`);
@@ -86,7 +103,82 @@ const byOrderThenLabel = (
 
 // ───────────────────────── Layout ─────────────────────────
 export default function Layout({ children }: { children?: React.ReactNode }) {
-  const { isAuthenticated, user } = useAuth0();
+  const { isAuthenticated, user, getAccessTokenSilently } = useAuth0();
+
+  // Claims desde el ACCESS TOKEN (Auth0 Management/API audience)
+  const [accessPerms, setAccessPerms] = useState<string[]>([]);
+  const [accessRoles, setAccessRoles] = useState<string[]>([]);
+
+  // Cargar y decodificar el access token para extraer permisos/roles
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAccessClaims() {
+      try {
+        if (!isAuthenticated || !AUDIENCE) {
+          if (!cancelled) {
+            setAccessPerms([]);
+            setAccessRoles([]);
+          }
+          return;
+        }
+        const token = await getAccessTokenSilently({ authorizationParams: { audience: AUDIENCE } });
+        const payload: any = jwtPayload(token) || {};
+
+        // Permisos típicos en Auth0: payload.permissions (array de strings)
+        const permsFromAT: string[] =
+          Array.isArray(payload?.permissions)
+            ? payload.permissions
+            : Array.isArray(payload?.[NS + "permissions"])
+            ? payload[NS + "permissions"]
+            : [];
+
+        // Roles si los inyectas al AT (vía Action/Rule) en tu namespace
+        const rolesFromAT: string[] =
+          Array.isArray(payload?.[NS + "roles"])
+            ? payload[NS + "roles"]
+            : [];
+
+        if (!cancelled) {
+          setAccessPerms(permsFromAT);
+          setAccessRoles(rolesFromAT);
+        }
+      } catch (_e) {
+        // Silencioso: si falla, solo usamos los claims del ID token
+        if (!cancelled) {
+          setAccessPerms([]);
+          setAccessRoles([]);
+        }
+      }
+    }
+
+    loadAccessClaims();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, getAccessTokenSilently]);
+
+  // Fusionar claims: ID token (user) + Access Token
+  // Resultado se pasa a hasAccess sin cambiar tu lógica.
+  const computedClaims = useMemo(() => {
+    const userRoles =
+      toLowerArr((user as any)?.[NS + "roles"] ?? (user as any)?.roles) ?? [];
+    const userPerms =
+      toLowerArr((user as any)?.[NS + "permissions"] ?? (user as any)?.permissions) ??
+      [];
+
+    const mergedRoles = uniq([...userRoles, ...toLowerArr(accessRoles)]);
+    const mergedPerms = uniq([...userPerms, ...toLowerArr(accessPerms)]);
+
+    return {
+      ...(user || {}),
+      [NS + "roles"]: mergedRoles,
+      [NS + "permissions"]: mergedPerms,
+      // También como llaves "planas" por si tu lógica futura las usa:
+      roles: mergedRoles,
+      permissions: mergedPerms,
+    };
+  }, [user, accessPerms, accessRoles]);
 
   // Refs + medidas dinámicas
   const headerRef = useRef<HTMLDivElement>(null);
@@ -147,14 +239,14 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
     () =>
       navLinks
         .filter((l) => l.show.includes("header") && !["signin", "logout"].includes(l.key))
-        .filter((l) => hasAccess(l, !!isAuthenticated, user))
+        .filter((l) => hasAccess(l, !!isAuthenticated, computedClaims))
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
         .map(({ label, path, icon }) => ({
           name: label,
           path,
           icon: icon ?? FaUserCircle,
         })),
-    [isAuthenticated, user]
+    [isAuthenticated, computedClaims]
   );
 
   // Session links (derecha del Header)
@@ -167,7 +259,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
     () =>
       navLinks
         .filter((l) => l.show.includes("sidebar") && (l.sidebarZone ?? "main") === "main")
-        .filter((l) => hasAccess(l, !!isAuthenticated, user))
+        .filter((l) => hasAccess(l, !!isAuthenticated, computedClaims))
         .sort(byOrderThenLabel)
         .map(({ label, path, icon }) => ({
           name: label,
@@ -175,7 +267,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
           icon: icon ?? FaUserCircle,
           color: "blue.500",
         })),
-    [isAuthenticated, user]
+    [isAuthenticated, computedClaims]
   );
 
   // Sidebar abajo
@@ -183,7 +275,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
     () =>
       navLinks
         .filter((l) => l.show.includes("sidebar") && (l.sidebarZone ?? "main") === "bottom")
-        .filter((l) => hasAccess(l, !!isAuthenticated, user))
+        .filter((l) => hasAccess(l, !!isAuthenticated, computedClaims))
         .sort(byOrderThenLabel)
         .map(({ label, path, icon }) => ({
           name: label,
@@ -191,7 +283,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
           icon: icon ?? FaUserCircle,
           color: "black.500",
         })),
-    [isAuthenticated, user]
+    [isAuthenticated, computedClaims]
   );
 
   return (

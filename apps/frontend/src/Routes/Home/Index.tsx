@@ -218,8 +218,6 @@ const Index: React.FC = () => {
 
   // E) OK
   return (
-    <></>
-/*
     <Box p={10}>
       <VStack align="stretch" spacing={4}>
         <Alert status="success">
@@ -270,9 +268,7 @@ const Index: React.FC = () => {
         </Box>
       </VStack>
     </Box>
-*/
   );
-  
 };
 
 export default Index;

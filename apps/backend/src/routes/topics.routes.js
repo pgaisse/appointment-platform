@@ -1,9 +1,10 @@
-// apps/backend/src/routes/topics.js  (o el nombre que uses)
+// apps/backend/src/routes/topics.js
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const { attachUserInfo, jwtCheck, checkJwt, decodeToken, ensureUser } = require('../middleware/auth');
 
+// ⛑️ Middlewares base
 router.use(jwtCheck, jwtCheck, attachUserInfo, ensureUser);
 
 const svc = require('../helpers/topics.service');              // (topics/board/cards/labels)
@@ -24,6 +25,15 @@ const {
 
 // 🆕 Cola de invalidaciones vía socket (solo señales)
 const { queueInvalidate, flushInvalidate } = require('../socket/invalidate-queue');
+
+// ─────────────────────────────────────────────────────────────
+// PERMISOS NUEVOS
+//   organizer:read   → lectura de boards/topics/cards/labels/appearance
+//   organizer:write  → creación de topics/columns/cards/labels
+//   organizer:edit   → modificaciones (update/move/reorder/appearance)
+//   organizer:delete → eliminaciones
+// Conservamos "dev-admin" como bypass de superusuario.
+// ─────────────────────────────────────────────────────────────
 
 // ✅ Aplica JWT check + attachUserInfo + ensureUser para todo este router
 router.use(requireAuth);
@@ -64,7 +74,7 @@ router.put(
 // GET/PATCH topic appearance
 router.get(
   '/topics/:topicId/appearance',
-  requireAnyPermission('board:read', 'dev-admin'),
+  requireAnyPermission('organizer:read', 'dev-admin'),
   async (req, res) => {
     try {
       const out = await appearanceSvc.getTopicAppearance(req.params.topicId);
@@ -75,7 +85,7 @@ router.get(
 
 router.patch(
   '/topics/:topicId/appearance',
-  requireAnyPermission('card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:edit', 'dev-admin'),
   validate(appearanceSchemas.updateTopicAppearance),
   async (req, res) => {
     try {
@@ -96,7 +106,7 @@ router.patch(
 // PATCH card cover
 router.patch(
   '/cards/:cardId/cover',
-  requireAnyPermission('card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:edit', 'dev-admin'),
   validate(appearanceSchemas.updateCardCover),
   async (req, res) => {
     try {
@@ -113,7 +123,7 @@ router.patch(
 // #region Topics
 router.get(
   '/topics',
-  requireAnyPermission('board:read', 'dev-admin'),
+  requireAnyPermission('organizer:read', 'dev-admin'),
   async (req, res) => {
     try {
       const data = await svc.listTopics();
@@ -128,7 +138,7 @@ router.get(
 router.post(
   '/topics',
   // validate(schemas.createTopic),
-  requireRole('admin'),
+  requireAnyPermission('organizer:write', 'dev-admin'),
   async (req, res) => {
     try {
       const created = await svc.createTopic(req.body || {});
@@ -145,7 +155,7 @@ router.post(
 
 router.get(
   '/topics/:topicId/board',
-  requireAnyPermission('board:read', 'dev-admin'),
+  requireAnyPermission('organizer:read', 'dev-admin'),
   async (req, res, next) => {
     try { res.json(await svc.getTopicBoard(req.params.topicId)); } catch (e) { next(e); }
   }
@@ -154,7 +164,7 @@ router.get(
 router.post(
   '/topics/:topicId/columns',
   // validate(schemas.createColumn),
-  requireRole('admin'),
+  requireAnyPermission('organizer:write', 'dev-admin'),
   async (req, res) => {
     try {
       const { topicId } = req.params;
@@ -175,7 +185,7 @@ router.post(
 
 router.patch(
   '/topics/:topicId/columns/reorder',
-  requireAnyPermission('card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:edit', 'dev-admin'),
   async (req, res, next) => {
     try {
       await svc.reorderColumns(req.params.topicId, req.body.orderedColumnIds);
@@ -191,9 +201,10 @@ router.patch(
 router.post(
   '/topics/:topicId/cards',
   validate(schemas?.createCard),
-  requireAnyPermission('list:create_card', 'card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:write', 'dev-admin'),
   async (req, res) => {
     try {
+
       const { topicId } = req.params;
       if (!mongoose.isValidObjectId(topicId)) {
         return res.status(400).json({ error: 'Invalid topicId' });
@@ -212,7 +223,7 @@ router.post(
 
 router.patch(
   '/cards/:cardId',
-  requireAllPermissions('card:edit'),
+  requireAllPermissions('organizer:edit'),
   async (req, res) => {
     try {
       const { cardId } = req.params;
@@ -237,7 +248,7 @@ router.patch(
 
 router.patch(
   '/cards/:cardId/move',
-  requireAnyPermission('card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:edit', 'dev-admin'),
   async (req, res) => {
     console.log("mover tarjeta", req.dbUser);
     try {
@@ -266,7 +277,7 @@ router.patch(
 // #region Labels
 router.get(
   '/topics/:topicId/labels',
-  requireAnyPermission('board:read', 'dev-admin'),
+  requireAnyPermission('organizer:read', 'dev-admin'),
   async (req, res) => {
     try {
       const out = await svc.listTopicLabels(req.params.topicId);
@@ -282,7 +293,7 @@ router.get(
 router.post(
   '/topics/:topicId/labels',
   validate(schemas?.createLabel),
-  requireAnyPermission('card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:write', 'dev-admin'),
   async (req, res) => {
     try {
       const lbl = await svc.createTopicLabel(req.params.topicId, req.body);
@@ -290,7 +301,7 @@ router.post(
       // 🔔 Catálogo de labels del tópico + board (badges cambian)
       queueInvalidate(res, orgId, [
         ['topic-labels', req.params.topicId],
-        ['topic-board',  req.params.topicId],
+        ['topic-board', req.params.topicId],
       ]);
       return res.json({ label: lbl });
     } catch (e) {
@@ -304,14 +315,14 @@ router.post(
 router.patch(
   '/topics/:topicId/labels/:labelId',
   validate(schemas?.updateLabel),
-  requireAnyPermission('card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:edit', 'dev-admin'),
   async (req, res) => {
     try {
       const lbl = await svc.updateTopicLabel(req.params.topicId, req.params.labelId, req.body);
       const orgId = req.dbUser?.org_id;
       queueInvalidate(res, orgId, [
         ['topic-labels', req.params.topicId],
-        ['topic-board',  req.params.topicId],
+        ['topic-board', req.params.topicId],
       ]);
       return res.json({ label: lbl });
     } catch (e) {
@@ -324,14 +335,14 @@ router.patch(
 
 router.delete(
   '/topics/:topicId/labels/:labelId',
-  requireAnyPermission('card:edit', 'dev-admin'),
+  requireAnyPermission('organizer:delete', 'dev-admin'),
   async (req, res) => {
     try {
       await svc.deleteTopicLabel(req.params.topicId, req.params.labelId);
       const orgId = req.dbUser?.org_id;
       queueInvalidate(res, orgId, [
         ['topic-labels', req.params.topicId],
-        ['topic-board',  req.params.topicId],
+        ['topic-board', req.params.topicId],
       ]);
       return res.json({ ok: true });
     } catch (e) {
@@ -348,7 +359,7 @@ const isId = (v) => typeof v === 'string' && /^[0-9a-fA-F]{24}$/.test(v);
 
 router.delete(
   '/cards/:cardId',
-  requireAnyPermission('card:delete', 'dev-admin'),
+  requireAnyPermission('organizer:delete', 'dev-admin'),
   async (req, res) => {
     try {
       const { cardId } = req.params;
@@ -368,7 +379,7 @@ router.delete(
 
 router.delete(
   '/columns/:columnId',
-  requireRole('admin'),
+  requireAnyPermission('organizer:delete', 'dev-admin'),
   async (req, res) => {
     try {
       const { columnId } = req.params;
@@ -388,7 +399,7 @@ router.delete(
 
 router.delete(
   '/topics/:topicId',
-  requireRole('admin'),
+  requireAnyPermission('organizer:delete', 'dev-admin'),
   async (req, res) => {
     try {
       const { topicId } = req.params;
@@ -438,8 +449,10 @@ router.post('/cards/:cardId/comments', validate(schemas.createComment), async (r
     if (!mongoose.isValidObjectId(cardId)) {
       return res.status(400).json({ error: 'Invalid cardId' });
     }
+    // Mantiene la lógica original, solo actualiza el permiso consultado
+    const hasPerm = requireAnyPermission('organizer:edit');
     const dbUser = req.dbUser;
-    const out = await svc.addCardComment(cardId, dbUser._id, req.body.text);
+    const out = await svc.addCardComment(cardId, dbUser._id, req.body.text, hasPerm);
     // 🔔 Solo comments de la card
     queueInvalidate(res, req.dbUser?.org_id, ['card-comments', cardId]);
     return res.json({ comment: out });
@@ -459,8 +472,10 @@ router.delete('/cards/:cardId/comments/:commentId', async (req, res) => {
     const dbUser = req.dbUser;
     const roles = Array.isArray(dbUser.roles) ? dbUser.roles : [];
     const isAdmin = roles.includes('admin');
+    // Mantiene la lógica original, solo actualiza el permiso consultado
+    const hasPerm = requireAnyPermission('organizer:delete');
 
-    const out = await svc.deleteCardComment(cardId, commentId, dbUser._id, isAdmin);
+    const out = await svc.deleteCardComment(cardId, commentId, dbUser._id, hasPerm);
     // 🔔 Solo comments de la card
     queueInvalidate(res, req.dbUser?.org_id, ['card-comments', cardId]);
     return res.json(out);

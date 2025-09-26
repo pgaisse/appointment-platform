@@ -1,6 +1,5 @@
 
 import CustomTableAppColumnV from "@/Components/CustomTemplates/CustomTableAppColumnV";
-import { SocketNotification } from "@/Components/Socket/SocketNotification";
 
 
 

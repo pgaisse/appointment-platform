@@ -20,7 +20,6 @@ function PriorityList() {
   const [markedEvents, setMarkedEvents] = useState<MarkedEvents>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [, setCustomEvents] = useState<MarkedEvents>([])
-  const [, setCustomEventsFlex] = useState<Patients>()
   const { handleSelectEvent } = useEventSelection(setSelectedDates, setMarkedEvents, markedEvents, setCustomEvents);
   const { isOpen, onOpen, onClose } = useDisclosure();
 

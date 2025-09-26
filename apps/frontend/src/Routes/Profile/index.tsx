@@ -1,10 +1,11 @@
+import CustomProfile from "@/Components/Profile/CustomProfile"
 
 
 
 
 const index = () => {
   return (
-    <div>index</div>
+    <CustomProfile/>
   )
 }
 

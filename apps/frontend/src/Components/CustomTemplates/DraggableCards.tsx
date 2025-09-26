@@ -3,7 +3,6 @@
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
 import { PhoneIcon, TimeIcon } from '@chakra-ui/icons';
-import { FcSms } from "react-icons/fc";
 import {
   Box,
   Card,
@@ -49,7 +48,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { iconMap } from '../CustomIcons';
 import Pagination from '../Pagination';
 import AddPatientButton from '../DraggableCards/AddPatientButton';
-import DeleteItemButton from './DeleteItemButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
 import ArchiveItemButton from './ArchiveItemButton';
 import DeleteContactButton from './DeleteContactButton';
@@ -80,7 +78,7 @@ const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
 };
 
 // ---------- Loaders (solo UI) ----------
-const LoadingColumn: React.FC<{ title?: string; color?: string }> = ({ title = 'Loading…', color = 'gray' }) => (
+const LoadingColumn: React.FC<{ title?: string; color?: string }> = ({ color = 'gray' }) => (
   <Card
     minW="250px"
     flex="0 0 auto"

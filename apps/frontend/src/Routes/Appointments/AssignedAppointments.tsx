@@ -51,7 +51,7 @@ const AssignedAppointments = () => {
   );
   const queryBase = useMemo(() => ({} as const), []);
   const options = useMemo(
-    () => ({ query: queryBase, limit: 100, populate: populateFields as unknown as any }),
+    () => ({ query: queryBase, limit: 200, populate: populateFields as unknown as any }),
     [queryBase, populateFields]
   );
 

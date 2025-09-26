@@ -5,6 +5,7 @@ import { env } from "@/types";
 
 type SendAppointmentSMSPayload = {
   appointmentId: string;
+  msg:string
 };
 
 type SendAppointmentSMSResponse = {

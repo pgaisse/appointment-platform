@@ -1,9 +1,10 @@
+// apps/frontend/src/Routes/Admin/UsersManager.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   Box, Heading, Input, Button, HStack, VStack, Text, Table, Thead, Tbody, Tr, Th, Td,
   Avatar, Tag, TagLabel, IconButton, Drawer, DrawerBody, DrawerContent, DrawerHeader,
   DrawerOverlay, DrawerFooter, useDisclosure, CheckboxGroup, Checkbox, SimpleGrid,
-  useToast, Select, Tooltip, Divider, Flex, Spinner,
+  useToast, Select, Tooltip, Divider, Flex, Spinner, Wrap, WrapItem,
 } from "@chakra-ui/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings } from "lucide-react";
@@ -38,7 +39,7 @@ export default function UsersManager() {
 
   // org: default value from the token, editable in UI
   const orgIdFromToken = useOrgId();
-  const [orgId, setOrgId] = useState<string>(""); // keep string for <Input/>
+  const [orgId, setOrgId] = useState<string>("");
   useEffect(() => {
     if (orgId === "" && orgIdFromToken) setOrgId(orgIdFromToken);
   }, [orgIdFromToken]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -57,49 +58,59 @@ export default function UsersManager() {
 
   const rolesQ = useQuery({
     queryKey: ["a0-roles"],
-    queryFn: () => api.listRoles(),
+    queryFn: () => api.listRoles({ all: true }),
   });
 
   const userRolesQ = useQuery({
     queryKey: ["a0-user-roles", selectedUser?.user_id, orgId],
     queryFn: () => api.getUserRoles(selectedUser!.user_id, orgId || undefined),
-    enabled: !!selectedUser, // if you want to require org, use: && !!orgId
+    enabled: !!selectedUser,
   });
 
   // permissions catalog of YOUR API (AUTH0_AUDIENCE)
   const permsCatalogQ = useQuery({
     queryKey: ["a0-api-permissions"],
-    queryFn: () => api.listApiPermissions(), // GET /api/admin/auth0/permissions
+    queryFn: () => api.listApiPermissions(),
   });
 
   // user's direct permissions (only from YOUR API)
   const userDirectPermsQ = useQuery({
     queryKey: ["a0-user-direct-perms", selectedUser?.user_id],
-    queryFn: () => api.getUserPermissions(selectedUser!.user_id), // ← use the correct hook name
+    queryFn: () => api.getUserPermissions(selectedUser!.user_id),
     enabled: !!selectedUser,
   });
 
-  // permissions provided by EACH user role (all are added)
-  const rolePermsQ = useQuery({
+  // -------- Permisos por cada ROL del usuario (map roleId -> string[]) ----------
+  const rolePermsMapQ = useQuery<{ [roleId: string]: string[] }>({
     queryKey: [
-      "a0-user-role-perms",
+      "a0-user-role-perms-map",
       selectedUser?.user_id,
       (userRolesQ.data?.roles || []).map((r: A0Role) => r.id).sort().join(","),
     ],
     enabled: !!selectedUser && !!userRolesQ.data,
     queryFn: async () => {
       const roles: A0Role[] = userRolesQ.data?.roles ?? [];
-      const arr = await Promise.all(
+      const entries = await Promise.all(
         roles.map(async (r) => {
-          // Make sure you have api.getRolePermissions in your hook
-          const data = await api.getRolePermissions(r.id); // GET /roles/:id/permissions
-          const list: string[] = (data?.permissions || data || [])
-            .map((p: any) => p?.permission_name || p?.name)
-            .filter(Boolean);
-          return list;
+          const resp: any = await api.getRolePermissions(r.id, true);
+          const raw = Array.isArray(resp?.permissions) ? resp.permissions : Array.isArray(resp) ? resp : [];
+          const list: string[] = raw
+            .map((p: any) => {
+              const name = typeof p === "string" ? p : (p?.permission_name || p?.name);
+              if (!name) return undefined;
+              const src =
+                p?.resource_server_identifier ||
+                p?.resource_server ||
+                p?.resource_server_name ||
+                "";
+              return src ? `${name} (${src})` : name;
+            })
+            .filter(Boolean) as string[];
+          list.sort();
+          return [r.id, list] as const;
         })
       );
-      return Array.from(new Set(arr.flat()));
+      return Object.fromEntries(entries);
     },
   });
 
@@ -153,10 +164,10 @@ export default function UsersManager() {
   }, [userDirectPermsQ.data]);
 
   const rolePerms = useMemo(() => {
-    const list: string[] = rolePermsQ.data ?? [];
-    return new Set(list);
-  }, [rolePermsQ.data]);
-
+    const map = rolePermsMapQ.data || {};
+    const flat = Object.values(map).flat();
+    return new Set(flat);
+  }, [rolePermsMapQ.data]);
 
   // editable state ONLY for direct permissions
   const [selectedDirect, setSelectedDirect] = useState<Set<string>>(new Set());
@@ -213,7 +224,7 @@ export default function UsersManager() {
       userRolesQ.refetch();
       userDirectPermsQ.refetch();
       permsCatalogQ.refetch();
-      rolePermsQ.refetch();
+      rolePermsMapQ.refetch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawer.isOpen]);
@@ -337,62 +348,51 @@ export default function UsersManager() {
                   </Text>
                 </Box>
 
+                {/* Permisos por rol (usuario seleccionado) */}
+                <Box>
+                  <Flex justify="space-between" align="center" mb={2}>
+                    <Text fontWeight="bold">Role permissions (selected user)</Text>
+                    {rolePermsMapQ.isFetching && <Spinner size="sm" />}
+                  </Flex>
+
+                  {userRoles.length === 0 ? (
+                    <Text color="gray.500">This user has no roles.</Text>
+                  ) : rolePermsMapQ.isLoading ? (
+                    <Text color="gray.500">loading role permissions…</Text>
+                  ) : (
+                    <VStack align="stretch" spacing={3}>
+                      {userRoles.map((r) => {
+                        const perms = rolePermsMapQ.data?.[r.id] ?? [];
+                        return (
+                          <Box key={r.id} borderWidth="1px" borderColor="gray.200" rounded="md" p={3}>
+                            <HStack justify="space-between" align="center" mb={2}>
+                              <Text fontWeight="semibold">{r.name}</Text>
+                              <Tag size="sm" colorScheme="purple"><TagLabel>{perms.length}</TagLabel></Tag>
+                            </HStack>
+                            {perms.length === 0 ? (
+                              <Text color="gray.500">No permissions returned by API for this role.</Text>
+                            ) : (
+                              <Wrap spacing={2}>
+                                {perms.map((p) => (
+                                  <WrapItem key={p}>
+                                    <Tag size="sm" variant="subtle" colorScheme="purple">
+                                      <TagLabel>{p}</TagLabel>
+                                    </Tag>
+                                  </WrapItem>
+                                ))}
+                              </Wrap>
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </VStack>
+                  )}
+                </Box>
+
                 <Divider />
 
                 {/* PERMISSIONS selection */}
-                <Box>
-                  <Flex justify="space-between" align="center" mb={2}>
-                    <Text fontWeight="bold">Permissions (your API)</Text>
-                    {(permsCatalogQ.isFetching || userDirectPermsQ.isFetching || rolePermsQ.isFetching) && <Spinner size="sm" />}
-                  </Flex>
-
-                  {permsCatalogQ.isLoading ? (
-                    <Text color="gray.500">loading catalog…</Text>
-                  ) : (
-                    <SimpleGrid columns={{ base: 1, md: 2 }} spacing={2}>
-                      {catalogPerms.map((perm) => {
-                        const isDirect = selectedDirect.has(perm);   // ← estado editable actual
-                        const fromRole = rolePerms.has(perm);        // ← viene por rol
-                        const lockedByRoleOnly = fromRole && !isDirect; // ← bloqueado solo si viene por rol y NO está directo
-                        const isChecked = fromRole || isDirect;      // ← check si viene por rol o está seleccionado directo
-
-                        return (
-                          <Tooltip
-                            key={perm}
-                            label={lockedByRoleOnly ? "Provided by role (not editable here)" : ""}
-                            hasArrow
-                            isDisabled={!lockedByRoleOnly}
-                          >
-                            <Checkbox
-                              isChecked={isChecked}
-                              isDisabled={lockedByRoleOnly}
-                              onChange={(e) => {
-                                if (lockedByRoleOnly) return; // no permitir toggle si es solo por rol
-                                setSelectedDirect((prev) => {
-                                  const next = new Set(prev);
-                                  if (e.target.checked) next.add(perm);
-                                  else next.delete(perm);
-                                  return next;
-                                });
-                              }}
-                            >
-                              {perm}{" "}
-                              {lockedByRoleOnly && (
-                                <Tag size="sm" ml={2} colorScheme="purple" variant="subtle">
-                                  <TagLabel>by role</TagLabel>
-                                </Tag>
-                              )}
-                            </Checkbox>
-                          </Tooltip>
-                        );
-                      })}
-                    </SimpleGrid>
-                  )}
-
-                  <Text fontSize="sm" color="gray.600" mt={3}>
-                    Direct permission changes: <b>+{toGrant.length}</b> / <b>-{toRevoke.length}</b>
-                  </Text>
-                </Box>
+ 
               </VStack>
             )}
           </DrawerBody>
@@ -439,7 +439,7 @@ export default function UsersManager() {
                     await Promise.all([
                       userRolesQ.refetch(),
                       userDirectPermsQ.refetch(),
-                      rolePermsQ.refetch(),
+                      rolePermsMapQ.refetch(),
                     ]);
 
                     toast({ title: "Roles and permissions updated", status: "success" });

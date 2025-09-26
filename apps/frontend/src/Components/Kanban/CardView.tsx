@@ -105,7 +105,7 @@ export default function CardView({card,onOpen,onToggleComplete,}: {card: Card;on
           },
         }}
       >
-        <Gate requireAnyPerms={['card:delete']} source="all">
+        <Gate requireAnyPerms={['organizer:delete']} source="all">
           <DeleteCardButton
             cardId={card.id}
             cardTitle={card.title}

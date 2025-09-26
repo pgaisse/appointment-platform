@@ -16,7 +16,6 @@ type Props = {
   fallback?: React.ReactNode;     // default null = oculto
 };
 
-const NS = "https://letsmarter.com/";
 const AUDIENCE =
   (window as any).__ENV__?.AUTH0_AUDIENCE ?? import.meta.env.VITE_AUTH0_AUDIENCE;
 
@@ -89,7 +88,8 @@ export default function Gate({
         authorizationParams: { audience: AUDIENCE },
       });
       const p = decodeJwtPayload(at);
-      const perms = normArr(p.permissions || p[NS + "permissions"]);
+      const perms = normArr(p.permissions || p["permissions"]);
+      console.log("perms",perms, "p[permissions]",p["permissions"])
       return perms;
     },
     staleTime: 60_000,
@@ -98,6 +98,7 @@ export default function Gate({
   const loading = authLoading || (needsServer && meQuery.isLoading) || (needsAccess && atPermsQuery.isLoading);
 
   const serverRoles = normArr(meQuery.data?.dbUser?.roles);
+  console.log("meQuery.data?.dbUser?.permissions", meQuery.data?.dbUser?.permissions)
   const serverPerms = normArr(meQuery.data?.dbUser?.permissions);
   const accessPerms = atPermsQuery.data ?? [];
 
@@ -132,6 +133,7 @@ export default function Gate({
     if (!hasAll(req, perms)) return <>{fallback}</>;
   }
   if (requireAnyPerms?.length) {
+    console.log("requireAnyPerms",requireAnyPerms)
     const req = normArr(requireAnyPerms);
     if (!hasAny(req, perms)) return <>{fallback}</>;
   }

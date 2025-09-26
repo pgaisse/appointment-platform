@@ -33,7 +33,33 @@ app.get('/api/health', (_req, res) => {
 const server = http.createServer(app);
 const io = setupSocket(server);
 app.use((req, _res, next) => { req.io = io; next(); });
+app.use((err, req, res, next) => {
+  if (err?.code === 'RBAC_DENY' || err?.name === 'ForbiddenError') {
+    const required = err.required || [];
+    res.set('X-Required-Permissions', required.join(','));
+    return res.status(403).json({
+      error: 'forbidden',
+      code: 'insufficient_permissions',
+      message: "You don't have permission to perform this action.",
+      required,
+      anyOf: !!err.anyOf,
+      path: req.originalUrl,
+      method: req.method,
+    });
+  }
 
+  // If your JWT middleware throws on missing/invalid token:
+  if (err?.name === 'UnauthorizedError') {
+    res.set('WWW-Authenticate', 'Bearer realm="api", error="invalid_token"');
+    return res.status(401).json({
+      error: 'unauthorized',
+      code: 'invalid_token',
+      message: 'Invalid or missing access token.',
+    });
+  }
+
+  next(err);
+});
 // rutas (solo montarlas; que NO ejecuten queries top-level al importar)
 app.use('/api', SMS);
 app.use('/api', require('./routes/secure'));
@@ -44,6 +70,7 @@ app.use('/api', Routes);
 app.use('/api', Topics);
 app.use('/api/socket.io', SocketRoutes);
 app.use('/api/admin/auth0', require('./routes/admin-auth0'));
+app.use('/api/profile', require('./routes/profile'));
 
 // manejador de errores (después de rutas)
 app.use((err, _req, res, next) => {

@@ -292,6 +292,11 @@ const MessageTemplateSchema = new mongoose.Schema(
   { timestamps: true }
 );
 const TemplateTokenSchema = new mongoose.Schema({
+  category: {
+    type: String,
+    enum: ["message", "confirmation"],
+    default: "message"
+  },
   key: { type: String, required: true, unique: true }, // ej: "#patient"
   label: { type: String, required: true },             // ej: "Patient Name"
   description: { type: String },

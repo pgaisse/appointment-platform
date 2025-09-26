@@ -52,14 +52,113 @@ router.get('/_debug/mgmt', requireAuth, requireAnyPermission('dev-admin'), async
 });
 
 // ---------------------------------
-// ROLES
+// ROLES (listar todos o paginado)
 // ---------------------------------
-router.get('/roles', guard, async (_req, res) => {
-  const roles = await callMgmt(`/roles?per_page=100&page=0`);
-  res.json({ roles });
+router.get('/roles', guard, async (req, res) => {
+  const per_page = Math.min(Number(req.query.per_page || 100), 100);
+  const page = Number(req.query.page || 0);
+  const all = String(req.query.all || '').toLowerCase();
+  const wantAll = all === '1' || all === 'true';
+
+  if (!wantAll) {
+    const roles = await callMgmt(`/roles?per_page=${per_page}&page=${page}`);
+    return res.json({ roles, page, per_page });
+  }
+
+  let roles = [];
+  let p = 0;
+  while (true) {
+    const batch = await callMgmt(`/roles?per_page=100&page=${p}`);
+    roles = roles.concat(batch || []);
+    if (!Array.isArray(batch) || batch.length < 100) break;
+    p++;
+  }
+  res.json({ roles, total: roles.length });
 });
 
-// ---------- ROLES DEL USUARIO (tenant-wide u Organization) ----------
+// ---- PERMISOS ASIGNADOS A UN ROL ----
+router.get('/roles/:roleId/permissions', guard, async (req, res) => {
+  const { roleId } = req.params;
+  const per_page = Math.min(Number(req.query.per_page || 100), 100);
+  const page = Number(req.query.page || 0);
+  const all = String(req.query.all || '').toLowerCase();
+  const wantAll = all === '1' || all === 'true';
+
+  try {
+    if (!wantAll) {
+      const perms = await callMgmt(
+        `/roles/${encodeURIComponent(roleId)}/permissions?per_page=${per_page}&page=${page}`
+      );
+      return res.json({ permissions: perms, page, per_page });
+    }
+
+    let permissions = [];
+    let p = 0;
+    while (true) {
+      const batch = await callMgmt(
+        `/roles/${encodeURIComponent(roleId)}/permissions?per_page=100&page=${p}`
+      );
+      if (!Array.isArray(batch)) {
+        console.error('[roles/:id/permissions] BAD_SHAPE batch=', batch);
+        return res.status(502).json({ error: 'mgmt_bad_response', roleId, batch });
+      }
+      permissions = permissions.concat(batch);
+      if (batch.length < 100) break;
+      p++;
+    }
+    return res.json({ permissions, total: permissions.length });
+  } catch (e) {
+    const status = e?.status || e?.statusCode || e?.response?.status || 500;
+    const data = e?.body || e?.response?.data || null;
+    const msg = data?.message || e?.message || 'Management API error';
+
+    // Pistas comunes:
+    // - Falta scope 'read:roles' en la app M2M de Auth0 → 403
+    // - roleId inexistente → 404
+    console.error('[roles/:id/permissions] ERROR', {
+      roleId,
+      status,
+      msg,
+      details: data,
+    });
+
+    return res.status(status).json({
+      error: 'mgmt_failed',
+      message: msg,
+      roleId,
+      details: data,
+      hints: [
+        'Verifica que tu app M2M tenga el scope: read:roles',
+        'Asegúrate de estar usando el dominio correcto del Management API (AUTH0_MGMT_BASE_URL) y AUDIENCE',
+      ],
+    });
+  }
+});
+
+
+// Añadir permisos a un rol (en tu API)
+router.post('/roles/:roleId/permissions', guard, async (req, res) => {
+  const { roleId } = req.params;
+  const { permissions = [], apiIdentifier } = req.body || {};
+  if (!Array.isArray(permissions) || permissions.length === 0) {
+    return res.status(400).json({ error: 'permissions[] requerido' });
+  }
+  const rs = apiIdentifier || process.env.AUTH0_AUDIENCE;
+  await callMgmt(`/roles/${encodeURIComponent(roleId)}/permissions`, {
+    method: 'POST',
+    body: JSON.stringify({
+      permissions: permissions.map((name) => ({
+        permission_name: name,
+        resource_server_identifier: rs,
+      })),
+    }),
+  });
+  res.json({ ok: true });
+});
+
+// ---------------------------------
+// ROLES DEL USUARIO (tenant-wide u Organization)
+// ---------------------------------
 router.get('/users/:userId/roles', guard, async (req, res) => {
   const { userId } = req.params;
   const org_id = String(req.query.org_id || '').trim();
@@ -87,10 +186,8 @@ router.get('/users/:userId/roles', guard, async (req, res) => {
       e?.message ||
       (status === 403 ? 'insufficient_scope' : 'Auth0 Management API error');
 
-    // Diagnóstico útil
     console.error('[users/:id/roles] ERROR', { status, msg, data, org_id, userId });
 
-    // Errores comunes con mensajes explícitos
     if (status === 403) {
       return res.status(403).json({
         error: 'insufficient_scope',
@@ -115,59 +212,54 @@ router.get('/users/:userId/roles', guard, async (req, res) => {
   }
 });
 
-// Añadir permisos a un rol (en tu API)
-router.post('/roles/:roleId/permissions', guard, async (req, res) => {
-  const { roleId } = req.params;
-  const { permissions = [], apiIdentifier } = req.body || {};
-  if (!Array.isArray(permissions) || permissions.length === 0) {
-    return res.status(400).json({ error: 'permissions[] requerido' });
+// Asignar roles a un usuario (tenant-wide u Organization)
+router.post('/users/:userId/roles', guard, async (req, res) => {
+  const { userId } = req.params;
+  const { roleIds = [], org_id } = req.body || {};
+
+  if (!Array.isArray(roleIds) || roleIds.length === 0) {
+    return res.status(400).json({ error: 'roleIds[] requerido' });
   }
-  const rs = apiIdentifier || process.env.AUTH0_AUDIENCE;
-  await callMgmt(`/roles/${encodeURIComponent(roleId)}/permissions`, {
-    method: 'POST',
-    body: JSON.stringify({
-      permissions: permissions.map((name) => ({
-        permission_name: name,
-        resource_server_identifier: rs,
-      })),
-    }),
-  });
-  res.json({ ok: true });
+
+  if (org_id) {
+    await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members/${encodeURIComponent(userId)}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ roles: roleIds }),
+    });
+  } else {
+    await callMgmt(`/users/${encodeURIComponent(userId)}/roles`, {
+      method: 'POST',
+      body: JSON.stringify({ roles: roleIds }),
+    });
+  }
+
+  res.json({ ok: true, assigned: roleIds, userId, org_id: org_id || null });
 });
 
-// Listar permisos (scopes) asignados a un rol
-// ---- PERMISOS ASIGNADOS A UN ROL ----
-router.get('/roles/:roleId/permissions', guard, async (req, res) => {
-  const { roleId } = req.params;
-  const per_page = Math.min(Number(req.query.per_page || 100), 100);
-  const page = Number(req.query.page || 0);
-  const all = String(req.query.all || '').toLowerCase();
-  const wantAll = all === '1' || all === 'true';
-
-  if (!wantAll) {
-    const perms = await callMgmt(
-      `/roles/${encodeURIComponent(roleId)}/permissions?per_page=${per_page}&page=${page}`
-    );
-    return res.json({ permissions: perms, page, per_page });
+// Quitar roles a usuario
+router.delete('/users/:userId/roles', guard, async (req, res) => {
+  const { userId } = req.params;
+  const { roleIds = [], org_id } = req.body || {};
+  if (!Array.isArray(roleIds) || roleIds.length === 0) {
+    return res.status(400).json({ error: 'roleIds[] requerido' });
   }
-
-  let permissions = [];
-  let p = 0;
-  while (true) {
-    const batch = await callMgmt(
-      `/roles/${encodeURIComponent(roleId)}/permissions?per_page=100&page=${p}`
-    );
-    permissions = permissions.concat(batch || []);
-    if (!Array.isArray(batch) || batch.length < 100) break;
-    p++;
+  if (org_id) {
+    await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members/${encodeURIComponent(userId)}/roles`, {
+      method: 'DELETE',
+      body: JSON.stringify({ roles: roleIds }),
+    });
+  } else {
+    await callMgmt(`/users/${encodeURIComponent(userId)}/roles`, {
+      method: 'DELETE',
+      body: JSON.stringify({ roles: roleIds }),
+    });
   }
-  res.json({ permissions, total: permissions.length });
+  res.json({ ok: true });
 });
 
 // ---------------------------------
 // USUARIOS (búsqueda/paginación)
 // ---------------------------------
-
 function isAdmin(req) {
   const perms = Array.isArray(req.dbUser?.permissions) ? req.dbUser.permissions : (req.user?.permissions || []);
   const roles = Array.isArray(req.dbUser?.roles) ? req.dbUser.roles : (req.user?.roles || []);
@@ -178,6 +270,7 @@ function callerOrgs(req) {
     : Array.isArray(req.dbUser?.orgs) ? req.dbUser.orgs
       : [];
 }
+
 router.get('/users', requireAuth, async (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase();
   const page = Number(req.query.page || 0);
@@ -185,12 +278,10 @@ router.get('/users', requireAuth, async (req, res) => {
 
   const admin = isAdmin(req);
 
-  // org_id solicitada o, por defecto, la del caller si existe
   const callerOrg = req.user?.org_id || null;
   const requestedOrg = String(req.query.org_id || '').trim();
   const org_id = requestedOrg || (callerOrg || '');
 
-  // --- NO ADMIN: forzar búsquedas restringidas a su organización ---
   if (!admin) {
     if (!org_id) {
       return res.status(403).json({
@@ -198,7 +289,6 @@ router.get('/users', requireAuth, async (req, res) => {
         message: 'Solo administradores pueden usar la búsqueda global. Provee org_id o pertenecer a una organización.',
       });
     }
-    // si pide una org distinta, validar pertenencia
     const orgs = callerOrgs(req);
     if (org_id !== callerOrg && !orgs.includes(org_id)) {
       return res.status(403).json({
@@ -208,7 +298,6 @@ router.get('/users', requireAuth, async (req, res) => {
     }
   }
 
-  // --- BY ORG (miembros de organización) ---
   if (org_id) {
     const base = `per_page=${per_page}&page=${page}&include_totals=true`;
     const out = await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members?${base}`);
@@ -223,11 +312,8 @@ router.get('/users', requireAuth, async (req, res) => {
       })
       : members;
 
-    // opcional: para no-admin podrías enviar sólo campos mínimos
-    // const sanitize = (u) => ({ user_id: u.user_id, email: u.email, name: u.name, picture: u.picture, status: u.blocked ? 'blocked' : 'active' });
-
     return res.json({
-      users: filtered, // .map(admin ? (u)=>u : sanitize)
+      users: filtered,
       total: out?.total ?? filtered.length,
       start: out?.start ?? page * per_page,
       limit: out?.limit ?? per_page,
@@ -237,7 +323,6 @@ router.get('/users', requireAuth, async (req, res) => {
     });
   }
 
-  // --- GLOBAL (sólo admin) ---
   if (!admin) {
     return res.status(403).json({
       error: 'forbidden',
@@ -250,88 +335,14 @@ router.get('/users', requireAuth, async (req, res) => {
   return res.json(out);
 });
 
-
-// Asignar roles a un usuario (tenant-wide u Organization)
-router.post('/users/:userId/roles', guard, async (req, res) => {
-  const { userId } = req.params;
-  const { roleIds = [], org_id } = req.body || {};
-
-  if (!Array.isArray(roleIds) || roleIds.length === 0) {
-    return res.status(400).json({ error: 'roleIds[] requerido' });
-  }
-
-  if (org_id) {
-    // Asignar roles en una organización
-    await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members/${encodeURIComponent(userId)}/roles`, {
-      method: 'POST',
-      body: JSON.stringify({ roles: roleIds }),
-    });
-  } else {
-    // Asignar roles a nivel tenant
-    await callMgmt(`/users/${encodeURIComponent(userId)}/roles`, {
-      method: 'POST',
-      body: JSON.stringify({ roles: roleIds }),
-    });
-  }
-
-  res.json({ ok: true, assigned: roleIds, userId, org_id: org_id || null });
-});
-
-// Asignar roles a usuario (tenant-wide u Organization)
-router.get('/roles', guard, async (req, res) => {
-  const per_page = Math.min(Number(req.query.per_page || 100), 100);
-  const page = Number(req.query.page || 0);
-  const all = String(req.query.all || '').toLowerCase();
-  const wantAll = all === '1' || all === 'true';
-
-  if (!wantAll) {
-    const roles = await callMgmt(`/roles?per_page=${per_page}&page=${page}`);
-    return res.json({ roles, page, per_page });
-  }
-
-  // pagina hasta traer todos
-  let roles = [];
-  let p = 0;
-  while (true) {
-    const batch = await callMgmt(`/roles?per_page=100&page=${p}`);
-    roles = roles.concat(batch || []);
-    if (!Array.isArray(batch) || batch.length < 100) break;
-    p++;
-  }
-  res.json({ roles, total: roles.length });
-});
-
-// Quitar roles a usuario
-router.delete('/users/:userId/roles', guard, async (req, res) => {
-  const { userId } = req.params;
-  const { roleIds = [], org_id } = req.body || {};
-  if (!Array.isArray(roleIds) || roleIds.length === 0) {
-    return res.status(400).json({ error: 'roleIds[] requerido' });
-  }
-  if (org_id) {
-    await callMgmt(`/organizations/${org_id}/members/${encodeURIComponent(userId)}/roles`, {
-      method: 'DELETE',
-      body: JSON.stringify({ roles: roleIds }),
-    });
-  } else {
-    await callMgmt(`/users/${encodeURIComponent(userId)}/roles`, {
-      method: 'DELETE',
-      body: JSON.stringify({ roles: roleIds }),
-    });
-  }
-  res.json({ ok: true });
-});
-
 // ---------------------------------
 // PERMISOS (catálogo de tu API)
 // ---------------------------------
-// ✅ ÚNICA implementación correcta (con alias)
 router.get(['/permissions', '/api-permissions', '/auth0/permissions'], guard, async (_req, res) => {
   try {
     const audience = process.env.AUTH0_AUDIENCE;
     if (!audience) return res.status(500).json({ error: 'missing_AUTH0_AUDIENCE' });
 
-    // 1) buscar tu Resource Server por identifier (audience)
     const all = await callMgmt(`/resource-servers?per_page=100&page=0`);
     if (!Array.isArray(all)) return res.status(502).json({ error: 'mgmt_bad_response', got: all });
 
@@ -344,10 +355,7 @@ router.get(['/permissions', '/api-permissions', '/auth0/permissions'], guard, as
       });
     }
 
-    // 2) leerlo completo para obtener "scopes"
     const full = await callMgmt(`/resource-servers/${rs.id}`);
-
-    // 3) mapear scopes a la forma que esperan las asignaciones
     const permissions = (full.scopes || []).map(s => ({
       permission_name: s.value,
       name: s.value,
@@ -373,8 +381,6 @@ router.get(['/permissions', '/api-permissions', '/auth0/permissions'], guard, as
 // ---------------------------------
 // PERMISOS por usuario (directos)
 // ---------------------------------
-
-
 router.get('/users/:userId/permissions', guard, async (req, res) => {
   const { userId } = req.params;
   const per_page = Math.min(Number(req.query.per_page || 100), 100);
@@ -391,24 +397,60 @@ router.get('/users/:userId/permissions', guard, async (req, res) => {
 });
 
 // Asignar permisos directos a un usuario (mejor hacerlo via roles)
-router.post('/users/:userId/permissions', guard, async (req, res) => {
+router.get('/users/:userId/permissions', guard, async (req, res) => {
   const { userId } = req.params;
-  const { permissions = [], apiIdentifier } = req.body || {};
-  if (!Array.isArray(permissions) || permissions.length === 0) {
-    return res.status(400).json({ error: 'permissions[] requerido' });
+  const per_page = Math.min(Number(req.query.per_page || 100), 100);
+  const page = Number(req.query.page || 0);
+
+  try {
+    const data = await callMgmt(
+      `/users/${encodeURIComponent(userId)}/permissions?per_page=${per_page}&page=${page}`
+    );
+
+    if (!Array.isArray(data)) {
+      console.error('[users/:id/permissions] BAD_SHAPE data=', data);
+      return res.status(502).json({ error: 'mgmt_bad_response', userId, data });
+    }
+
+    const myAudience = process.env.AUTH0_AUDIENCE;
+    const onlyMine = myAudience
+      ? data.filter(p => p.resource_server_identifier === myAudience)
+      : data;
+
+    return res.json({
+      user_id: userId,
+      permissions: onlyMine.map(p => p.permission_name),
+      raw: onlyMine,
+      note: myAudience ? `Filtrado por audience ${myAudience}` : 'Sin filtro de audience',
+    });
+  } catch (e) {
+    const status = e?.status || e?.statusCode || e?.response?.status || 500;
+    const data = e?.body || e?.response?.data || null;
+    const msg = data?.message || e?.message || 'Management API error';
+
+    // Pistas comunes:
+    // - Falta scope 'read:users' en la app M2M → 403
+    // - userId inválido → 404
+    console.error('[users/:id/permissions] ERROR', {
+      userId,
+      status,
+      msg,
+      details: data,
+    });
+
+    return res.status(status).json({
+      error: 'mgmt_failed',
+      message: msg,
+      userId,
+      details: data,
+      hints: [
+        'Verifica que tu app M2M tenga el scope: read:users',
+        'Revisa AUTH0_AUDIENCE si esperas filtrar por tu API',
+      ],
+    });
   }
-  const rs = apiIdentifier || process.env.AUTH0_AUDIENCE;
-  await callMgmt(`/users/${encodeURIComponent(userId)}/permissions`, {
-    method: 'POST',
-    body: JSON.stringify({
-      permissions: permissions.map((name) => ({
-        permission_name: name,
-        resource_server_identifier: rs,
-      })),
-    }),
-  });
-  res.json({ ok: true, assigned: permissions });
 });
+
 
 // Revocar permisos directos de un usuario
 router.delete('/users/:userId/permissions', guard, async (req, res) => {

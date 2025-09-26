@@ -241,7 +241,7 @@ router.post('/sendMessageAsk', async (req, res) => {
   console.log("➡️ req.body:", req.body);   // campos de texto
   // #region recepcion de parámetros
   const session = await mongoose.startSession();
-  const { appointmentId } = req.body;
+  const { appointmentId, msg } = req.body;
 
   // #endregion recepcion de parametros
   let committed = false;
@@ -250,6 +250,7 @@ router.post('/sendMessageAsk', async (req, res) => {
     session.startTransaction();
 
     // #region sanitizar
+    const safeMsg= helpers.sanitizeInput(req.body.msg);
     const safeAppId = helpers.sanitizeInput(appointmentId);
     // #endregion sanitizar 
 
@@ -271,7 +272,8 @@ router.post('/sendMessageAsk', async (req, res) => {
     if (!data) return res.status(401).json({ error: 'Unknow Patient' });
     const conversationId = data.sid;
     const safeTo = helpers.sanitizeInput(data.phoneInput);
-    const confirmationMessage = `Hi ${data.nameInput} ${data.lastNameInput}, this is ${data.org_name}. We have a proposed appointment for you on ${propstartDateFormatted}. Please reply with *YES* to confirm your attendance or *NO* if you are unable to attend. Only replies with YES or NO will be accepted.`;
+    console.log(safeMsg)
+    const confirmationMessage =safeMsg;
     const safeBody = helpers.sanitizeInput(confirmationMessage)
     if (!safeTo || typeof safeTo !== 'string') {
       return res.status(400).json({ error: 'Missing or invalid "to"' });

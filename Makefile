@@ -170,7 +170,7 @@ mongo-backup-host:
 		--out /home/appointment-platform/mongo-backup/$$(date +%F-%H%M)
 
 mongo_dev:
-	docker exec -it mongo_dev mongosh "$$MONGO_URI_DEV"
+	docker exec -it mongo_dev mongosh "mongodb://pgaisse:Patoch-2202@mongo_dev:27017/productionDB?authSource=admin"
 
 mongo_prod:
 	docker exec -it mongo_prod mongosh "mongodb://pgaisse:Patoch-2202@mongo_prod:27017/productionDB?authSource=admin"

@@ -7,6 +7,7 @@ const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const { attachUserInfo, jwtCheck, checkJwt, decodeToken, ensureUser } = require('../middleware/auth');
+const { requireAnyPermissionExplain } = require('../middleware/rbac-explain');
 const models = require("../models/Appointments");
 const sms = require('../helpers/conversations')
 const { findMatchingAppointments } = require('../helpers/findMatchingAppointments');
@@ -366,7 +367,7 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
 });
 router.patch("/update-items-contacts", jwtCheck, async (req, res) => {
   const { org_id, sub } = await helpers.getTokenInfo(req.headers.authorization);
- console.log("BodySE entró aupdate_______________________", req.body)
+  console.log("BodySE entró aupdate_______________________", req.body)
   const updates = Array.isArray(req.body) ? req.body : [req.body];
   const results = [];
 
@@ -414,7 +415,7 @@ router.patch("/update-items-contacts", jwtCheck, async (req, res) => {
           ],
         }
         : { [id_field]: id_value };
-        console.log("----------------------------------------------->",filter, data)
+      console.log("----------------------------------------------->", filter, data)
       const updatedDoc = await Model.findOneAndUpdate(
         filter,
         { $set: data },
@@ -456,178 +457,6 @@ function isValidObjectId(id) {
 
 
 
-router.get('/DraggableCards', jwtCheck, async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
-      return res.status(401).json({ error: 'Authorization header missing' });
-    }
-
-    const { org_id, token } = await helpers.getTokenInfo(authHeader);
-    console.log("Token", token);
-    if (!org_id) {
-      return res.status(403).json({ error: 'Unauthorized: org_id not found' });
-    }
-
-    const { start, end } = helpers.getDateRange();
-    if (!start || !end) {
-      return res.status(400).json({ error: 'Invalid date range' });
-    }
-
-    const result = await models.PriorityList.aggregate([
-      { $match: { org_id } },
-      {
-        $lookup: {
-          from: 'appointments',
-          let: {
-            durationHours: '$durationHours',
-            priorityNum: '$id',
-            priorityId: '$_id',
-            priorityName: '$name',
-            priorityColor: '$color',
-            priorityDescription: '$description',
-            priorityNotes: '$notes'
-          },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ['$priority', '$$priorityId'] },
-                org_id: org_id,
-                selectedAppDates: {
-                  $elemMatch: {
-                    startDate: { $gte: start },
-                    endDate: { $lte: end },
-                  },
-                },
-              },
-            },
-            // ⬇️ Excluir SOLO position == -1 (acepta nulos/ausentes y strings)
-            {
-              $match: {
-                $expr: {
-                  $ne: [
-                    { $convert: { input: "$position", to: "double", onError: null, onNull: null } },
-                    -1
-                  ]
-                }
-              }
-            },
-
-            { $unwind: { path: "$selectedDates.days", preserveNullAndEmptyArrays: true } },
-            {
-              $lookup: {
-                from: 'timeblocks',
-                localField: 'selectedDates.days.timeBlocks',
-                foreignField: '_id',
-                as: 'selectedDates.days.timeBlocks',
-              },
-            },
-            {
-              $lookup: {
-                from: 'messagelogs',
-                localField: '_id',
-                foreignField: 'appointment',
-                as: 'contactMessages',
-              },
-            },
-            {
-              $group: {
-                _id: "$_id",
-                sid: { $first: "$sid" },             // ← agregado
-                nameInput: { $first: "$nameInput" },
-                emailInput: { $first: "$emailInput" },
-                phoneInput: { $first: "$phoneInput" },
-                lastNameInput: { $first: "$lastNameInput" },
-                textAreaInput: { $first: "$textAreaInput" },
-                priority: { $first: "$priority" },
-                note: { $first: "$note" },
-                color: { $first: "$color" },
-                user_id: { $first: "$user_id" },
-                org_id: { $first: "$org_id" },
-                treatment: { $first: "$treatment" },
-                contactMessages: { $first: "$contactMessages" },
-                position: { $first: "$position" },
-                reschedule: { $first: "$reschedule" },
-                selectedStartDate: { $first: "$selectedDates.startDate" },
-                selectedEndDate: { $first: "$selectedDates.endDate" },
-                days: { $push: "$selectedDates.days" },
-                selectedAppDates: { $first: "$selectedAppDates" },
-              },
-            },
-            {
-              $lookup: {
-                from: 'treatments',
-                localField: 'treatment',
-                foreignField: '_id',
-                as: 'treatment',
-              },
-            },
-            {
-              $unwind: {
-                path: '$treatment',
-                preserveNullAndEmptyArrays: true,
-              },
-            },
-            {
-              $addFields: {
-                selectedDates: {
-                  startDate: "$selectedStartDate",
-                  endDate: "$selectedEndDate",
-                  days: "$days",
-                },
-                priority: {
-                  durationHours: "$$durationHours",
-                  description: "$$priorityDescription",
-                  notes: "$$priorityNotes",
-                  id: "$$priorityNum",
-                  _id: "$$priorityId",
-                  name: "$$priorityName",
-                  color: "$$priorityColor",
-                }
-              },
-            },
-            {
-              $project: {
-                selectedStartDate: 0,
-                selectedEndDate: 0
-              },
-            },
-          ],
-          as: 'patients',
-        },
-      },
-      {
-        $project: {
-          _id: 1,
-          priorityNum: "$id",
-          priorityId: "$_id",
-          priorityName: "$name",
-          priorityColor: "$color",
-          description: 1,
-          durationHours: 1,
-          priority: {
-            org_id: "$org_id",
-            id: "$id",
-            _id: "$_id",
-            description: "$description",
-            notes: "$notes",
-            durationHours: "$durationHours",
-            name: "$name",
-            color: "$color"
-          },
-          count: { $size: "$patients" },
-          patients: 1,
-        },
-      },
-    ]);
-
-    return res.status(200).json(result);
-  } catch (err) {
-    console.error('[GET /DraggableCards] Error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 
 router.post('/add', jwtCheck, async (req, res) => {
@@ -995,7 +824,7 @@ router.get('/appointments/:id', async (req, res) => {
         model: 'TimeBlock',
         select: '_id org_id blockNumber label short from to',
       })
-  
+
       .lean({ virtuals: true });
 
     if (!doc) return res.status(404).json({ error: 'Appointment not found' });
