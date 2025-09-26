@@ -158,8 +158,8 @@ prod-logs:
 # Usa variables de entorno: MONGO_USER, MONGO_PASS, MONGO_URI, MONGO_URI_DEV
 mongo-backup:
 	docker exec mongo_prod mongodump \
-		--username "$$MONGO_USER" \
-		--password "$$MONGO_PASS" \
+		--username "pgaisse" \
+		--password "Patoch-2202" \
 		--authenticationDatabase admin \
 		--db productionDB \
 		--out /backup/$$(date +%F-%H%M)
