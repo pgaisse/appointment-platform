@@ -29,8 +29,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { MdOutlineTitle } from 'react-icons/md';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
 import { compactObject } from '@/Helpers/compactObject';
-import React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCreateMessageTemplate } from '@/Hooks/Query/useCreateMessageTemplate';
 
 type Props = {
   onClose?: () => void;
@@ -39,12 +39,9 @@ type Props = {
 };
 
 // Extiende el formulario para incluir category sin romper el schema actual
-type TemplateFormValues = ScheaMessageTemplate & {
-  category?: 'message' | 'confirmation';
-};
 
 export default function CreateCustomMessageForm({ mode, onClose, patientId }: Props) {
-  const sanitize = (data: TemplateFormValues): TemplateFormValues => ({
+  const sanitize = (data: ScheaMessageTemplate): ScheaMessageTemplate => ({
     ...data,
     title: DOMPurify.sanitize(data.title ?? '', { ALLOWED_TAGS: [] }),
     content: DOMPurify.sanitize(data.content ?? '', { ALLOWED_TAGS: [] }),
@@ -73,7 +70,7 @@ export default function CreateCustomMessageForm({ mode, onClose, patientId }: Pr
   });
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const { mutate, isPending } = useInsertToCollection<{ message: string; document: any }>('MessageTemplate');
+  const { mutate, isPending } = useCreateMessageTemplate();
   const { isPending: editIsPending } = useUpdateItems();
   const [, setHasSubmitted] = useState(false);
   const [tokensUsed, setTokensUsed] = useState<string[]>([]);
@@ -87,13 +84,13 @@ export default function CreateCustomMessageForm({ mode, onClose, patientId }: Pr
     getValues,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<TemplateFormValues>({
+  } = useForm<ScheaMessageTemplate>({
     resolver: zodResolver(messageTemplateSchema as any),
     defaultValues: {
       category: 'message',
       title: '',
       content: '',
-    } as TemplateFormValues,
+    } as ScheaMessageTemplate,
     mode: 'onChange',
   });
 
@@ -119,10 +116,10 @@ export default function CreateCustomMessageForm({ mode, onClose, patientId }: Pr
     }, 0);
   };
 
-  const onSubmit = (raw: TemplateFormValues) => {
+  const onSubmit = (raw: ScheaMessageTemplate) => {
     const cleanedData = sanitize(raw);
     if (mode === 'CREATION') {
-      mutate(cleanedData as any, {
+      mutate(cleanedData, {
         onSuccess: () => {
           toast({
             title: 'Template successfully created.',

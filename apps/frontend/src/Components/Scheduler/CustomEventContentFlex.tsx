@@ -111,7 +111,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
         table: "Appointment",
         id_field: "_id",
         id_value: id ?? "",
-       
+
         data: {
           "selectedAppDates.0.proposed.startDate": start,
           "selectedAppDates.0.proposed.endDate": end,
@@ -123,7 +123,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     mutate(payload, {
       onSuccess: async () => {
         try {
-          sendSMS({ appointmentId: id, msg:templateTextByPatient[id] });
+          sendSMS({ appointmentId: id, msg: templateTextByPatient[id] });
           toast({
             title: "Confirmation SMS Sent",
             description: "The patient has been notified via SMS.",
@@ -346,6 +346,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                             <Flex align="center" justify="space-between" gap={2} wrap="wrap">
                               <HStack spacing={1.5}>
                                 <ShowTemplateButton
+                                  category="confirmation"
                                   selectedPatient={item._id}
                                   onSelectTemplate={(val: string) => {
                                     setTemplateTextByPatient((prev) => ({ ...prev, [pid]: val }));

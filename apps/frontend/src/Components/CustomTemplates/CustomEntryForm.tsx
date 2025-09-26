@@ -49,13 +49,15 @@ import CustomTextArea from "../Form/CustomTextArea";
 import { DateRange } from "./CustomBestApp";
 import { useNavigate } from "react-router-dom";
 import CustomCalendarEntryForm from "../Scheduler/CustomCalendarEntryForm";
-import { Priority, SelectedDates, TimeBlock, Treatment, WeekDay } from "@/types";
+import { Appointment, Priority, SelectedDates, TimeBlock, Treatment, WeekDay } from "@/types";
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
 import AvailabilityDates2 from "./AvailabilityDates2";
 import { useInsertToCollection } from "@/Hooks/Query/useInsertToCollection";
 import { TreatmentSelector } from "../Treatments/TreatmentSelector";
 import PhoneInput from "../Form/PhoneInput";
 import { ContactForm, contactsSchema } from "@/schemas/ContactSchema";
+import { appointmentsKey, appointmentsSearchKey } from "@/lib/queryKeys";
+import { PageResp } from "@/Hooks/Query/useAppointmentsPaginated";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -96,13 +98,14 @@ type Props = {
   setDatesApp?: React.Dispatch<React.SetStateAction<DateRange[]>>
   treatmentBack?: Treatment
   conversationId?: string
+  refetchPage: (options?: RefetchOptions | undefined) => Promise<QueryObserverResult<PageResp<Appointment>, Error>>
 
 };
 
 function CustomEntryForm({ children, dates,
   btnName = "Save", onClose_1,
   nameVal, lastNameVal, phoneVal, emailVal, priorityVal, datesSelected, datesAppSelected, note, reschedule = false, rfetchPl, treatmentBack,
-  idVal, mode = "CREATION", refetch_list, toastInfo, onlyPatient = false, setDatesApp, typeButonVisible = true, phoneFieldReadOnly = false,
+  idVal, mode = "CREATION", refetch_list, refetchPage,toastInfo, onlyPatient = false, setDatesApp, typeButonVisible = true, phoneFieldReadOnly = false,
   conversationId }: Props) {
   //console.log("reschedule", reschedule)
 
@@ -168,7 +171,7 @@ function CustomEntryForm({ children, dates,
   //const { mutate, isPending } = useEntryForm("Appointment");
   const { mutate, isPending } = useInsertToCollection<{ message: string; document: any }>("Appointment");
   //const { mutate: editItem, isPending: editIsPending } = useEditItem({ model: "Appointment" });
-  const { mutate: editItem, isPending: editIsPending } = useUpdateItems(isAnAppointment?"update-items":"update-items-contacts");
+  const { mutate: editItem, isPending: editIsPending } = useUpdateItems(isAnAppointment ? "update-items" : "update-items-contacts");
   const queryClient = useQueryClient();
   const toast = useToast();
   const {
@@ -291,6 +294,9 @@ function CustomEntryForm({ children, dates,
             });
             if (rfetchPl) rfetchPl();
             if (onClose_1) onClose_1()
+            await queryClient.cancelQueries({ queryKey: appointmentsKey.base });        // ['appointments']
+            await queryClient.cancelQueries({ queryKey: appointmentsSearchKey.base });  // ['appointments-se
+            refetchPage();
             queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["Appointment"] });
@@ -301,12 +307,13 @@ function CustomEntryForm({ children, dates,
                   Array.isArray(q.queryKey) &&
                   q.queryKey[0] === "messages" &&
                   q.queryKey[1] === conversationId,
-                type: "active",})
+                type: "active",
+              })
 
-              }
+            }
             //useEffect(()=>{onClose;}),[onClose]
           },
-          });
+        });
 
 
     }
@@ -535,8 +542,8 @@ function CustomEntryForm({ children, dates,
                               isDisabled={isPending || editIsPending}
                               colorScheme="blue"
                               key={index}
-                              
-                              
+
+
                             >
                               {start.format("YYYY/MM/DD HH:mm")} - {end.format("HH:mm")}
                             </Button>

@@ -1,85 +1,137 @@
+// apps/frontend/src/Components/CustomTemplates/CustomTableApp.tsx
 import {
   Box, Table, Thead, Tbody, Tr, Th, Td, Text, Tag, IconButton, HStack, TableContainer,
   Button, Spinner, AlertDialog, AlertDialogBody, AlertDialogContent, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogOverlay, Icon, Tooltip, useDisclosure
+  AlertDialogHeader, AlertDialogOverlay, Icon, Tooltip, useDisclosure, Input, InputGroup,
+  InputLeftElement, InputRightElement, Flex
 } from "@chakra-ui/react";
-import { EditIcon } from "@chakra-ui/icons";
+import { EditIcon, SearchIcon, CloseIcon } from "@chakra-ui/icons";
 import { ImBin } from "react-icons/im";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { formatDateSingle } from "@/Functions/FormatDateSingle";
 import { useDeleteItem } from "@/Hooks/Query/useDeleteItem";
-import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { Appointment, TimeBlock, WeekDay } from "@/types";
 import AvailabilityDates2 from "./AvailabilityDates2";
 import Pagination from "../Pagination";
 import { iconMap } from "../CustomIcons";
-import SearchBar, { SearchBarRef } from "../searchBar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTriggerEndpoint } from "@/Hooks/Query/useTriggerEndpoint";
 import { useAppointmentEditor } from "@/Hooks/Handles/useAppointmentEditor";
 import { useInfoModal } from "@/Hooks/Handles/useInfoModal";
+import { appointmentsKeys, useAppointmentsPaginated } from "@/Hooks/Query/useAppointmentsPaginated";
+import { useAppointmentSearch } from "@/Hooks/Query/useAppointmentSearch";
 
-interface Query { pageSize?: number; }
+interface Props { pageSize?: number; }
 
-function CustomTableApp({ pageSize }: Query) {
-  const query = {};
-  const populateFields = [
-    { path: "priority", select: "id description notes durationHours name color" },
-    { path: "treatment", select: "_id name notes duration icon color minIcon" },
-    { path: "selectedDates.days.timeBlocks" }
-  ] as const;
-  const limit = 200;
+function useDebouncedValue(v: string, ms = 350) {
+  const [val, setVal] = useState(v);
+  useEffect(() => {
+    const id = setTimeout(() => setVal(v), ms);
+    return () => clearTimeout(id);
+  }, [v, ms]);
+  return val;
+}
 
-  const { data, isLoading, isPlaceholderData, refetch } =
-    useGetCollection<Appointment>("Appointment", { query, limit, populate: populateFields });
+function CustomTableApp({ pageSize = 20 }: Props) {
+  // ─────────── estado paginación
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const queryClient = useQueryClient();
-  const [filteredItems, setFilteredItems] = useState<Appointment[] | null>(null);
-  const searchRef = useRef<SearchBarRef>(null);
+  // ─────────── estado búsqueda
+  const [query, setQuery] = useState("");
+  const q = useDebouncedValue(query, 350);
+  const isSearching = q.trim().length >= 2;
 
-  const trigger = useTriggerEndpoint("/cleanup-twilio");
-
-  // ✅ edición reutilizable (compacta)
-  const { openEditor, AppointmentEditor } = useAppointmentEditor({
-    titlePrefix: "Edit Patient",
-    onSaved: () => {
-      refetch?.();
-      queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    },
+  // ─────────── data: paginado o búsqueda
+  const {
+    data: pageData,
+    isLoading: loadingPage,
+    isPlaceholderData,
+    refetch: refetchPage,
+    invalidate
+  } = useAppointmentsPaginated<Appointment>(currentPage, pageSize, {
+    sort: { updatedAt: -1 },
   });
 
-  // ✅ modal de info (nota/fechas) compacto/reutilizable
+  const {
+    data: searchData,
+    isLoading: loadingSearch,
+    refetch: refetchSearch,
+  } = useAppointmentSearch<Appointment>(q, 200);
+
+  const source: Appointment[] = isSearching
+    ? (searchData?.items || [])
+    : (pageData?.items || []);
+
+  const totalPages = isSearching ? 1 : (pageData?.pagination?.totalPages || 1);
+  const totalCount = isSearching ? (searchData?.total || 0) : (pageData?.pagination?.total || 0);
+
+  // ─────────── utilitarios
+  const queryClient = useQueryClient();
+  const hardRefresh = async () => {
+    if (isSearching) {
+      await queryClient.invalidateQueries({ queryKey: ["appointments-search"] });
+      await refetchSearch();
+    } else {
+      await queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      await refetchPage();
+    }
+  };
+
+const { openEditor, AppointmentEditor } = useAppointmentEditor({
+  refetchPage,
+  titlePrefix: "Edit Patient",
+  onSaved: async () => {
+    // Invalida TODO lo relacionado a appointments (listas/paginación)
+    await queryClient.invalidateQueries({
+      queryKey: appointmentsKeys.root,
+      refetchType: "active",
+    });
+
+    // Invalida cualquier búsqueda activa de appointments
+    await queryClient.invalidateQueries({
+      // cubre ["appointments-search"] y variantes con parámetros (e.g., ["appointments-search", q])
+      predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "appointments-search",
+      refetchType: "active",
+    });
+
+    // Refresca data visible según el modo actual
+    if (isSearching) {
+      await refetchSearch();
+    } else {
+      await refetchPage();
+    }
+  },
+});
+
   const { openInfo, InfoModal } = useInfoModal("Details");
 
-  // 🔴 borrar
+  // ─────────── borrar
   const deleteDisclosure = useDisclosure();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [itemToDelete, setItemToDelete] = useState<string>("");
-  const { deleteById } = useDeleteItem({ modelName: "Appointment", refetch });
+
+  const { deleteById } = useDeleteItem({
+    modelName: "Appointment",
+    refetch: isSearching ? refetchSearch : refetchPage,
+  });
 
   const confirmDelete = (id: string) => { setItemToDelete(id); deleteDisclosure.onOpen(); };
-  const handleDelete = () => {
-    if (deleteById && itemToDelete) deleteById(itemToDelete);
-    searchRef.current?.clearInput();
-    queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-    queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    setFilteredItems(null);
-    trigger.mutate(); // no esperamos respuesta
+  const handleDelete = async () => {
+    if (deleteById && itemToDelete) {
+      await deleteById(itemToDelete);
+    }
+    setQuery("");
+    await hardRefresh();
     deleteDisclosure.onClose();
   };
 
-  // 📄 paginación
-  const [currentPage, setCurrentPage] = useState(1);
-  const start = (currentPage - 1) * (pageSize || 0);
-  const end = start + (pageSize || 0);
-  const source = filteredItems ?? data ?? [];
-  const currentItems = pageSize ? source.slice(start, end) : source;
-  const totalPages = pageSize ? Math.ceil(source.length / (pageSize || 1)) : 1;
+  // Si cambia modo búsqueda, resetea página
+  useEffect(() => { if (!isSearching) setCurrentPage(1); }, [isSearching]);
 
-  if (isLoading) {
+  // loading inicial (lista paginada)
+  if (loadingPage && !isSearching) {
     return (
       <Box textAlign="center" py={10}>
         <Spinner size="xl" />
@@ -88,10 +140,50 @@ function CustomTableApp({ pageSize }: Query) {
     );
   }
 
+  const cancelAllAppointmentQueries = async () => {
+    invalidate()
+    await queryClient.cancelQueries({ queryKey: ["appointments"], exact: false });
+    await queryClient.cancelQueries({ queryKey: ["appointments-search"], exact: false });
+  };
+
   return (
     <>
       <Box fontSize="sm" borderWidth="1px" rounded="lg" shadow="md" p={4} bg="white">
-        <SearchBar ref={searchRef} data={data || []} onFilter={setFilteredItems} />
+        {/* Buscador con debounce */}
+        <InputGroup mb={4} size="md">
+          <InputLeftElement pointerEvents="none">
+            <SearchIcon color="gray.400" />
+          </InputLeftElement>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name, last name, phone or note…"
+            aria-label="Search appointments"
+          />
+          {query && (
+            <InputRightElement>
+              <IconButton
+                aria-label="Clear search"
+                icon={<CloseIcon boxSize={2.5} />}
+                size="sm"
+                variant="ghost"
+                onClick={() => setQuery("")}
+              />
+            </InputRightElement>
+          )}
+        </InputGroup>
+
+        {/* Estado del buscador */}
+        {isSearching && (
+          <Flex justify="space-between" mb={2}>
+            <Text color="gray.600">
+              {loadingSearch ? "Searching…" : `Found ${totalCount} result${totalCount === 1 ? "" : "s"}`}
+            </Text>
+            <Button size="sm" variant="ghost" onClick={() => setQuery("")}>
+              Exit search
+            </Button>
+          </Flex>
+        )}
 
         <TableContainer>
           <Table variant="simple" size="md">
@@ -108,7 +200,7 @@ function CustomTableApp({ pageSize }: Query) {
             </Thead>
 
             <Tbody>
-              {currentItems.map((item) => (
+              {(isSearching ? (loadingSearch ? [] : source) : source).map((item) => (
                 <Tr key={item._id} _hover={{ bg: "gray.50" }}>
                   {/* name */}
                   <Td>
@@ -141,16 +233,16 @@ function CustomTableApp({ pageSize }: Query) {
                       onClick={() => {
                         const days = Array.isArray(item.selectedDates?.days)
                           ? item.selectedDates.days.reduce((acc, curr) => {
-                              acc[curr.weekDay] = curr.timeBlocks;
-                              return acc;
-                            }, {} as Partial<Record<WeekDay, TimeBlock[]>>)
+                            acc[curr.weekDay] = curr.timeBlocks;
+                            return acc;
+                          }, {} as Partial<Record<WeekDay, TimeBlock[]>>)
                           : {};
                         openInfo(
                           <>
                             <AvailabilityDates2
                               modeInput={false}
                               selectedDaysResp={days}
-                              setSelectedDaysResp={() => {}}
+                              setSelectedDaysResp={() => { }}
                             />
                             <Text fontSize="sm" mt={2}>
                               Start: {item.selectedDates?.startDate ? formatDateSingle(item.selectedDates.startDate) : "No start date"}
@@ -202,7 +294,10 @@ function CustomTableApp({ pageSize }: Query) {
                         size="sm"
                         variant="ghost"
                         colorScheme="blue"
-                        onClick={() => openEditor(item)}
+                        onClick={async () => {
+                          openEditor(item);   
+
+                        }}
                       />
                       <IconButton
                         aria-label="Delete"
@@ -219,16 +314,26 @@ function CustomTableApp({ pageSize }: Query) {
             </Tbody>
           </Table>
         </TableContainer>
+
+        {isSearching && loadingSearch && (
+          <Box textAlign="center" py={6}><Spinner /></Box>
+        )}
       </Box>
 
-      <Box mt={4}>
-        <Pagination
-          isPlaceholderData={isPlaceholderData}
-          totalPages={totalPages}
-          currentPage={currentPage}
-          onPageChange={setCurrentPage}
-        />
-      </Box>
+      {/* paginación solo en modo lista */}
+      {!isSearching && (
+        <Box mt={4}>
+          <Pagination
+            isPlaceholderData={!!isPlaceholderData}
+            totalPages={totalPages}
+            currentPage={currentPage}
+            onPageChange={setCurrentPage}
+          />
+          <Text mt={2} color="gray.500" fontSize="sm">
+            Total: {totalCount} • Page {currentPage} / {totalPages}
+          </Text>
+        </Box>
+      )}
 
       {/* modales reutilizables */}
       <AppointmentEditor />

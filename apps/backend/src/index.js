@@ -68,9 +68,11 @@ app.use('/api', require('./routes/debug-auth'));
 app.use('/api', require('./routes/priority-list'));
 app.use('/api', Routes);
 app.use('/api', Topics);
+app.use('/api/appointment-manager', require('./routes/appointment-manager'));
 app.use('/api/socket.io', SocketRoutes);
 app.use('/api/admin/auth0', require('./routes/admin-auth0'));
 app.use('/api/profile', require('./routes/profile'));
+app.use("/api/message-templates", require("./routes/message-templates"));
 
 // manejador de errores (después de rutas)
 app.use((err, _req, res, next) => {

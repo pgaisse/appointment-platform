@@ -9,6 +9,7 @@ import useEventSelection from "@/Hooks/Handles/useEventSelection";
 import useSlotSelection, { DateRange, MarkedEvents } from "@/Hooks/Handles/useSlotSelection";
 import { Appointment } from "@/types";
 import CustomEntryForm from "@/Components/CustomTemplates/CustomEntryForm";
+import { PageResp } from "../Query/useAppointmentsPaginated";
 
 type Refetcher = (options?: RefetchOptions) => Promise<QueryObserverResult<any, Error>>;
 
@@ -18,10 +19,15 @@ type UseAppointmentEditorOpts = {
   refetcher?: Refetcher;
   // Opcional: se ejecuta después del refetch
   onSaved?: () => void;
+  refetchPage: (options?: RefetchOptions | undefined) => Promise<QueryObserverResult<PageResp<Appointment>, Error>>
 };
 
-export function useAppointmentEditor(opts: UseAppointmentEditorOpts = {}) {
-  const { titlePrefix = "Edit Patient", refetcher, onSaved } = opts;
+export function useAppointmentEditor(opts: UseAppointmentEditorOpts = {
+  refetchPage: function (options?: RefetchOptions | undefined): Promise<QueryObserverResult<PageResp<Appointment>, Error>> {
+    throw new Error("Function not implemented.");
+  }
+}) {
+  const { titlePrefix = "Edit Patient", refetcher, onSaved, refetchPage } = opts;
 
   const disclosure = useDisclosure();
   const [current, setCurrent] = useState<Appointment | null>(null);
@@ -47,10 +53,10 @@ export function useAppointmentEditor(opts: UseAppointmentEditorOpts = {}) {
   // Envolvemos el refetch para disparar onSaved() después
   const wrappedRefetch: Refetcher | undefined = refetcher
     ? async (opts?: RefetchOptions) => {
-        const r = await refetcher(opts);
-        onSaved?.();
-        return r;
-      }
+      const r = await refetcher(opts);
+      onSaved?.();
+      return r;
+    }
     : undefined;
 
   const AppointmentEditor = () => (
@@ -73,7 +79,7 @@ export function useAppointmentEditor(opts: UseAppointmentEditorOpts = {}) {
               title={`${titlePrefix} ${current.nameInput ?? ""}`}
               btnName="Update"
               mode="EDITION"
-
+              refetchPage={refetchPage}
               markedEvents={[]}
               handleAppSelectEvent={handleAppSelectEvent}
               handleAppSelectSlot={handleAppSelectSlot}
