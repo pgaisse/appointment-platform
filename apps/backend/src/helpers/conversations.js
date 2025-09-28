@@ -1044,18 +1044,7 @@ async function uploadToMCS(fileBuffer, filename, contentType) {
     return resp?.data; // ME...
 }
 
-function decideFromBody(body = "") {
-    const t = body.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
 
-    const YES = /^(si|sí|s|ok|vale|dale|confirmo|confirm|listo|de acuerdo|perfecto|correcto|okey)\b/iu;
-    const NO = /^(no|nop|nah|cancel|cancela|no puedo|no voy|rechazo)\b/iu;
-    const RE = /\b(reagendar|reagenda|otro dia|otra fecha|cambiar hora|reprogramar|posponer|move|reschedule)\b/iu;
-
-    if (YES.test(t)) return "confirmed";
-    if (NO.test(t)) return "declined";
-    if (RE.test(t)) return "reschedule";
-    return "unknown";
-}
 
 // ➋ Encuentra el OUTBOUND Confirmation anterior
 async function findPrevOutboundConfirmation({ conversationId, nowIndex, nowCreatedAt }) {

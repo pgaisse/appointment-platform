@@ -23,7 +23,6 @@ import {
   SkeletonCircle,
   Fade,
   Stack,
-  useDisclosure,
   IconButton,
 } from '@chakra-ui/react';
 import {
@@ -42,8 +41,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import React, { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react';
-import type { Appointment, GroupedAppointment, ConversationChat } from '@/types';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import type { Appointment, GroupedAppointment } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { iconMap } from '../CustomIcons';
 import Pagination from '../Pagination';
@@ -55,9 +54,9 @@ import { LiaSmsSolid } from 'react-icons/lia';
 
 // ✅ Hook dedicado para Priority List
 import { useMovePriorityItems, type PriorityMove } from '@/Hooks/Query/useMovePriorityItems';
-// ⛔️ Eliminado: import ChatWindowModal from '../Modal/ChatWindowModal';
-// ✅ Lazy load (se carga SOLO cuando se abre)
-const ChatWindowModalLazy = lazy(() => import('../Modal/ChatWindowModal'));
+
+// ✅ Nuevo componente de chat (lazy internal)
+import ChatLauncher from '@/Components/Chat/ChatLauncher';
 import { FaCommentSms } from 'react-icons/fa6';
 
 type Props = {
@@ -275,41 +274,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
-
-  // ---------- Chat modal global (fuera de loops) ----------
-  const { isOpen: isChatOpen, onOpen: onChatOpen, onClose: onChatClose } = useDisclosure();
-  const [chatToOpen, setChatToOpen] = useState<ConversationChat | undefined>(undefined);
-  // ✅ Estado para montar/desmontar realmente el modal (lazy)
-  const [shouldMountChat, setShouldMountChat] = useState(false);
-
-  const openChatForItem = useCallback((item: Appointment) => {
-    setChatToOpen({
-      conversationId: item.sid,
-      lastMessage: {
-        author: item.nameInput || "",
-        body: "",
-        conversationId: item.sid || "",
-        createdAt: new Date().toISOString(),
-        direction: "outbound",
-        media: [],
-        sid: "temp-lastmessage",
-        status: "delivered",
-        updatedAt: new Date().toISOString(),
-      },
-      owner: {
-        email: item.emailInput,
-        lastName: item.lastNameInput,
-        name: item.nameInput,
-        org_id: item.org_id,
-        phone: item.phoneInput,
-        unknown: false,
-        _id: item._id,
-      },
-    });
-    // 👇 Monta y abre SOLO al hacer click
-    setShouldMountChat(true);
-    onChatOpen();
-  }, [onChatOpen]);
 
   // Inicializar optimisticData con data de la query
   useEffect(() => {
@@ -621,7 +585,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                   <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
                                     <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
                                   </Tooltip>
-
                                 </HStack>
                               </GridItem>
                               <GridItem>
@@ -658,22 +621,47 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                     {formatAusPhoneNumber(item.phoneInput)}
                                   </Text>
 
-                                  {/* Botón para abrir Chat Modal */}
-                                  <Tooltip label="Open chat" hasArrow>
-                                    <IconButton
-                                      aria-label="Open chat"
-                                      icon={<FaCommentSms size={20} color='green'/>}
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openChatForItem(item);
-                                      }}
-                                    />
-                                  </Tooltip>
+                                  {/* Botón para abrir Chat Modal (Refactor: usa componente reutilizable con lazy) */}
+                                  <ChatLauncher
+                                    item={item}
+                                    tooltip="Open chat"
+                                    stopPropagation
+                                    buildContact={(i: Appointment) => ({
+                                      conversationId: i.sid,
+                                      lastMessage: {
+                                        author: i.nameInput || "",
+                                        body: "",
+                                        conversationId: i.sid || "",
+                                        createdAt: new Date().toISOString(),
+                                        direction: "outbound",
+                                        media: [],
+                                        sid: "temp-lastmessage",
+                                        status: "delivered",
+                                        updatedAt: new Date().toISOString(),
+                                      },
+                                      owner: {
+                                        email: i.emailInput,
+                                        lastName: i.lastNameInput,
+                                        name: i.nameInput,
+                                        org_id: i.org_id,
+                                        phone: i.phoneInput,
+                                        unknown: false,
+                                        _id: i._id,
+                                      },
+                                    })}
+                                    trigger={
+                                      <IconButton
+                                        aria-label="Open chat"
+                                        icon={<FaCommentSms size={20} color="green" />}
+                                        size="sm"
+                                        variant="ghost"
+                                      />
+                                    }
+                                  />
                                 </HStack>
                               </GridItem>
-                            </Grid></Box>
+                            </Grid>
+                          </Box>
                         </SortableItem>
                       ))
                     ) : (
@@ -961,7 +949,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                           <Text fontWeight="bold">
                             {item.nameInput} {item.lastNameInput}
                           </Text>
-
                         </HStack>
                       </GridItem>
                       <GridItem>
@@ -996,26 +983,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             </CardFooter>
           </Card>
         </Fade>
-      )}
-
-      {/* === Modal global del chat === */}
-      {shouldMountChat && isChatOpen && (
-        <Suspense
-          fallback={
-            <Box position="fixed" inset={0} bg="blackAlpha.600" display="flex" alignItems="center" justifyContent="center" zIndex={2000}>
-              <Spinner size="xl" thickness="4px" />
-            </Box>
-          }
-        >
-          <ChatWindowModalLazy
-            onOpen={onChatOpen}
-            isOpen={isChatOpen}
-            onClose={() => { onChatClose(); setShouldMountChat(false); }}
-            trigger={<IconButton aria-label="Open chat" icon={<FaCommentSms  />} variant="ghost" />}
-            initial={{ appId: chatToOpen?.owner._id }}
-            contact={chatToOpen}
-          />
-        </Suspense>
       )}
 
       <DragOverlay>

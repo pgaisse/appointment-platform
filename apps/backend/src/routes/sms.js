@@ -77,46 +77,8 @@ const smsLimiter = rateLimit({
 ///END POINTS
 
 
-router.get('/sendSms', async (req, res) => {
 
-  const appointmentId = '6879e8e61cebb27de2734d0c';
 
-  // 🔍 Validación de entrada
-  if (!appointmentId) {
-    return res.status(400).json({ error: 'Missing required field: appointmentId' });
-  }
-
-  try {
-    // 🟢 Intentar enviar el SMS
-    await sms.main(appointmentId, req.io);
-
-    // ✅ Éxito
-    return res.status(200).json({ success: true, message: 'SMS sent successfully', appointmentId });
-
-  } catch (error) {
-    console.error('❌ Error sending SMS:', error);
-    return res.status(500).json({ error: 'Failed to send SMS', details: error.message });
-  }
-})
-router.post('/sendSms', async (req, res) => {
-  const { appointmentId } = req.body;
-  // 🔍 Validación de entrada
-  if (!appointmentId) {
-    return res.status(400).json({ error: 'Missing required field: appointmentId' });
-  }
-
-  try {
-    // 🟢 Intentar enviar el SMS
-    await sms.main(appointmentId, req.io);
-
-    // ✅ Éxito
-    return res.status(200).json({ success: true, message: 'SMS sent successfully' });
-
-  } catch (error) {
-    console.error('❌ Error sending SMS:', error);
-    return res.status(500).json({ error: 'Failed to send SMS', details: error.message });
-  }
-});
 router.get('/getchats', jwtCheck, async (req, res) => {
   try {
     const { org_id } = await helpers.getTokenInfo(req.headers.authorization);
@@ -250,7 +212,7 @@ router.post('/sendMessageAsk', async (req, res) => {
     session.startTransaction();
 
     // #region sanitizar
-    const safeMsg= helpers.sanitizeInput(req.body.msg);
+    const safeMsg = helpers.sanitizeInput(req.body.msg);
     const safeAppId = helpers.sanitizeInput(appointmentId);
     // #endregion sanitizar 
 
@@ -273,7 +235,7 @@ router.post('/sendMessageAsk', async (req, res) => {
     const conversationId = data.sid;
     const safeTo = helpers.sanitizeInput(data.phoneInput);
     console.log(safeMsg)
-    const confirmationMessage =safeMsg;
+    const confirmationMessage = safeMsg;
     const safeBody = helpers.sanitizeInput(confirmationMessage)
     if (!safeTo || typeof safeTo !== 'string') {
       return res.status(400).json({ error: 'Missing or invalid "to"' });
@@ -309,7 +271,7 @@ router.post('/sendMessageAsk', async (req, res) => {
     const docs = {
       user: req.dbUser._id,
       conversationId: msg.conversationSid,
-      proxyAddress: process.env.TWILIO_FROM_MAI,
+      proxyAddress: process.env.TWILIO_FROM_MAIN,
       userId: data._id,
       sid: msg.sid,
       author: org_id,
@@ -317,7 +279,7 @@ router.post('/sendMessageAsk', async (req, res) => {
       status: "pending",
       direction: "outbound",
       type: MsgType.Confirmation,
-      index: msg.index,          // 👈 clave para orden estable
+      index: msg.index,          // 👈 clave para orden estables
     };
     try {
       await Message.insertOne(docs);
@@ -325,6 +287,7 @@ router.post('/sendMessageAsk', async (req, res) => {
 
       console.error("Error saving message to DB:", err);
     }
+    
     // #endregion Registro en DB
 
     // #region  Enviar a Twilio
@@ -635,7 +598,6 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
           ? payload.Index
           : parseInt(payload.Index, 10);
 
-      console.log("idx", idx, payload.Index)
       if (!Number.isNaN(idx)) updateDoc.index = idx;
 
       const saved = await Message.findOneAndUpdate(
@@ -647,23 +609,15 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
       // 3) Correlación SOLO para inbound: ver si responde a la última Confirmation outbound
       if (isInbound) {
-        console.log("isInbound", isInbound)
         const prev = await findPrevOutboundConfirmation({
           Message,
           conversationId: payload.ConversationSid,
           nowIndex: saved.index,
           nowCreatedAt: saved.createdAt,
         });
-        console.log("prev", prev, {
-          Message,
-          conversationId: payload.ConversationSid,
-          nowIndex: saved.index,
-          nowCreatedAt: saved.createdAt,
-        }, saved)
+
         if (prev) {
-          console.log("preDesition: ", saved.body)
           const decision = decideFromBody(saved.body || "");
-          console.log("decision:_______________________________-----------------------------------> ", decision)
           const lastOutBound = await Message.findOne({ sid: prev.sid });
           const q = await Appointment.findOne({ sid: payload.ConversationSid, unknown: { $ne: true } }, // excluye unknown:true
             { selectedAppDates: 1, nameInput: 1, lastNameInput: 1, org_id: 1 }
@@ -680,18 +634,12 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
             Appointment,
             conversationId: payload.ConversationSid,
           });
-          console.log("slotId__________________________________________", slotId)
 
           if (slotId) {
             const arrayFilters = [{ "slot._id": new mongoose.Types.ObjectId(slotId) }];
-            console.log("decision _____________________________________________________________________", decision)
-
-
-
             if (decision === "confirmed") {
               const startDate = q.selectedAppDates[0]?.proposed?.startDate;
               const endDate = q.selectedAppDates[0]?.proposed?.endDate;
-
               const session = await mongoose.startSession();
               try {
                 await session.withTransaction(async () => {
@@ -732,7 +680,6 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                 session.endSession();
               }
             } else if (decision === "declined") {
-              console.log("decision declined ________________________________-------------------")
               const session = await mongoose.startSession();
               try {
                 await session.withTransaction(async () => {
@@ -812,6 +759,8 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
     // ------------------------------------------------------------------
 
+   
+   
     if (payload.EventType === "onDeliveryUpdated") {
       const updated = await Message.findOneAndUpdate(
         { sid: payload.MessageSid },
@@ -836,13 +785,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
         if (slotId) {
           const arrayFilters = [{ "slot._id": new mongoose.Types.ObjectId(slotId) }];
 
-          if (updated.status === "delivered") {
-            await Appointment.updateOne(
-              { sid: updated.conversationId },
-              { $set: { "selectedAppDates.$[slot].status": ContactStatus.Pending } },
-              { arrayFilters }
-            );
-          } else if (updated.status === "failed" || updated.status === "undelivered") {
+          if (updated.status === "failed" || updated.status === "undelivered") {
             await Appointment.updateOne(
               { sid: updated.conversationId },
               { $set: { "selectedAppDates.$[slot].status": "Failed" } },

@@ -36,6 +36,10 @@ import { CiUser } from "react-icons/ci";
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 import { mayusName } from "@/Functions/mayusName";
 
+// 🚀 Chat: componente reutilizable (lazy) + icono
+import ChatLauncher from "@/Components/Chat/ChatLauncher";
+import { FaCommentSms } from "react-icons/fa6";
+
 // -----------------------------
 // Tipos basados en tus esquemas Mongoose (actualizados)
 // -----------------------------
@@ -132,7 +136,7 @@ export interface Appointment {
     org_id: string;
     org_name: string;
     position: number;
-    contactMessages?: (ContactLog | string)[]; // populated o ids
+    contactMessages?: (ContactLog | string)[];
     reschedule: boolean;
 
     selectedDates: SelectedDates;
@@ -255,7 +259,7 @@ export type PremiumAppointmentModalProps = {
     isOpen: boolean;
     onClose: () => void;
 };
-console.log("--------------------------------->",)
+
 const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, isOpen, onClose }) => {
     const headerBg = useColorModeValue(
         "linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0) 100%), linear-gradient(90deg, #7C3AED 0%, #06B6D4 100%)",
@@ -293,34 +297,71 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
         "ContactAppointment",
         { mongoQuery: safeQuery2, limit, populate: populateFieldsContacted }
     );
-
-
+console.log("data",contacted)
     const appointment = data?.[0] ?? null;
     const fullName = `${appointment?.nameInput ?? ""} ${appointment?.lastNameInput ?? ""}`.trim() || "Unnamed";
-
-
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} size="5xl" scrollBehavior="inside">
             <ModalOverlay backdropFilter="blur(6px)" />
             <ModalContent overflow="hidden" border="1px solid" borderColor={border} rounded="2xl">
                 {/* Header */}
-                <Box bg={headerBg} color="white" px={6} py={5} borderLeftWidth={6} borderLeftStyle="solid" borderLeftColor={appointment?.color ?? "transparent"}>
-                    <HStack spacing={4} align="center">
-                        <Avatar name={fullName} bg="whiteAlpha.900" color="black" size="lg" />
+                <Box bg={headerBg} color="white" px={6} py={6} borderLeftWidth={6} borderLeftStyle="solid" borderLeftColor={appointment?.color ?? "transparent"}>
+                    <HStack spacing={4} align="center" justify="space-between">
+                        <HStack spacing={4} align="center">
+                            <Avatar name={fullName} bg="whiteAlpha.900" color="black" size="lg" />
+                            <VStack align="start" spacing={0} flex={1}>
+                                <HStack wrap="wrap" spacing={3} align="center">
+                                    <Text fontSize="xl" fontWeight="extrabold">{fullName}</Text>
+                                    <PriorityTag priority={appointment?.priority ?? null} />
+                                    {appointment?.unknown ? (
+                                        <Badge colorScheme="orange" rounded="full">Unknown</Badge>
+                                    ) : null}
+                                </HStack>
+                            </VStack>
+                        </HStack>
+                        {/* 🔗 Acceso rápido al chat desde el header */}
+                        {appointment && (
+                            <ChatLauncher
+                                item={appointment}
+                                tooltip="Open chat"
+                                buildContact={(i: Appointment) => ({
+                                    conversationId: i.sid ?? i._id,
+                                    lastMessage: {
+                                        author: i.nameInput || "",
+                                        body: "",
+                                        conversationId: i.sid ?? i._id,
+                                        createdAt: new Date().toISOString(),
+                                        direction: "outbound",
+                                        media: [],
+                                        sid: "temp-lastmessage",
+                                        status: "delivered",
+                                        updatedAt: new Date().toISOString(),
+                                    },
+                                    owner: {
+                                        email: i.emailInput,
+                                        lastName: i.lastNameInput,
+                                        name: i.nameInput,
+                                        org_id: i.org_id,
+                                        phone: i.phoneInput,
+                                        unknown: !!i.unknown,
+                                        _id: i._id,
+                                    },
+                                })}
+                                modalInitial={{ appId: appointment._id }}
+                                trigger={
+                                    <Button
+                                        size="sm"
+                                        leftIcon={<FaCommentSms />}
+                                        variant="outline"
+                                        colorScheme="teal"
+                                    >
+                                        Open chat
+                                    </Button>
+                                }
+                            />
+                        )}
 
-
-                        <VStack align="start" spacing={0} flex={1}>
-                            <HStack wrap="wrap" spacing={3} align="center">
-                                <Text fontSize="xl" fontWeight="extrabold">{fullName}</Text>
-                                <PriorityTag priority={appointment?.priority ?? null} />
-                                {appointment?.unknown ? (
-                                    <Badge colorScheme="orange" rounded="full">Unknown</Badge>
-                                ) : null}
-                            </HStack>
-
-
-                        </VStack>
                     </HStack>
                 </Box>
 
@@ -338,19 +379,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                         <SimpleGrid columns={{ base: 1, md: 2 }} spacing={5}>
                             {/* Columna izquierda */}
                             <VStack align="stretch" spacing={5}>
-                                <SectionCard title={<HStack><Icon as={FiUser} /><Text>Contact</Text></HStack>}>
-                                    <Grid templateColumns={{ base: "1fr", sm: "1fr 1fr" }} gap={4}>
-                                        <GridItem>
-                                            <LabeledRow icon={FiUser} label="Name" value={mayusName(fullName)} />
-                                        </GridItem>
-                                        <GridItem>
-                                            <LabeledRow icon={FiPhone} label="Phone" value={formatAustralianMobile(appointment?.phoneInput?appointment?.phoneInput:"")} copyable />
-                                        </GridItem>
-                                        <GridItem>
-                                            <LabeledRow icon={FiMail} label="Email" value={appointment?.emailInput} copyable />
-                                        </GridItem>
-                                    </Grid>
-                                </SectionCard>
+
 
                                 <SectionCard title={<HStack><Icon as={FiInfo} /><Text>Treatment</Text></HStack>} right={
                                     appointment?.treatment?.active === false ? (
@@ -372,14 +401,12 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
 
                                 <SectionCard title={<HStack><Icon as={FiInfo} /><Text>Notes</Text></HStack>}>
                                     <VStack align="stretch" spacing={3}>
-
                                         <Box bg={useColorModeValue("blackAlpha.50", "whiteAlpha.100")} p={3} rounded="lg">
                                             <Text fontSize="xs" color={sub} mb={1}>Note</Text>
                                             <Text>{appointment?.note || "—"}</Text>
                                         </Box>
                                     </VStack>
                                 </SectionCard>
-
 
                                 <SectionCard title={<HStack><Icon as={FiInfo} /><Text>Contact History</Text></HStack>} right={<Badge rounded="full" colorScheme="blue">{contacted?.length} entries</Badge>}>
                                     {contacted?.length === 0 ? (
@@ -396,22 +423,9 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                                                     <LabeledRow icon={CiUser} label="User" value={(log.user?.name || "").trim().split(" ")[0] || log.user?.email || log.user?.auth0_id} />
                                                                     <LabeledRow icon={GrContact} label="Contacted" value={fmtDateTime(log.createdAt)} />
                                                                     <LabeledRow icon={FiClock} label="Appointment" value={formatDateWS({ startDate: new Date(log.startDate || ""), endDate: new Date(log.endDate || "") })} />
-
-
                                                                 </HStack>
                                                             </Badge>
-                                                            <Badge
-                                                                rounded="full"
-
-                                                            >
-
-                                                            </Badge>
-
-
                                                         </HStack>
-                                                        {//<Text fontSize="sm" color={sub}>{fmtDateTime(log.contactedAt)} · by {log.contactedBy}</Text>
-                                                        }
-
                                                     </VStack>
                                                 </HStack>
                                             ))}
@@ -436,7 +450,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                                     <Box key={it._id ?? idx} border="1px solid" borderColor={border} rounded="xl" p={3}>
                                                         <HStack justify="space-between" mb={2}>
                                                             <HStack spacing={2}>
-
                                                                 {it.rescheduleRequested ? (
                                                                     <Badge colorScheme="orange" rounded="full">Reschedule requested</Badge>
                                                                 ) : null}
@@ -454,7 +467,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                                                     </Badge>
                                                                 )}
                                                             </HStack>
-
                                                         </HStack>
                                                         <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={3}>
                                                             <LabeledRow icon={FiClock} label="Start" value={fmtDateTime(it.startDate)} />
@@ -482,7 +494,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                                                 )}
                                                             </Box>
                                                         )}
-
                                                     </Box>
                                                 ))}
                                             </Stack>
@@ -514,10 +525,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                                         </VStack>
                                     </VStack>
                                 </SectionCard>
-
-
-
-
                             </VStack>
                         </SimpleGrid>
                     )}
@@ -528,11 +535,10 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({ id, i
                     <HStack w="full" justify="space-between">
                         <HStack color={sub}>
                             <FiInfo />
-
                         </HStack>
                         <HStack>
+
                             <Button variant="ghost" onClick={onClose}>Close</Button>
-                           
                         </HStack>
                     </HStack>
                 </ModalFooter>
