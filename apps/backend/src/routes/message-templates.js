@@ -26,16 +26,6 @@ const DOMPurify = createDOMPurify(window);
 // ────────────────────────────────────────────────────────────
 // Router-level middlewares
 // ────────────────────────────────────────────────────────────
-const limiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 30,
-    standardHeaders: true,
-    legacyHeaders: false,
-    trustProxy: false,
-    keyGenerator: (req) =>
-        req.auth?.payload?.sub ? `sub:${req.auth.payload.sub}` : `ip:${req.ip}`,
-});
-router.use(limiter);
 
 // Auth pipeline once (do not duplicate jwtCheck in handlers)
 router.use(jwtCheck, attachUserInfo, ensureUser);

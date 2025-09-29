@@ -287,7 +287,6 @@ router.post('/sendMessageAsk', async (req, res) => {
 
       console.error("Error saving message to DB:", err);
     }
-    
     // #endregion Registro en DB
 
     // #region  Enviar a Twilio
@@ -740,7 +739,6 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
       }
 
       // 4) Emitir el newMessage a la organización
-      queueInvalidate(res, orgId, ["messages", conversationId]);
       req.io.to(`org:${orgId}`).emit("newMessage", {
         sid: saved.sid,
         index: saved.index,

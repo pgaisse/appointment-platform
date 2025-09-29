@@ -683,7 +683,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                 )}
               </Box>
 
-              <CardFooter minH="50px" maxH="50px">
+              <CardFooter minH="50px" maxH="50px" p={3} >
                 {isPlaceholderData ? (
                   <HStack w="full" justify="center">
                     <Skeleton height="32px" width="80px" />
@@ -692,6 +692,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   </HStack>
                 ) : (
                   <Pagination
+                  
                     isPlaceholderData={isPlaceholderData}
                     totalPages={colTotalPages}
                     currentPage={colCurrentPage}

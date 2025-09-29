@@ -98,7 +98,7 @@ type Props = {
   setDatesApp?: React.Dispatch<React.SetStateAction<DateRange[]>>
   treatmentBack?: Treatment
   conversationId?: string
-  refetchPage: (options?: RefetchOptions | undefined) => Promise<QueryObserverResult<PageResp<Appointment>, Error>>
+  refetchPage?: (options?: RefetchOptions | undefined) => Promise<QueryObserverResult<PageResp<Appointment>, Error>>
 
 };
 
@@ -254,7 +254,7 @@ function CustomEntryForm({ children, dates,
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
           if (conversationId) { queryClient.invalidateQueries({ queryKey: ["messages", conversationId] }); }
           if (onClose_1) onClose_1()
-          navigate("/appointments/priority-list");
+          
         },
         onError: (error: any) => {
           toast({
@@ -296,7 +296,7 @@ function CustomEntryForm({ children, dates,
             if (onClose_1) onClose_1()
             await queryClient.cancelQueries({ queryKey: appointmentsKey.base });        // ['appointments']
             await queryClient.cancelQueries({ queryKey: appointmentsSearchKey.base });  // ['appointments-se
-            refetchPage();
+            if(refetchPage)refetchPage();
             queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
             queryClient.invalidateQueries({ queryKey: ["Appointment"] });

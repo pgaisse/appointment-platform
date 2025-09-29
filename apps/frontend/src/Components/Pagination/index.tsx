@@ -75,7 +75,7 @@ const Pagination = ({
   const disabledNext = page >= totalPages || totalPages === 0;
 
   return (
-    <HStack spacing={1} wrap="wrap">
+    <HStack spacing={1} wrap="wrap" justifyContent={"center"} w="full" >
       {/* First */}
       <IconButton
         aria-label="First page"

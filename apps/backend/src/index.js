@@ -11,6 +11,7 @@ const Routes = require('./routes/index');
 const SMS = require('./routes/sms');
 const Topics = require('./routes/topics.routes');
 const SocketRoutes = require('./routes/socket');
+
 const { connectDB, getSessionIfAvailable, supportsTransactions }=require('./config/db');
 const setupSocket = require('./config/setupSocket');
 
@@ -61,6 +62,8 @@ app.use((err, req, res, next) => {
   next(err);
 });
 // rutas (solo montarlas; que NO ejecuten queries top-level al importar)
+
+
 app.use('/api', SMS);
 app.use('/api', require('./routes/secure'));
 app.use('/api', require('./routes/auth0-sync'));
@@ -73,6 +76,7 @@ app.use('/api/socket.io', SocketRoutes);
 app.use('/api/admin/auth0', require('./routes/admin-auth0'));
 app.use('/api/profile', require('./routes/profile'));
 app.use("/api/message-templates", require("./routes/message-templates"));
+app.use('/api',  require('./routes/appointments-range'));
 
 // manejador de errores (después de rutas)
 app.use((err, _req, res, next) => {

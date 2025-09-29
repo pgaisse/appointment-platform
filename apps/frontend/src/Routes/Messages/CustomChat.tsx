@@ -213,7 +213,7 @@ export default function CustomChat() {
                   text="New Contact"
                   label="Add Contact"
                   tooltip={false}
-                  formProps={{ typeButonVisible: false, phoneFieldReadOnly: false, mode: "EDITION" }}
+                  formProps={{ typeButonVisible: false, phoneFieldReadOnly: false, mode: "CREATION" }}
                 />
               </HStack>
             </Box>

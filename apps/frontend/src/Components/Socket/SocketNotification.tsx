@@ -113,12 +113,6 @@ console.log('SocketNotification - decision:', data.decision);
                     'Appointment needs reschedule',
                     `Original Appointment Date: ${data.date}`
                 );
-            } else {
-                renderToast(
-                    'error',
-                    'yellow.500',
-                    'The patient did not confirm correctly'
-                );
             }
 
             queryClient.invalidateQueries({ queryKey: ['Appointment'] });
