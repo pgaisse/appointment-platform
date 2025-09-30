@@ -8,14 +8,47 @@ import {
 import * as RiIcons from "react-icons/ri";
 import * as MdIcons from "react-icons/md";
 import * as GiIcons from "react-icons/gi";
+import * as FaIcons from "react-icons/fa";
+import * as FiIcons from "react-icons/fi";
+import type { IconType } from "react-icons";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { Treatment } from "@/types";
 
-const iconMap = {
-  ...RiIcons,
-  ...MdIcons,
-  ...GiIcons,
+// 🔹 Registro de librerías
+const ICON_SETS: Record<string, Record<string, IconType>> = {
+  fi: FiIcons,
+  fa: FaIcons,
+  md: MdIcons,
+  ri: RiIcons,
+  gi: GiIcons,
 };
+
+// 🔹 Fallback para íconos inexistentes
+const ICON_FALLBACKS: Record<string, string> = {
+  "gi:GiToothImplant": "gi:GiTooth", // reemplazo porque no existe GiToothImplant
+};
+
+// 🔹 Normalizador: agrega prefijo si falta
+function normalizeIconKey(key: string): string {
+  if (!key) return "";
+  if (key.includes(":")) return key;
+  if (key.startsWith("Fi")) return `fi:${key}`;
+  if (key.startsWith("Fa")) return `fa:${key}`;
+  if (key.startsWith("Md")) return `md:${key}`;
+  if (key.startsWith("Ri")) return `ri:${key}`;
+  if (key.startsWith("Gi")) return `gi:${key}`;
+  return key;
+}
+
+// 🔹 Busca el componente de ícono dinámicamente
+function getIconComponent(key?: string): IconType | undefined {
+  if (!key) return undefined;
+  const normKey = normalizeIconKey(key);
+  const fixedKey = ICON_FALLBACKS[normKey] || normKey;
+  const [pack, name] = fixedKey.split(":");
+  const set = ICON_SETS[pack?.toLowerCase?.()];
+  return set ? set[name] : undefined;
+}
 
 interface Props {
   onSelect: (treatment: Treatment) => void;
@@ -23,16 +56,18 @@ interface Props {
   query?: object;
   limit?: number;
   selected: number;
-
   onChange?: (id: string, value: string, color?: string, duration?: number | null) => void;
 }
 
-export const TreatmentSelector = ({ onChange,onSelect, selectedId, query = {}, limit = 20 }: Props) => {
-  const {
-    data,
-    isSuccess,
-    isFetching,
-  } = useGetCollection<Treatment>("Treatment", { query, limit });
+export const TreatmentSelector = ({
+  onChange,
+  onSelect,
+  selectedId,
+  query = {},
+  limit = 20,
+}: Props) => {
+  const { data, isSuccess, isFetching } = useGetCollection<Treatment>("Treatment", { query, limit });
+
   if (isFetching) {
     return (
       <Flex justify="center" py={4}>
@@ -53,7 +88,7 @@ export const TreatmentSelector = ({ onChange,onSelect, selectedId, query = {}, l
     <Box overflowX="auto" whiteSpace="nowrap" pb={4}>
       <Flex gap={4} px={2} minW="max-content">
         {data.map((t) => {
-          const IconComponent = iconMap[t.icon as keyof typeof iconMap];
+          const IconComponent = getIconComponent(t.icon);
 
           return (
             <Box
@@ -68,7 +103,7 @@ export const TreatmentSelector = ({ onChange,onSelect, selectedId, query = {}, l
               cursor="pointer"
               onClick={() => {
                 onChange?.(t._id ?? "", t.name, t.color, t.duration);
-                onSelect(t)
+                onSelect(t);
               }}
               transition="all 0.2s ease"
               _hover={{ transform: "scale(1.03)" }}

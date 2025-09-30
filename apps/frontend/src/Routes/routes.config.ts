@@ -159,11 +159,35 @@ export const ROUTE_LINKS: RouteLink[] = [
             },
 
             // Admin (permisos avanzados con Gate)
+{
+                key: "settings",
+                path: paths.settings,
+                componentKey: "Settings",
+                label: "Settings",
+                icon: FaUserCircle,
+                show: ["sidebar"],
+                order: 800,
+                gate: {
+                    // ✅ usa los claims del ID token (los que ves en console.log de user)
+                    source: "token",
+
+                    // ✅ exige login y redirige si no hay sesión
+                    requireAuth: true,
+                    redirectToOnUnauthed: "/signin",
+
+                    // ✅ permisos o rol (cualquiera de los dos te habilita)
+                    
+                    requireRole: ["Admin"],
+                },
+            },
+
+
+
             {
                 key: "admin",
                 path: paths.roles,
                 componentKey: "UsersManager",
-                label: "Settings",
+                label: "Admin",
                 icon: FaUserCircle,
                 show: ["sidebar"],
                 order: 850,

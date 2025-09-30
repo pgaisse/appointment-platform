@@ -6,6 +6,7 @@ import { MdTextsms } from "react-icons/md";
 import { LuCalendarCog, LuUserRoundSearch } from "react-icons/lu";
 import { HiOutlineClipboardDocumentCheck } from "react-icons/hi2";
 import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
+import { IoSettingsOutline } from "react-icons/io5";
 
 const paths = {
   root: "/",
@@ -99,6 +100,11 @@ export const navLinks: NavLink[] = [
   },
 
   // Admin y Settings → sidebar "bottom"
+   {
+    key: "settings", path: paths.settings, label: "Settings", icon: IoSettingsOutline, show: ["sidebar"], order: 800, requireAuth: true,
+    requireAnyPerms: ["dev-admin", "admin:*"],
+    sidebarZone: "bottom"
+  },
   {
     key: "admin", path: paths.roles, label: "Admin", icon: FaUserCircle, show: ["sidebar"], order: 850, requireAuth: true,
     requireAnyPerms: ["dev-admin", "admin:*"],

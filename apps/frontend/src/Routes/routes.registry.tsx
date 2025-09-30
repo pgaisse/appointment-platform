@@ -12,6 +12,7 @@ import CustomChat from "./Messages/CustomChat";
 import Organizer from "./Organizer";
 import LogOut from "./LogOut";
 import UsersManager from "./Admin/UsersManager";
+import PriorityCategoryManager from "./Settings";
 
 const registry = {
   Layout: <Layout />,
@@ -27,6 +28,7 @@ const registry = {
   Organizer: <Organizer />,
   LogOut: <LogOut />,
   UsersManager: <UsersManager />,
+  Settings: <PriorityCategoryManager/>
 } as const;
 
 export type ComponentKey = keyof typeof registry;
