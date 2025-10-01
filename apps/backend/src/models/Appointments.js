@@ -96,6 +96,7 @@ const SelectedAppDateSchema = new mongoose.Schema({
 const AppointmentsSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   proxyAddress: String,
+  contactPreference: { type: String, enum: ['call', 'sms'], trim: true, },
   unknown: Boolean,
   sid: String,
   lastMessage: Date,

@@ -14,7 +14,7 @@ export default function EmojiPickerButton({
   value,
   setValue,
 }: {
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
   setValue: (val: string) => void;
 }) {

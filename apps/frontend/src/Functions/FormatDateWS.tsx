@@ -1,19 +1,34 @@
 import { DateRange } from "@/Hooks/Handles/useSlotSelection";
 
+const TZ = "Australia/Sydney";
+
+const formatYMD = (d: Date) => {
+  // en-CA da YYYY-MM-DD (fijo), lo convertimos a YYYY/MM/DD
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+  const [y, m, day] = ymd.split("-");
+  return `${y}/${m}/${day}`;
+};
+
+const formatTime12h = (d: Date) =>
+  new Intl.DateTimeFormat("en-AU", {
+    timeZone: TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d); // Ej: "07:05 am"
+
 export const formatDateWS = ({ startDate, endDate }: DateRange): string => {
-  const startDatep=new Date(startDate)
-  const endDatep=new Date(endDate)
-  const pad = (n: number) => n.toString().padStart(2, '0');
+  const start = new Date(startDate);
+  const end = new Date(endDate);
 
-  const year = startDatep.getFullYear();
-  const month = pad(startDatep.getMonth() + 1);
-  const day = pad(startDatep.getDate());
+  const dateStr = formatYMD(start);
+  const startTime = formatTime12h(start);
+  const endTime = formatTime12h(end);
 
-  const startHour = pad(startDatep.getHours());
-  const startMinute = pad(startDatep.getMinutes());
-
-  const endHour = pad(endDatep.getHours());
-  const endMinute = pad(endDatep.getMinutes());
-
-  return `${year}/${month}/${day} ${startHour}:${startMinute} - ${endHour}:${endMinute}`;
+  return `${dateStr} ${startTime} – ${endTime}`;
 };

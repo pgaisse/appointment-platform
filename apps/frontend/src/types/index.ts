@@ -194,7 +194,7 @@ export type Owner = {
 export interface ConversationChat {
   conversationId: string;
   chatmessage?: Message,
-  lastMessage:Message,
+  lastMessage: Message,
   owner: Owner
 }
 export type MessageStatus =
@@ -207,7 +207,7 @@ export type MessageStatus =
 export type PreviewItem = { id: string; url: string; name: string; size: number };
 
 export interface Message {
-  clientSid?:string
+  clientSid?: string
   clientTempId?: string
   sid: string; // Twilio Message SID (IMxxxx) o ID interno
   conversationId: string; // CHxxxx (Twilio Conversation SID) o ID interno
@@ -270,7 +270,7 @@ export interface ContactAppointment {
   pSid?: string;
   createdAt?: string;
   updatedAt?: string;
-  user:User
+  user: User
 }
 
 export interface User {
@@ -299,8 +299,9 @@ export type GroupedAppointments = AppointmentGroup[];
 
 export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted' | 'Confirmed' | 'Rescheduled' | 'Cancelled' | 'Rejected'
 
-
+export type ContactPreference = "call" | "sms";
 export interface Appointment {
+  contactPreference?: ContactPreference // 🆕
   _id: string;
   sid: string;
   nameInput: string;
@@ -325,7 +326,7 @@ export interface Appointment {
   selectedDates: SelectedDates;
   selectedAppDates: Array<{
     status: ContactStatus;
-    rescheduleRequested:boolean
+    rescheduleRequested: boolean
     contact: ContactAppointment;
     startDate: Date;
     endDate: Date;

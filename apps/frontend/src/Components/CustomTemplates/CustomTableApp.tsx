@@ -22,6 +22,8 @@ import { useAppointmentEditor } from "@/Hooks/Handles/useAppointmentEditor";
 import { useInfoModal } from "@/Hooks/Handles/useInfoModal";
 import { appointmentsKeys, useAppointmentsPaginated } from "@/Hooks/Query/useAppointmentsPaginated";
 import { useAppointmentSearch } from "@/Hooks/Query/useAppointmentSearch";
+import { LiaSmsSolid } from "react-icons/lia";
+import { CiPhone } from "react-icons/ci";
 
 interface Props { pageSize?: number; }
 
@@ -79,31 +81,31 @@ function CustomTableApp({ pageSize = 20 }: Props) {
     }
   };
 
-const { openEditor, AppointmentEditor } = useAppointmentEditor({
-  refetchPage,
-  titlePrefix: "Edit Patient",
-  onSaved: async () => {
-    // Invalida TODO lo relacionado a appointments (listas/paginación)
-    await queryClient.invalidateQueries({
-      queryKey: appointmentsKeys.root,
-      refetchType: "active",
-    });
+  const { openEditor, AppointmentEditor } = useAppointmentEditor({
+    refetchPage,
+    titlePrefix: "Edit Patient",
+    onSaved: async () => {
+      // Invalida TODO lo relacionado a appointments (listas/paginación)
+      await queryClient.invalidateQueries({
+        queryKey: appointmentsKeys.root,
+        refetchType: "active",
+      });
 
-    // Invalida cualquier búsqueda activa de appointments
-    await queryClient.invalidateQueries({
-      // cubre ["appointments-search"] y variantes con parámetros (e.g., ["appointments-search", q])
-      predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "appointments-search",
-      refetchType: "active",
-    });
+      // Invalida cualquier búsqueda activa de appointments
+      await queryClient.invalidateQueries({
+        // cubre ["appointments-search"] y variantes con parámetros (e.g., ["appointments-search", q])
+        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "appointments-search",
+        refetchType: "active",
+      });
 
-    // Refresca data visible según el modo actual
-    if (isSearching) {
-      await refetchSearch();
-    } else {
-      await refetchPage();
-    }
-  },
-});
+      // Refresca data visible según el modo actual
+      if (isSearching) {
+        await refetchSearch();
+      } else {
+        await refetchPage();
+      }
+    },
+  });
 
   const { openInfo, InfoModal } = useInfoModal("Details");
 
@@ -282,7 +284,10 @@ const { openEditor, AppointmentEditor } = useAppointmentEditor({
 
                   {/* phone */}
                   <Td>
-                    <Text>{formatAusPhoneNumber(item.phoneInput)}</Text>
+                    <HStack>
+                      <Text>{formatAusPhoneNumber(item.phoneInput)}</Text>
+                      {item.contactPreference && item.contactPreference === "sms" ? <Icon as={LiaSmsSolid} color="yellow.500" fontSize="20px" /> : item.contactPreference === "call" ? <Icon as={CiPhone} color="green.500" fontSize="20px" /> : null}
+                    </HStack>
                   </Td>
 
                   {/* actions */}
@@ -295,7 +300,7 @@ const { openEditor, AppointmentEditor } = useAppointmentEditor({
                         variant="ghost"
                         colorScheme="blue"
                         onClick={async () => {
-                          openEditor(item);   
+                          openEditor(item);
 
                         }}
                       />

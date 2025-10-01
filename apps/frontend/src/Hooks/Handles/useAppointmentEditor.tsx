@@ -77,6 +77,7 @@ export function useAppointmentEditor(opts: UseAppointmentEditorOpts = {
               toastInfo={{ title: "Patient edited", description: "The patient was edited successfully" }}
 
               title={`${titlePrefix} ${current.nameInput ?? ""}`}
+              contactPreference={current.contactPreference}
               btnName="Update"
               mode="EDITION"
               refetchPage={refetchPage}

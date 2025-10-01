@@ -58,6 +58,7 @@ import { useMovePriorityItems, type PriorityMove } from '@/Hooks/Query/useMovePr
 // ✅ Nuevo componente de chat (lazy internal)
 import ChatLauncher from '@/Components/Chat/ChatLauncher';
 import { FaCommentSms } from 'react-icons/fa6';
+import { CiPhone } from 'react-icons/ci';
 
 type Props = {
   onCardClick?: (item: Appointment) => void;
@@ -585,6 +586,17 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                   <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
                                     <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
                                   </Tooltip>
+                                  {item.contactPreference && item.contactPreference === "sms"
+                                    ?
+                                    <Tooltip label="Prefers SMS" placement="top" fontSize="sm">
+                                      <Icon as={LiaSmsSolid} color="yellow.500" fontSize="20px" />
+                                    </Tooltip>
+                                    : item.contactPreference === "call"
+                                      ?
+                                      <Tooltip label="Prefers calls" placement="top" fontSize="sm">
+                                        <Icon as={CiPhone} color="green.500" fontSize="20px" /> </Tooltip>
+                                      : null}
+
                                 </HStack>
                               </GridItem>
                               <GridItem>
@@ -599,7 +611,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                                             ? "Rejected"
                                             : "NoContacted"
                                     }
-                                    placement="top"
                                     fontSize="sm"
                                     hasArrow
                                   >
@@ -692,7 +703,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   </HStack>
                 ) : (
                   <Pagination
-                  
+
                     isPlaceholderData={isPlaceholderData}
                     totalPages={colTotalPages}
                     currentPage={colCurrentPage}

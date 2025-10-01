@@ -1,43 +1,33 @@
-import { FormControl, FormErrorMessage, FormLabel, Textarea, TextareaProps } from "@chakra-ui/react";
-import { FieldError, UseFormRegister } from "react-hook-form";
-type Props = TextareaProps & {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  register: UseFormRegister<any>;
-  error?: FieldError;  // Error type updated for better handling
-  name: string;
-  isPending?: boolean;
-  anotherName?: string;
-};
+import { Textarea, FormControl, FormErrorMessage } from "@chakra-ui/react";
+import type { FieldError, UseFormRegister } from "react-hook-form";
 
-function CustomTextArea({
-  anotherName,
+type Props = {
+  name: string;
+  register?: UseFormRegister<any>;
+  error?: FieldError;
+  /** prop custom de tu app (no nativa del DOM) */
+  isPending?: boolean;
+} & Omit<React.ComponentProps<typeof Textarea>, "name">;
+
+export default function CustomTextArea({
   name,
-  isPending = false,
-  rows,
-  placeholder,
   register,
   error,
-  ...rest
-
+  isPending,        // ⬅️ la “consumimos” aquí
+  isDisabled,       // por si te pasan isDisabled directamente
+  ...rest           // ⬅️ lo que quede sí se propaga
 }: Props) {
-  return (
-    <>
-      <FormControl  isInvalid={!!error}>
-        { <FormLabel>
-           {(anotherName?anotherName:placeholder)}
-        </FormLabel> }
-        <Textarea
-         isDisabled={isPending? true : false}
-          rows={rows || 4}
-          placeholder={placeholder}
-          {...register(name)}  // Use the register hook to bind this field to the form
-          {...rest}  // Spread other props (e.g., className, styles, etc.)
-        />
-        {error && <FormErrorMessage>{error.message}</FormErrorMessage>}  {/* Show error message */}
-      </FormControl>
-    </>
+  const reg = register ? register(name) : undefined;
 
+  return (
+    <FormControl isInvalid={!!error}>
+      <Textarea
+        {...rest}
+        {...reg}
+        // Usamos una prop válida de Chakra en vez de pasar isPending al DOM
+        isDisabled={isPending || isDisabled}
+      />
+      {error && <FormErrorMessage>{error.message}</FormErrorMessage>}
+    </FormControl>
   );
 }
-
-export default CustomTextArea;

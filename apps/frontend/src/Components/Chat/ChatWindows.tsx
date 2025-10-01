@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Flex, HStack, Avatar, Box, Divider, VStack, Tooltip, IconButton, Input, Text,
   useColorModeValue, useToast, Spinner,
+  Textarea,
 } from "@chakra-ui/react";
 import { FiSend } from "react-icons/fi";
 import { MdAccessTime, MdOutlinePostAdd, MdKeyboardArrowDown } from "react-icons/md";
@@ -558,7 +559,7 @@ const Composer = memo(function Composer({
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<PreviewItem[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     try {
@@ -659,10 +660,11 @@ const Composer = memo(function Composer({
           </Tooltip>
         </HStack>
 
-        <Input
+        <Textarea
           ref={inputRef}
           placeholder="Type a message…"
           variant="unstyled"
+          rows={1}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {

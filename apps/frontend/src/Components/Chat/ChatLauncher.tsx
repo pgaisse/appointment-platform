@@ -116,7 +116,7 @@ const ChatLauncher: React.FC<Props> = ({
       display="inline-flex"
     >
       {tooltip ? (
-        <Tooltip hasArrow label={tooltip}>
+        <Tooltip hasArrow label={tooltip} >
           <span>{trigger ?? defaultTrigger}</span>
         </Tooltip>
       ) : (

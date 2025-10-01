@@ -176,6 +176,7 @@ router.get('/DraggableCards', jwtCheck, requireAnyPermissionExplain('appointment
               {
                 $group: {
                   _id: "$_id",
+                  contactPreference: { $first: "$contactPreference" },
                   sid: { $first: "$sid" },             // ← agregado
                   nameInput: { $first: "$nameInput" },
                   emailInput: { $first: "$emailInput" },
