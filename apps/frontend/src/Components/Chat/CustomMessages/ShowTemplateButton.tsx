@@ -23,7 +23,11 @@ import {
   InputGroup,
   InputRightElement,
   HStack,
+  Icon,
+  usePrefersReducedMotion,
+  useToken, // ⬅️ nuevo
 } from '@chakra-ui/react';
+import { keyframes } from '@emotion/react';
 import { CloseIcon, SearchIcon } from '@chakra-ui/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
@@ -38,27 +42,45 @@ interface ShowTemplateButtonProps {
   onSelectTemplate: (text: string) => void;
   selectedPatient?: string;
   tooltipText?: string;
-  colorIcon?: string;
-  category?: 'confirmation' | 'message'
+  colorIcon?: string; // p.ej. "red.500" | "green.500" | "gray"
+  category?: 'confirmation' | 'message';
 }
 
-export type MinimalAppointment = Pick<Appointment, 'nameInput' | 'lastNameInput' | 'phoneInput' | 'selectedAppDates'>;
+export type MinimalAppointment = Pick<
+  Appointment,
+  'nameInput' | 'lastNameInput' | 'phoneInput' | 'selectedAppDates'
+>;
+
+// ───────────────── Parpadeo suave por tono (interpolación real) ─────────────────
+const tonePulse = keyframes`
+  from { color: var(--blink-from); }
+  to   { color: var(--blink-to);   }
+`;
 
 export default function ShowTemplateButton({
   onSelectTemplate,
   selectedPatient,
-  tooltipText = "Custom messages",
-  colorIcon = "gray",
-  category='message'
+  tooltipText = 'Custom messages',
+  colorIcon = 'gray',
+  category = 'message',
 }: ShowTemplateButtonProps) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const queryClient = useQueryClient();
   const deleteDisclosure = useDisclosure();
-  const [itemToDelete, setItemToDelete] = useState<string>("");
+  const [itemToDelete, setItemToDelete] = useState<string>('');
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
-  // ───────────────── tokens (se mantiene igual) ─────────────────
+  // Resuelve los hex de tema (más suave para interpolar)
+  const [red500, red300] = useToken('colors', ['red.500', 'red.300']);
+
+  const shouldBlink = !prefersReducedMotion && /^red(\.|$)/.test(colorIcon);
+  const iconBlinkAnimation = shouldBlink
+    ? `${tonePulse} 1.6s ease-in-out infinite alternate`
+    : 'none';
+
+  // ───────────────── tokens (igual) ─────────────────
   const { data: tokens, isLoading: isLoadingTokens } =
     useGetCollection<TemplateToken>('TemplateToken', { mongoQuery: {} });
 
@@ -76,7 +98,7 @@ export default function ShowTemplateButton({
   const patientProjection = useMemo(() => {
     const projection: Record<string, any> = {};
     Object.values(tokensWithField).forEach((field) => {
-      const parts = String(field).split('+').map(f => f.trim());
+      const parts = String(field).split('+').map((f) => f.trim());
       parts.forEach((part) => {
         const match = part.match(/^(\w+)\.0(\..+)?$/);
         if (match) {
@@ -115,14 +137,13 @@ export default function ShowTemplateButton({
     category,
     q: debouncedSearch || undefined,
     limit: 20,
-    enabled: isOpen, // solo cuando el Drawer está abierto
+    enabled: isOpen,
     fields: 'title,content',
   });
 
-  const allTemplates: MessageTemplate[] =
-    data?.pages.flatMap((p) => p.items) ?? [];
+  const allTemplates: MessageTemplate[] = data?.pages.flatMap((p) => p.items) ?? [];
 
-  // Sentinel + observer en el contenedor scroll del Drawer
+  // Sentinel + observer
   const drawerBodyRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
@@ -159,17 +180,15 @@ export default function ShowTemplateButton({
     deleteDisclosure.onOpen();
   };
 
-  const { deleteById } = useDeleteItem({ modelName: "MessageTemplate" });
+  const { deleteById } = useDeleteItem({ modelName: 'MessageTemplate' });
 
   const handleDelete = async () => {
     if (deleteById && itemToDelete) {
       await deleteById(itemToDelete);
     }
-    // Invalida ambas claves, por si usas otras vistas
-    queryClient.invalidateQueries({ queryKey: ["message-templates"] });
-    queryClient.invalidateQueries({ queryKey: ["MessageTemplate"] });
+    queryClient.invalidateQueries({ queryKey: ['message-templates'] });
+    queryClient.invalidateQueries({ queryKey: ['MessageTemplate'] });
     deleteDisclosure.onClose();
-    // Opcional: refrescar la primera página para mantener consistencia
     refetch();
   };
 
@@ -182,10 +201,26 @@ export default function ShowTemplateButton({
         <IconButton
           ref={btnRef}
           aria-label="Show custom messages"
-          icon={<AiFillLayout color={colorIcon} size={20} />}
+          icon={
+            <Icon
+              as={AiFillLayout}
+              color={colorIcon}
+              animation={iconBlinkAnimation}
+              // variables para la animación suave + hint de perf
+              sx={
+                shouldBlink
+                  ? {
+                      '--blink-from': red500,
+                      '--blink-to': red300,
+                      willChange: 'color',
+                    }
+                  : undefined
+              }
+            />
+          }
           onClick={onOpen}
           variant="ghost"
-          size="sm"
+          size="lg"
         />
       </Tooltip>
 
@@ -267,7 +302,9 @@ export default function ShowTemplateButton({
                     {isFetchingNextPage && (
                       <HStack justify="center" py={3}>
                         <Spinner />
-                        <Text fontSize="sm" color="gray.600">Loading more…</Text>
+                        <Text fontSize="sm" color="gray.600">
+                          Loading more…
+                        </Text>
                       </HStack>
                     )}
                   </VStack>
@@ -277,6 +314,7 @@ export default function ShowTemplateButton({
           </DrawerBody>
         </DrawerContent>
       </Drawer>
+
       {/* Confirmación de borrado */}
       <AlertDialog
         isOpen={deleteDisclosure.isOpen}
@@ -285,11 +323,17 @@ export default function ShowTemplateButton({
       >
         <AlertDialogOverlay>
           <AlertDialogContent>
-            <AlertDialogHeader fontSize="lg" fontWeight="bold">Confirm Deletion</AlertDialogHeader>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Confirm Deletion
+            </AlertDialogHeader>
             <AlertDialogBody>Are you sure? This action cannot be undone.</AlertDialogBody>
             <AlertDialogFooter>
-              <Button ref={cancelRef} onClick={deleteDisclosure.onClose}>Cancel</Button>
-              <Button colorScheme="red" onClick={handleDelete} ml={3}>Delete</Button>
+              <Button ref={cancelRef} onClick={deleteDisclosure.onClose}>
+                Cancel
+              </Button>
+              <Button colorScheme="red" onClick={handleDelete} ml={3}>
+                Delete
+              </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialogOverlay>

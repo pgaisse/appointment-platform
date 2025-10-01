@@ -281,7 +281,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                         const { icon, color } = getMatchLevelIcon(item.matchLevel);
                         const pid = item._id;
                         const tooltipForThisPatient = templateTextByPatient[pid] ?? "";
-                        const iconColorForThisPatient = tooltipForThisPatient ? "green" : "red";
+                        const iconColorForThisPatient = tooltipForThisPatient ? "green.500" : "red.500";
 
                         return (
                           <MotionBox
