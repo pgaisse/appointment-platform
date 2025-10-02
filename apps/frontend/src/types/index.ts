@@ -196,6 +196,8 @@ export interface ConversationChat {
   chatmessage?: Message,
   lastMessage: Message,
   owner: Owner
+  unreadCount?: number; // ⬅️ nuevo
+  archived?: boolean; // ⬅️ NUEVO
 }
 export type MessageStatus =
   | "pending"

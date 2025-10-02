@@ -8,7 +8,10 @@ import {
   Stack,
   Skeleton,
   Text,
-  Divider,
+  Badge,
+  Spacer,
+  IconButton,
+  Tooltip,
 } from "@chakra-ui/react";
 import React from "react";
 import { FaUserAlt } from "react-icons/fa";
@@ -17,12 +20,15 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import AddPatientButton from "../DraggableCards/AddPatientButton";
 import { formatFromE164 } from "@/Functions/formatFromE164";
+import { FiArchive, FiInbox } from "react-icons/fi";
+import { useArchiveConversation } from "@/Hooks/Query/useArchiveConversation";
 
 type Props = {
-  setChat: React.Dispatch<React.SetStateAction<ConversationChat | undefined>>;
+  setChat: (c: ConversationChat) => void | Promise<void>;
   dataConversation: ConversationChat[] | undefined;
   isLoadingConversation: boolean;
-  /** Optional: parent handles reordering and onDragEnd. */
+  readOverrides?: ReadonlySet<string>;
+  archivedMode?: "active" | "only" | "all";
   onReorder?: (ordered: ConversationChat[]) => void;
 };
 
@@ -30,6 +36,8 @@ export default function MessageList({
   setChat,
   dataConversation,
   isLoadingConversation,
+  readOverrides,
+  archivedMode = "active",
 }: Props) {
   if (isLoadingConversation) {
     return (
@@ -45,7 +53,6 @@ export default function MessageList({
     return <Text color="gray.500">No conversations</Text>;
   }
 
-  // NOTE: No DndContext/SortableContext here — the parent wraps this list.
   return (
     <VStack align="stretch" spacing={4}>
       {dataConversation.map((contact) => (
@@ -53,19 +60,24 @@ export default function MessageList({
           key={contact.conversationId}
           contact={contact}
           onOpen={() => setChat(contact)}
+          readOverrides={readOverrides}
+          archivedMode={archivedMode}
         />
       ))}
     </VStack>
   );
 }
 
-/* ---- Draggable & sortable row (drag from ANYWHERE) ----- */
 function SortableChatRow({
   contact,
   onOpen,
+  readOverrides,
+  archivedMode = "active",
 }: {
   contact: ConversationChat;
-  onOpen: () => void;
+  onOpen: () => void | Promise<void>;
+  readOverrides?: ReadonlySet<string>;
+  archivedMode?: "active" | "only" | "all";
 }) {
   const {
     attributes,
@@ -76,7 +88,6 @@ function SortableChatRow({
     isDragging,
   } = useSortable({
     id: contact.conversationId,
-    // Parent can read this in onDragEnd to assign to a category, etc.
     data: {
       type: "conversation",
       conversationSid: contact.conversationId,
@@ -94,7 +105,6 @@ function SortableChatRow({
     opacity: isDragging ? 0.98 : 1,
     cursor: "grab",
     willChange: "transform",
-    // Helps keep it interactive during drag and avoids accidental text selection
     userSelect: "none",
     touchAction: "none",
     zIndex: isDragging ? 10 : "auto",
@@ -104,27 +114,43 @@ function SortableChatRow({
     contact.owner?.unknown
       ? undefined
       : contact.owner?.name || contact.lastMessage?.author;
-  console.log("contact From messageList",contact)
+
   const lastPreview = (() => {
     if (contact.lastMessage?.body) return contact.lastMessage.body;
     if (contact.lastMessage?.media?.length) return "📷 Photo";
     return "";
   })();
-  const formatedNumber = formatFromE164(contact.owner?.phone ? contact.owner?.phone : "")
 
+  const formattedNumber = formatFromE164(contact.owner?.phone ? contact.owner?.phone : "");
+
+  // Apply local override: if present, display 0
+  const rawUnread = contact.unreadCount ?? 0;
+  const overridden = readOverrides?.has(contact.conversationId) ?? false;
+  const displayUnread = overridden ? 0 : rawUnread;
+  const isUnread = displayUnread > 0;
+
+  const { mutate: archiveMutate, isPending: isArchiving } = useArchiveConversation();
+
+  const handleArchiveClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    archiveMutate({ id: contact.conversationId, archived: true });
+  };
+  const handleUnarchiveClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    archiveMutate({ id: contact.conversationId, archived: false });
+  };
 
   return (
     <HStack
       ref={setNodeRef}
       style={style}
       px={3}
+      py={2}
       borderRadius="xl"
       transition="background 0.2s ease, transform 0.2s ease"
       _hover={{ bg: "blackAlpha.50", _dark: { bg: "whiteAlpha.100" } }}
-      // Drag from ANYWHERE on the row:
       {...listeners}
       {...attributes}
-      // Click still opens the chat if user taps quickly
       onClick={onOpen}
     >
       <Avatar
@@ -135,27 +161,76 @@ function SortableChatRow({
         pointerEvents="none"
       />
 
-
       <Box flex="1" minW={0}>
-        <HStack>
-          <Text fontWeight="semibold" noOfLines={1}>
+        <HStack align="center" spacing={2}>
+          <Text fontWeight={isUnread ? "bold" : "semibold"} noOfLines={1}>
             {contact.owner?.name || contact.lastMessage?.author || "No name"}
-
           </Text>
-          {contact.owner?.unknown ? <AddPatientButton color="blue" px={0} py={0} mb={0} onlyPatient={true} label='Add Contact'
-            formProps={{
-              typeButonVisible: false, phoneVal: formatedNumber, phoneFieldReadOnly: true,
-              mode: "EDITION", idVal: contact.owner._id, conversationId: contact.conversationId
-            }} /> : undefined}
+
+          {/* Quick “Add Contact” if owner is unknown */}
+          {contact.owner?.unknown ? (
+            <AddPatientButton
+              color="blue"
+              px={0}
+              py={0}
+              mb={0}
+              onlyPatient
+              label="Add Contact"
+              formProps={{
+                typeButonVisible: false,
+                phoneVal: formattedNumber,
+                phoneFieldReadOnly: true,
+                mode: "EDITION",
+                idVal: contact.owner._id,
+                conversationId: contact.conversationId,
+              }}
+            />
+          ) : null}
+
+          <Spacer />
+
+          {/* Unread badge */}
+          {displayUnread > 0 && (
+            <Badge borderRadius="full" px="2" fontSize="0.75rem" colorScheme="blue">
+              {displayUnread > 99 ? "99+" : displayUnread}
+            </Badge>
+          )}
         </HStack>
 
-        <Text fontSize="sm" color="gray.500" noOfLines={1}>
+        <Text
+          fontSize="sm"
+          color={isUnread ? "inherit" : "gray.500"}
+          fontWeight={isUnread ? "semibold" : "normal"}
+          noOfLines={1}
+        >
           {lastPreview}
         </Text>
-
       </Box>
 
+      {/* Archive / Unarchive button */}
+      {archivedMode === "only" ? (
+        <Tooltip label="Unarchive">
+          <IconButton
+            aria-label="Unarchive"
+            size="sm"
+            variant="ghost"
+            icon={<FiInbox />}
+            onClick={handleUnarchiveClick}
+            isLoading={isArchiving}
+          />
+        </Tooltip>
+      ) : (
+        <Tooltip label="Archive">
+          <IconButton
+            aria-label="Archive"
+            size="sm"
+            variant="ghost"
+            icon={<FiArchive />}
+            onClick={handleArchiveClick}
+            isLoading={isArchiving}
+          />
+        </Tooltip>
+      )}
     </HStack>
-
   );
 }

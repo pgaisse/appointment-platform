@@ -673,6 +673,14 @@ const Composer = memo(function Composer({
               send();
             }
           }}
+          sx={{
+            overflow: "hidden",       // oculta scroll
+            
+            scrollbarWidth: "none",   // Firefox
+            "&::-webkit-scrollbar": { // Chrome, Safari
+              display: "none",
+            },
+          }}
           px={2}
           isDisabled={disabled}
         />

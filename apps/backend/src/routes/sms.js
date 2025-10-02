@@ -20,6 +20,8 @@ const Appointments = require('../models/Appointments');
 const { getSmsBindingFromWebhookPayload } = require('../utils/twilio-conversations-binding');
 const { Organization } = require("../models/Enviroment/Org")
 const { queueInvalidate, flushInvalidate } = require('../socket/invalidate-queue');
+const ConversationRead = require('../models/Chat/ConversationRead');
+const ConversationState = require('../models/Chat/ConversationState');
 
 const {
   decideFromBody,
@@ -757,8 +759,8 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
     // ------------------------------------------------------------------
 
-   
-   
+
+
     if (payload.EventType === "onDeliveryUpdated") {
       const updated = await Message.findOneAndUpdate(
         { sid: payload.MessageSid },
@@ -977,104 +979,241 @@ router.get('/messages/:conversationId', async (req, res) => {
 });
 // GET /conversations
 // GET /conversations
+
+
+// POST /conversations/:id/archive
+router.post('/conversations/:id/archive', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+
+    const { org_id, sub } = await helpers.getTokenInfo(authHeader);
+    const user_id = String(sub || req.user?.id || req.dbUser?._id || '');
+    if (!org_id || !user_id) return res.status(400).json({ error: 'Missing org_id or user_id' });
+
+    const conversationId = req.params.id;
+
+    const doc = await ConversationState.findOneAndUpdate(
+      { org_id, conversationId },
+      { $set: { archived: true, archivedAt: new Date(), archivedBy: user_id } },
+      { upsert: true, new: true }
+    );
+
+    res.json({ ok: true, state: doc });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error archiving conversation' });
+  }
+});
+
+// POST /conversations/:id/unarchive
+router.post('/conversations/:id/unarchive', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+
+    const { org_id } = await helpers.getTokenInfo(authHeader);
+    if (!org_id) return res.status(400).json({ error: 'Missing org_id' });
+
+    const conversationId = req.params.id;
+
+    const doc = await ConversationState.findOneAndUpdate(
+      { org_id, conversationId },
+      { $set: { archived: false }, $unset: { archivedAt: 1, archivedBy: 1 } },
+      { upsert: true, new: true }
+    );
+
+    res.json({ ok: true, state: doc });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error unarchiving conversation' });
+  }
+});
+// routes/conversations.js (reemplaza el actual GET /conversations por este)
 router.get("/conversations", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: "Missing Authorization header" });
 
-    const { org_id } = await helpers.getTokenInfo(authHeader);
-    if (!org_id) return res.status(400).json({ error: "No org_id found in request" });
+    const { org_id, sub } = await helpers.getTokenInfo(authHeader);
+    const user_id = String(sub || req.user?.id || req.dbUser?._id || '');
+    if (!org_id || !user_id) return res.status(400).json({ error: "Missing org_id or user_id" });
 
     const fromMain = process.env.TWILIO_FROM_MAIN;
     if (!fromMain) return res.status(500).json({ error: "TWILIO_FROM_MAIN not configured" });
 
-    const conversations = await Message.aggregate([
-      // 0) Filtrar por número/proxy de Twilio específico
-      { $match: { proxyAddress: fromMain } },
+    // filtros de query
+    const archivedParam = String(req.query.archived ?? '0'); // '0' | '1' | 'all'
+    const page = Math.max(parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '10'), 10) || 10, 1), 50);
+    const skip = (page - 1) * limit;
 
-      // 1) Tomar el último mensaje por conversación
+    const basePipeline = [
+      { $match: { proxyAddress: fromMain } },
       { $sort: { createdAt: -1 } },
       {
         $group: {
-          _id: "$conversationId",
-          lastMessage: { $first: "$$ROOT" },
+          _id: '$conversationId',
+          lastMessage: { $first: '$$ROOT' },
         },
       },
-
-      // 2) Join con appointments + filtro por organización y eliminar duplicados
+      // appointments
       {
         $lookup: {
-          from: "appointments",
-          let: { convId: "$_id" },
+          from: 'appointments',
+          let: { convId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$sid', '$$convId'] } } },
+            { $sort: { unknown: 1 } },
+            { $group: { _id: '$sid', doc: { $first: '$$ROOT' } } },
+            { $replaceRoot: { newRoot: '$doc' } },
+            { $project: { _id: 1, nameInput: 1, lastNameInput: 1, phoneInput: 1, emailInput: 1, org_id: 1, unknown: 1 } },
+          ],
+          as: 'appointment',
+        },
+      },
+      { $unwind: '$appointment' },
+      // read state por usuario
+      {
+        $lookup: {
+          from: 'conversation_reads',
+          let: { convId: '$_id' },
           pipeline: [
             {
               $match: {
-                $expr: { $eq: ["$sid", "$$convId"] },
-              },
+                $expr: { $and: [
+                  { $eq: ['$conversationId', '$$convId'] },
+                  { $eq: ['$org_id', org_id] },
+                  { $eq: ['$userId', user_id] },
+                ] }
+              }
             },
-            // ordenar para priorizar el que NO tenga unknown o sea false
+            { $project: { lastReadIndex: 1, lastReadAt: 1 } }
+          ],
+          as: 'readState',
+        },
+      },
+      { $addFields: { readState: { $first: '$readState' } } },
+      // archived state
+      {
+        $lookup: {
+          from: 'conversation_states',
+          let: { convId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $and: [
+              { $eq: ['$conversationId', '$$convId'] },
+              { $eq: ['$org_id', org_id] }
+            ] } } },
+            { $project: { archived: 1 } }
+          ],
+          as: 'stateAgg',
+        },
+      },
+      { $addFields: { archived: { $ifNull: [ { $first: '$stateAgg.archived' }, false ] } } },
+      // filtro por archived
+      ...(archivedParam === 'all' ? [] :
+        archivedParam === '1' ? [ { $match: { archived: true } } ] :
+                                [ { $match: { archived: false } } ]),
+      // ordenar por fecha del último mensaje
+      { $sort: { 'lastMessage.createdAt': -1, _id: 1 } },
+    ];
+
+    const pipeline = [
+      ...basePipeline,
+      {
+        $facet: {
+          // página: aplica skip/limit y calcula unreadCount SOLO para estos
+          page: [
+            { $skip: skip },
+            { $limit: limit },
+            // unread por index casteado + fallback por fecha
             {
-              $sort: {
-                unknown: 1, // false (0) primero, true (1) después
-              },
+              $lookup: {
+                from: 'messages',
+                let: {
+                  convId: '$_id',
+                  lastIdx: { $ifNull: ['$readState.lastReadIndex', -1] },
+                  lastAt:  { $ifNull: ['$readState.lastReadAt', new Date(0)] },
+                },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [
+                          { $eq: ['$conversationId', '$$convId'] },
+                          { $eq: ['$proxyAddress', fromMain] },
+                          { $eq: ['$direction', 'inbound'] },
+                          {
+                            $or: [
+                              { $gt: [ { $toInt: { $ifNull: ['$index', -1] } }, '$$lastIdx' ] },
+                              { $and: [ { $eq: ['$index', null] }, { $gt: ['$createdAt', '$$lastAt'] } ] }
+                            ]
+                          }
+                        ],
+                      },
+                    },
+                  },
+                  { $count: 'c' },
+                ],
+              as: 'unreadAgg',
+              }
             },
-            {
-              $group: {
-                _id: "$sid", // asegurar 1 appointment por sid
-                doc: { $first: "$$ROOT" },
-              },
-            },
-            { $replaceRoot: { newRoot: "$doc" } },
+            { $addFields: { unreadCount: { $ifNull: [ { $first: '$unreadAgg.c' }, 0 ] } } },
             {
               $project: {
-                _id: 1,
-                nameInput: 1,
-                lastNameInput: 1,
-                phoneInput: 1,
-                emailInput: 1,
-                org_id: 1,
-                unknown: 1,
-              },
-            },
+                conversationId: '$_id',
+                lastMessage: {
+                  sid: '$lastMessage.sid',
+                  conversationId: '$_id',
+                  body: '$lastMessage.body',
+                  media: '$lastMessage.media',
+                  status: '$lastMessage.status',
+                  direction: '$lastMessage.direction',
+                  author: '$lastMessage.author',
+                  proxyAddress: '$lastMessage.proxyAddress',
+                  createdAt: '$lastMessage.createdAt',
+                  updatedAt: { $ifNull: ['$lastMessage.updatedAt', '$lastMessage.createdAt'] },
+                },
+                owner: {
+                  _id: '$appointment._id',
+                  name: '$appointment.nameInput',
+                  lastName: '$appointment.lastNameInput',
+                  phone: '$appointment.phoneInput',
+                  email: '$appointment.emailInput',
+                  org_id: '$appointment.org_id',
+                  unknown: '$appointment.unknown',
+                },
+                unreadCount: 1,
+                archived: 1,
+              }
+            }
           ],
-          as: "appointment",
-        },
+          totalCount: [ { $count: 'count' } ]
+        }
       },
-      { $unwind: "$appointment" },
-
-      // 3) Proyección
       {
         $project: {
-          conversationId: "$_id",
-          lastMessage: {
-            sid: "$lastMessage.sid",
-            conversationId: "$_id",
-            body: "$lastMessage.body",
-            media: "$lastMessage.media",
-            status: "$lastMessage.status",
-            direction: "$lastMessage.direction",
-            author: "$lastMessage.author",
-            proxyAddress: "$lastMessage.proxyAddress",
-            createdAt: "$lastMessage.createdAt",
-            updatedAt: { $ifNull: ["$lastMessage.updatedAt", "$lastMessage.createdAt"] },
-          },
-          owner: {
-            _id: "$appointment._id",
-            name: "$appointment.nameInput",
-            lastName: "$appointment.lastNameInput",
-            phone: "$appointment.phoneInput",
-            email: "$appointment.emailInput",
-            org_id: "$appointment.org_id",
-            unknown: "$appointment.unknown",
-          },
-        },
-      },
+          items: '$page',
+          pagination: {
+            page: page,
+            limit: limit,
+            total: { $ifNull: [ { $first: '$totalCount.count' }, 0 ] },
+            hasMore: {
+              $gt: [
+                { $ifNull: [ { $first: '$totalCount.count' }, 0 ] },
+                skip + limit
+              ]
+            }
+          }
+        }
+      }
+    ];
 
-      // 4) Orden final por fecha del último mensaje
-      { $sort: { "lastMessage.createdAt": -1 } },
-    ]);
+    const [result] = await Message.aggregate(pipeline);
+    const items = result?.items ?? [];
+    const pagination = result?.pagination ?? { page, limit, total: items.length, hasMore: false };
 
-    res.json(conversations);
+    res.json({ items, pagination });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error fetching conversations" });
@@ -1082,7 +1221,45 @@ router.get("/conversations", async (req, res) => {
 });
 
 
+router.post('/conversations/:id/read', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+    const { org_id, sub } = await helpers.getTokenInfo(authHeader);
+    const user_id = String(sub || req.user?.id || req.dbUser?._id || ''); // unificado
+    if (!org_id || !user_id) return res.status(400).json({ error: 'Missing org_id or user_id' });
 
+    const fromMain = process.env.TWILIO_FROM_MAIN;
+    if (!fromMain) return res.status(500).json({ error: 'TWILIO_FROM_MAIN not configured' });
+
+    const conversationId = req.params.id;
+
+    const latest = await Message.findOne({
+      conversationId,
+      proxyAddress: fromMain,
+    })
+      .sort({ index: -1, createdAt: -1 })
+      .select({ index: 1, createdAt: 1 })
+      .lean();
+
+    const lastReadIndex = typeof latest?.index === 'number'
+      ? latest.index
+      : (latest?.index != null ? parseInt(String(latest.index), 10) : -1);
+
+    const lastReadAt = latest?.createdAt ?? new Date();
+
+    await ConversationRead.findOneAndUpdate(
+      { org_id, conversationId, userId: user_id },
+      { $set: { lastReadIndex, lastReadAt } },
+      { upsert: true, new: true }
+    );
+
+    return res.json({ ok: true, lastReadIndex, lastReadAt });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Error marking conversation as read' });
+  }
+});
 
 
 /* --- Categorías --- */
