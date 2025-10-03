@@ -227,6 +227,7 @@ export interface Message {
   updatedAt: string; // ISO string de última actualización
   tempOrder?: number;   // 👈 orden local para optimistas
   status: MessageStatus;   // <- usa el tipo flexible
+   proxyAddress?:string
 }
 
 

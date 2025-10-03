@@ -22,6 +22,7 @@ const { Organization } = require("../models/Enviroment/Org")
 const { queueInvalidate, flushInvalidate } = require('../socket/invalidate-queue');
 const ConversationRead = require('../models/Chat/ConversationRead');
 const ConversationState = require('../models/Chat/ConversationState');
+const { autoUnarchiveOnInbound } = require('../helpers/autoUnarchiveOnInbound');
 
 const {
   decideFromBody,
@@ -606,7 +607,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
         updateDoc,
         { upsert: true, new: true }
       );
-
+      await autoUnarchiveOnInbound(payload.ConversationSid);
 
       // 3) Correlación SOLO para inbound: ver si responde a la última Confirmation outbound
       if (isInbound) {
@@ -629,6 +630,8 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
             { sid: prev.sid, $or: [{ resolvedBySid: null }, { resolvedBySid: { $exists: false } }] },
             { $set: { resolvedBySid: saved.sid } }
           );
+          // Auto-unarchive
+          await autoUnarchiveOnInbound(payload.ConversationSid);
 
           // Elegir el slot activo dentro de selectedAppDates (array)
           const slotId = await pickActiveSlotId({
@@ -738,6 +741,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
             receivedAt: new Date(),
           });
         }
+
       }
 
       // 4) Emitir el newMessage a la organización
@@ -981,54 +985,46 @@ router.get('/messages/:conversationId', async (req, res) => {
 // GET /conversations
 
 
-// POST /conversations/:id/archive
 router.post('/conversations/:id/archive', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
-
     const { org_id, sub } = await helpers.getTokenInfo(authHeader);
-    const user_id = String(sub || req.user?.id || req.dbUser?._id || '');
-    if (!org_id || !user_id) return res.status(400).json({ error: 'Missing org_id or user_id' });
+    if (!org_id) return res.status(400).json({ error: 'Missing org_id' });
 
     const conversationId = req.params.id;
-
-    const doc = await ConversationState.findOneAndUpdate(
+    await ConversationState.findOneAndUpdate(
       { org_id, conversationId },
-      { $set: { archived: true, archivedAt: new Date(), archivedBy: user_id } },
+      { $set: { archived: true, archivedAt: new Date(), archivedBy: sub || null } },
       { upsert: true, new: true }
     );
-
-    res.json({ ok: true, state: doc });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error archiving conversation' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Archive failed' });
   }
 });
 
-// POST /conversations/:id/unarchive
 router.post('/conversations/:id/unarchive', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
-
     const { org_id } = await helpers.getTokenInfo(authHeader);
     if (!org_id) return res.status(400).json({ error: 'Missing org_id' });
 
     const conversationId = req.params.id;
-
-    const doc = await ConversationState.findOneAndUpdate(
+    await ConversationState.findOneAndUpdate(
       { org_id, conversationId },
       { $set: { archived: false }, $unset: { archivedAt: 1, archivedBy: 1 } },
       { upsert: true, new: true }
     );
-
-    res.json({ ok: true, state: doc });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error unarchiving conversation' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Unarchive failed' });
   }
 });
+
 // routes/conversations.js (reemplaza el actual GET /conversations por este)
 router.get("/conversations", async (req, res) => {
   try {
@@ -1081,11 +1077,13 @@ router.get("/conversations", async (req, res) => {
           pipeline: [
             {
               $match: {
-                $expr: { $and: [
-                  { $eq: ['$conversationId', '$$convId'] },
-                  { $eq: ['$org_id', org_id] },
-                  { $eq: ['$userId', user_id] },
-                ] }
+                $expr: {
+                  $and: [
+                    { $eq: ['$conversationId', '$$convId'] },
+                    { $eq: ['$org_id', org_id] },
+                    { $eq: ['$userId', user_id] },
+                  ]
+                }
               }
             },
             { $project: { lastReadIndex: 1, lastReadAt: 1 } }
@@ -1100,20 +1098,26 @@ router.get("/conversations", async (req, res) => {
           from: 'conversation_states',
           let: { convId: '$_id' },
           pipeline: [
-            { $match: { $expr: { $and: [
-              { $eq: ['$conversationId', '$$convId'] },
-              { $eq: ['$org_id', org_id] }
-            ] } } },
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$conversationId', '$$convId'] },
+                    { $eq: ['$org_id', org_id] }
+                  ]
+                }
+              }
+            },
             { $project: { archived: 1 } }
           ],
           as: 'stateAgg',
         },
       },
-      { $addFields: { archived: { $ifNull: [ { $first: '$stateAgg.archived' }, false ] } } },
+      { $addFields: { archived: { $ifNull: [{ $first: '$stateAgg.archived' }, false] } } },
       // filtro por archived
       ...(archivedParam === 'all' ? [] :
-        archivedParam === '1' ? [ { $match: { archived: true } } ] :
-                                [ { $match: { archived: false } } ]),
+        archivedParam === '1' ? [{ $match: { archived: true } }] :
+          [{ $match: { archived: false } }]),
       // ordenar por fecha del último mensaje
       { $sort: { 'lastMessage.createdAt': -1, _id: 1 } },
     ];
@@ -1133,7 +1137,7 @@ router.get("/conversations", async (req, res) => {
                 let: {
                   convId: '$_id',
                   lastIdx: { $ifNull: ['$readState.lastReadIndex', -1] },
-                  lastAt:  { $ifNull: ['$readState.lastReadAt', new Date(0)] },
+                  lastAt: { $ifNull: ['$readState.lastReadAt', new Date(0)] },
                 },
                 pipeline: [
                   {
@@ -1145,8 +1149,8 @@ router.get("/conversations", async (req, res) => {
                           { $eq: ['$direction', 'inbound'] },
                           {
                             $or: [
-                              { $gt: [ { $toInt: { $ifNull: ['$index', -1] } }, '$$lastIdx' ] },
-                              { $and: [ { $eq: ['$index', null] }, { $gt: ['$createdAt', '$$lastAt'] } ] }
+                              { $gt: [{ $toInt: { $ifNull: ['$index', -1] } }, '$$lastIdx'] },
+                              { $and: [{ $eq: ['$index', null] }, { $gt: ['$createdAt', '$$lastAt'] }] }
                             ]
                           }
                         ],
@@ -1155,10 +1159,10 @@ router.get("/conversations", async (req, res) => {
                   },
                   { $count: 'c' },
                 ],
-              as: 'unreadAgg',
+                as: 'unreadAgg',
               }
             },
-            { $addFields: { unreadCount: { $ifNull: [ { $first: '$unreadAgg.c' }, 0 ] } } },
+            { $addFields: { unreadCount: { $ifNull: [{ $first: '$unreadAgg.c' }, 0] } } },
             {
               $project: {
                 conversationId: '$_id',
@@ -1188,7 +1192,7 @@ router.get("/conversations", async (req, res) => {
               }
             }
           ],
-          totalCount: [ { $count: 'count' } ]
+          totalCount: [{ $count: 'count' }]
         }
       },
       {
@@ -1197,10 +1201,10 @@ router.get("/conversations", async (req, res) => {
           pagination: {
             page: page,
             limit: limit,
-            total: { $ifNull: [ { $first: '$totalCount.count' }, 0 ] },
+            total: { $ifNull: [{ $first: '$totalCount.count' }, 0] },
             hasMore: {
               $gt: [
-                { $ifNull: [ { $first: '$totalCount.count' }, 0 ] },
+                { $ifNull: [{ $first: '$totalCount.count' }, 0] },
                 skip + limit
               ]
             }

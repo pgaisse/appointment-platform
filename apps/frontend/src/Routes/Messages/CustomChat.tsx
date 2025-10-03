@@ -43,7 +43,7 @@ import { FaUserAlt } from "react-icons/fa";
 import ChatCategorizationPanel from "@/Components/Chat/CustomMessages/ChatCategorizationPanel";
 import AddPatientButton from "@/Components/DraggableCards/AddPatientButton";
 
-/* -------- helpers -------- */
+/* --------------------------------- helpers --------------------------------- */
 type Mode = "active" | "only" | "all";
 type ConvInfinite = InfiniteData<ConversationsPage>;
 
@@ -70,9 +70,163 @@ function optimisticClearUnreadPages(
   );
 }
 
+function removeFromCache(
+  data: ConvInfinite | undefined,
+  conversationId: string
+): ConvInfinite | undefined {
+  if (!data) return data;
+  return {
+    pageParams: data.pageParams,
+    pages: data.pages.map((p) => ({
+      ...p,
+      items: p.items.filter((c) => c.conversationId !== conversationId),
+    })),
+  };
+}
+
+function insertAtTopWithLastMessage(
+  data: ConvInfinite | undefined,
+  updated: ConversationChat
+): ConvInfinite | undefined {
+  if (!data) return data;
+  // Evitar duplicados si ya estuviera en alguna página
+  const cleaned = removeFromCache(data, updated.conversationId)!;
+  const first = cleaned.pages[0];
+  const newFirst = { ...first, items: [updated, ...first.items] };
+  return {
+    pageParams: cleaned.pageParams,
+    pages: [newFirst, ...cleaned.pages.slice(1)],
+  };
+}
+
+function flipArchivedInCache(
+  data: ConvInfinite | undefined,
+  conversationId: string,
+  archived: boolean
+): ConvInfinite | undefined {
+  if (!data) return data;
+  return {
+    pageParams: data.pageParams,
+    pages: data.pages.map((p) => ({
+      ...p,
+      items: p.items.map((c) =>
+        c.conversationId === conversationId ? { ...c, archived } : c
+      ),
+    })),
+  };
+}
+
+function findConversationInAnyCache(
+  caches: Array<[unknown, ConvInfinite | undefined]>,
+  conversationId: string
+): ConversationChat | undefined {
+  for (const [, data] of caches) {
+    if (!data) continue;
+    for (const page of data.pages) {
+      const hit = page.items.find((c) => c.conversationId === conversationId);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * ✅ Arreglo clave:
+ * Cuando entra un inbound en una conversación archivada, la movemos de "only" a "active"
+ * y actualizamos su lastMessage para que el preview y el orden sean correctos inmediatamente.
+ */
+function optimisticUpsertInboundAndMoveActive(opts: {
+  qc: QueryClient;
+  pageSize: number;
+  socketMsg: {
+    conversationId: string;
+    body?: string | null;
+    media?: Array<{ url: string; type: string; size?: number }>;
+    direction: "inbound" | "outbound";
+    author: string;
+    createdAt: string | Date;
+    sid?: string;
+    proxyAddress?: string;
+    status?: string;
+  };
+}) {
+  const { qc, pageSize, socketMsg } = opts;
+  const id = socketMsg.conversationId;
+
+  // Snapshot de todos los caches de conversations-infinite (cualquier modo/pageSize)
+  const snapshot = qc.getQueriesData<ConvInfinite>({
+    queryKey: ["conversations-infinite"],
+  });
+
+  // Localiza un objeto base para conservar owner, etc.
+  const base = findConversationInAnyCache(snapshot, id);
+
+  // Construye un lastMessage consistente con tu esquema
+  const lastMessage: ConversationChat["lastMessage"] = {
+    sid: socketMsg.sid ?? "SOCKET-SYNTH-" + Date.now(),
+    conversationId: id,
+    body: socketMsg.body ?? "",
+    media: socketMsg.media ?? [],
+    status: socketMsg.status ?? "delivered",
+    direction: socketMsg.direction,
+    author: socketMsg.author,
+    proxyAddress: socketMsg.proxyAddress ?? "",
+    createdAt: new Date(socketMsg.createdAt as any).toISOString(),
+    updatedAt: new Date(socketMsg.createdAt as any).toISOString(),
+  };
+
+  // Objeto de conversación actualizado
+  const updated: ConversationChat = {
+    conversationId: id,
+    lastMessage,
+    owner: base?.owner ?? {
+      _id: undefined as any,
+      name: base?.lastMessage?.author ?? "No name",
+      lastName: "",
+      phone: "",
+      email: "",
+      org_id: "",
+      unknown: true,
+    },
+    unreadCount: (base?.unreadCount ?? 0), // el contador real lo ajustas fuera si hace falta
+    archived: false,
+  } as ConversationChat;
+
+  // 1) Quitar de "only" (archived)
+  qc.setQueryData<ConvInfinite>(
+    ["conversations-infinite", "only", pageSize],
+    (prev) => removeFromCache(prev, id)
+  );
+
+  // 2) Insertar arriba en "active" con lastMessage actualizado
+  qc.setQueryData<ConvInfinite>(
+    ["conversations-infinite", "active", pageSize],
+    (prev) => insertAtTopWithLastMessage(prev, updated)
+  );
+
+  // 3) En "all", solo voltear archived y refrescar último mensaje
+  qc.setQueryData<ConvInfinite>(
+    ["conversations-infinite", "all", pageSize],
+    (prev) => {
+      if (!prev) return prev;
+      return {
+        pageParams: prev.pageParams,
+        pages: prev.pages.map((p) => ({
+          ...p,
+          items: p.items.map((c) =>
+            c.conversationId === id
+              ? { ...c, archived: false, lastMessage }
+              : c
+          ),
+        })),
+      };
+    }
+  );
+}
+
 export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
-  const [view, setView] = useState<"active" | "only">("active"); // list to display
+  const [view, setView] = useState<"active" | "only">("active");
   const PAGE_SIZE = 10;
 
   const chatIdRef = useRef<string | null>(null);
@@ -82,25 +236,24 @@ export default function CustomChat() {
   const org_id = (user as any)?.org_id?.toLowerCase?.() ?? "";
   const queryClient = useQueryClient();
 
-  // Local override while /read is in-flight (or when inbound arrives and the chat is open)
+  // While mark-read is in flight, force unread=0 locally
   const [readOverrides, setReadOverrides] = useState<Set<string>>(new Set());
 
   // Infinite conversations
   const {
     data,
-    isPending,             // TanStack v5
+    isPending,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
   } = useConversationsInfinite(view, PAGE_SIZE);
 
-  // Flatten items
   const dataConversation: ConversationChat[] = useMemo(
     () => data?.pages.flatMap((p) => p.items) ?? [],
     [data]
   );
 
-  // Keep selected chat fresh if the list updates
+  // keep selected chat fresh
   useEffect(() => {
     if (!chat?.conversationId || !dataConversation) return;
     const fresh = dataConversation.find((c) => c.conversationId === chat.conversationId);
@@ -114,7 +267,7 @@ export default function CustomChat() {
 
   const markRead = useMarkConversationRead();
 
-  // IntersectionObserver sentinel for infinite scroll
+  // IntersectionObserver for infinite
   useEffect(() => {
     if (!sentinelRef.current) return;
     const el = sentinelRef.current;
@@ -131,7 +284,7 @@ export default function CustomChat() {
     return () => obs.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // Socket live updates (invalidate only current list)
+  // SOCKET: keep conversations + thread updated
   useChatSocket(
     org_id,
     // onNewMessage
@@ -142,11 +295,24 @@ export default function CustomChat() {
       const isVisible = document.visibilityState === "visible";
       const isOpenAndInbound = openId === msg.conversationId && msg.direction === "inbound";
 
+      // ✅ Failsafe + optimista: si llega inbound en archivado, muévelo a "active" y
+      // actualiza el preview (lastMessage) al instante.
+      if (msg.direction === "inbound") {
+        optimisticUpsertInboundAndMoveActive({
+          qc: queryClient,
+          pageSize: PAGE_SIZE,
+          socketMsg: msg,
+        });
+      }
+
+      // ✅ SIEMPRE: refrescar el thread del chat correspondiente (arregla tu “dev no actualiza ChatWindows”)
+      queryClient.invalidateQueries({ queryKey: ["messages", msg.conversationId] });
+
       if (isOpenAndInbound && isVisible) {
-        // Prevent a refetch from reintroducing the old unread value while marking as read
+        // Evitar que el refetch reintroduzca contador mientras marcamos leído
         await queryClient.cancelQueries({ queryKey: ["conversations-infinite", view, PAGE_SIZE] });
 
-        // Force UI without badge (override + optimistic)
+        // Forzar UI sin badge (override + optimista)
         setReadOverrides((prev) => new Set(prev).add(msg.conversationId));
         optimisticClearUnreadPages(queryClient, view, PAGE_SIZE, msg.conversationId);
 
@@ -158,19 +324,26 @@ export default function CustomChat() {
             next.delete(msg.conversationId);
             return next;
           });
+          // Conversaciones (todas las vistas)
           queryClient.invalidateQueries({ queryKey: ["conversations-infinite"] });
+          // Thread otra vez por si el mark-read aplica transformaciones de server
+          queryClient.invalidateQueries({ queryKey: ["messages", msg.conversationId] });
         }
       } else {
+        // No está abierto: refrescar listas (y el thread si hay UI en background)
         queryClient.invalidateQueries({ queryKey: ["conversations-infinite"] });
+        // (opcional) si tienes contadores/badges en la cabecera del thread, puedes invalidar aquí también
       }
     },
-    // onMessageUpdated
-    () => {
+    // onMessageUpdated (statuses, edits, etc.)
+    (msg) => {
+      // Asegura que el preview y el hilo se mantengan frescos
       queryClient.invalidateQueries({ queryKey: ["conversations-infinite"] });
+      queryClient.invalidateQueries({ queryKey: ["messages", msg.conversationId] });
     }
   );
 
-  /* ---------- DND ---------- */
+  /* ------------------------------- DND + styling ------------------------------ */
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor)
@@ -208,14 +381,14 @@ export default function CustomChat() {
             queryKey: ["conversation-categories", conversationSid],
           });
         } catch {
-          // upstream handles errors
+          // swallow
         }
       }
     },
     [assign, queryClient]
   );
 
-  /* ---------- styling tokens ---------- */
+  /* ------------------------------ style tokens ------------------------------ */
   const pageBg = useColorModeValue(
     "linear-gradient(180deg, rgba(246,248,255,0.85) 0%, rgba(241,243,255,0.75) 100%)",
     "linear-gradient(180deg, rgba(23,25,35,0.85) 0%, rgba(18,20,28,0.85) 100%)"
@@ -227,7 +400,7 @@ export default function CustomChat() {
   const scrollbarThumb = useColorModeValue("#CBD5E0", "#4A5568");
   const scrollbarTrack = useColorModeValue("#EDF2F7", "#2D3748");
 
-  // Open chat and mark as read with local override + cancelQueries
+  // Abrir chat y marcar leído con override local + cancelQueries
   const handleOpenChat = useCallback(
     async (c: ConversationChat) => {
       setChat(c);
@@ -246,12 +419,13 @@ export default function CustomChat() {
           return next;
         });
         queryClient.invalidateQueries({ queryKey: ["conversations-infinite"] });
+        queryClient.invalidateQueries({ queryKey: ["messages", c.conversationId] });
       }
     },
     [markRead, queryClient, view]
   );
 
-  // When the tab becomes visible, reinforce read state
+  // Reinforce read when tab becomes visible
   useEffect(() => {
     const onVis = async () => {
       const openId = chatIdRef.current;
@@ -268,6 +442,7 @@ export default function CustomChat() {
           return next;
         });
         queryClient.invalidateQueries({ queryKey: ["conversations-infinite"] });
+        queryClient.invalidateQueries({ queryKey: ["messages", openId] });
       }
     };
     document.addEventListener("visibilitychange", onVis);
