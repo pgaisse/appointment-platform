@@ -1,13 +1,12 @@
-// apps/frontend/src/Components/Chat/ChatLauncher.tsx
 import React, { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
 import { Box, IconButton, Tooltip, Spinner } from "@chakra-ui/react";
 import type { ConversationChat } from "@/types";
 import { FaCommentSms } from "react-icons/fa6";
 
-// Lazy (carga el chunk solo cuando se abre)
+// Lazy (load the chunk only when opened)
 const ChatWindowModalLazy = lazy(() => import("@/Components/Modal/ChatWindowModal"));
 
-// Prefetch en hover/focus para mejorar la respuesta percibida
+// Prefetch on hover/focus to improve TTI
 let __prefetchOnce__: Promise<any> | null = null;
 const prefetchChatModal = () => {
   if (!__prefetchOnce__) __prefetchOnce__ = import("@/Components/Modal/ChatWindowModal");
@@ -15,25 +14,25 @@ const prefetchChatModal = () => {
 };
 
 type Props = {
-  /** Puedes pasar directamente un contacto ya armado */
+  /** You can pass a prebuilt contact */
   contact?: ConversationChat;
-  /** O pasar un item genérico y un builder para transformarlo en ConversationChat */
+  /** Or pass a raw item and a builder to transform into ConversationChat */
   item?: any;
   buildContact?: (item: any) => ConversationChat;
 
-  /** Botón disparador personalizado; si no lo pasas, se usa un IconButton por defecto */
+  /** Custom trigger element; default is an IconButton */
   trigger?: React.ReactElement;
 
-  /** Texto del tooltip del botón */
+  /** Tooltip text for the trigger */
   tooltip?: string;
 
-  /** Si quieres evitar que haga bubbling en listas arrastrables o cards */
+  /** If true, stop event propagation (useful in draggable lists/cards) */
   stopPropagation?: boolean;
 
-  /** Props para inicializar el modal; por ejemplo { appId: contact.owner._id } */
+  /** Initial props for the modal; e.g. { appId: contact.owner._id } */
   modalInitial?: any;
 
-  /** Callbacks opcionales */
+  /** Optional callbacks */
   onOpen?(): void;
   onClose?(): void;
 };
@@ -59,12 +58,10 @@ const ChatLauncher: React.FC<Props> = ({
     return null;
   }, [contact, item, buildContact]);
 
-  // Guarda el contacto al abrir para que no cambie mientras el modal está visible
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       if (stopPropagation) {
         e.stopPropagation();
-        // Evita conflictos con dnd-kit
         (e as any).nativeEvent?.stopImmediatePropagation?.();
       }
       if (!computedContact) {
@@ -79,15 +76,18 @@ const ChatLauncher: React.FC<Props> = ({
     [computedContact, onOpen, stopPropagation]
   );
 
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (stopPropagation) {
-      e.stopPropagation();
-      (e as any).nativeEvent?.stopImmediatePropagation?.();
-    }
-  }, [stopPropagation]);
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (stopPropagation) {
+        e.stopPropagation();
+        (e as any).nativeEvent?.stopImmediatePropagation?.();
+      }
+    },
+    [stopPropagation]
+  );
 
   const handleMouseEnter = useCallback(() => {
-    prefetchChatModal(); // pre-carga el bundle en segundo plano al pasar el mouse
+    prefetchChatModal();
   }, []);
 
   const handleClose = useCallback(() => {
@@ -96,14 +96,8 @@ const ChatLauncher: React.FC<Props> = ({
     onClose?.();
   }, [onClose]);
 
-  // Botón por defecto si no pasas uno
   const defaultTrigger = (
-    <IconButton
-      aria-label="Open chat"
-      icon={<FaCommentSms size={18} />}
-      size="sm"
-      variant="ghost"
-    />
+    <IconButton aria-label="Open chat" icon={<FaCommentSms size={18} />} size="sm" variant="ghost" />
   );
 
   return (
@@ -116,7 +110,7 @@ const ChatLauncher: React.FC<Props> = ({
       display="inline-flex"
     >
       {tooltip ? (
-        <Tooltip hasArrow label={tooltip} >
+        <Tooltip hasArrow label={tooltip}>
           <span>{trigger ?? defaultTrigger}</span>
         </Tooltip>
       ) : (
@@ -146,9 +140,7 @@ const ChatLauncher: React.FC<Props> = ({
             trigger={trigger ?? defaultTrigger}
             initial={
               modalInitial ??
-              (contactRef.current?.owner?._id
-                ? { appId: contactRef.current?.owner?._id }
-                : undefined)
+              (contactRef.current?.owner?._id ? { appId: contactRef.current?.owner?._id } : undefined)
             }
             contact={contactRef.current!}
           />
@@ -159,43 +151,3 @@ const ChatLauncher: React.FC<Props> = ({
 };
 
 export default React.memo(ChatLauncher);
-/*
-
-<ChatLauncher
-  item={item}
-  tooltip="Open chat"
-  stopPropagation
-  buildContact={(i) => ({
-    conversationId: i.sid,
-    lastMessage: {
-      author: i.nameInput || "",
-      body: "",
-      conversationId: i.sid || "",
-      createdAt: new Date().toISOString(),
-      direction: "outbound",
-      media: [],
-      sid: "temp-lastmessage",
-      status: "delivered",
-      updatedAt: new Date().toISOString(),
-    },
-    owner: {
-      email: i.emailInput,
-      lastName: i.lastNameInput,
-      name: i.nameInput,
-      org_id: i.org_id,
-      phone: i.phoneInput,
-      unknown: false,
-      _id: i._id,
-    },
-  })}
-  trigger={
-    <IconButton
-      aria-label="Open chat"
-      icon={<FaCommentSms size={20} color="green" />}
-      size="sm"
-      variant="ghost"
-    />
-  }
-/>
-
-*/

@@ -16,7 +16,6 @@ import {
     TagLabel,
     Avatar,
     Grid,
-    GridItem,
     Button,
     Tooltip,
     useClipboard,
@@ -27,18 +26,17 @@ import {
     Icon,
     Skeleton,
 } from "@chakra-ui/react";
-import { FiCalendar, FiClock, FiPhone, FiMail, FiUser, FiClipboard, FiInfo } from "react-icons/fi";
+import { FiCalendar, FiClock, FiClipboard, FiInfo } from "react-icons/fi";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { ContactAppointment } from "@/types";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { GrContact } from "react-icons/gr";
 import { CiUser } from "react-icons/ci";
-import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
-import { mayusName } from "@/Functions/mayusName";
 
 // 🚀 Chat: componente reutilizable (lazy) + icono
 import ChatLauncher from "@/Components/Chat/ChatLauncher";
 import { FaCommentSms } from "react-icons/fa6";
+import {  to12Hour } from "@/Functions/to12Hour";
 
 // -----------------------------
 // Tipos basados en tus esquemas Mongoose (actualizados)
@@ -167,14 +165,17 @@ export interface Appointment {
 // Helpers visuales
 // -----------------------------
 const fmtDateTime = (d?: Date | string | number) =>
-    d ? new Date(d).toLocaleString("en-AU", {
+  d
+    ? new Date(d).toLocaleString("en-AU", {
         timeZone: "Australia/Sydney",
         day: "2-digit",
         month: "short",
         year: "numeric",
-        hour: "2-digit",
+        hour: "numeric",   // usa "2-digit" si quieres 01–12
         minute: "2-digit",
-    }) : "—";
+        hour12: true,
+      })
+    : "—";
 
 
 function contrastText(hex?: string): string {
@@ -302,7 +303,7 @@ console.log("data",contacted)
     const fullName = `${appointment?.nameInput ?? ""} ${appointment?.lastNameInput ?? ""}`.trim() || "Unnamed";
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} size="5xl" scrollBehavior="inside">
+        <Modal isOpen={isOpen} onClose={onClose} size="6xl" scrollBehavior="inside">
             <ModalOverlay backdropFilter="blur(6px)" />
             <ModalContent overflow="hidden" border="1px solid" borderColor={border} rounded="2xl">
                 {/* Header */}
@@ -515,7 +516,7 @@ console.log("data",contacted)
                                                         {(d.timeBlocks ?? []).map((tb, j) => (
                                                             <WrapItem key={j}>
                                                                 <Tag size="sm" variant="subtle" colorScheme="purple" rounded="full">
-                                                                    <TagLabel>{`${tb.short || tb.label}: ${tb.from} – ${tb.to}`}</TagLabel>
+                                                                    <TagLabel>{`${tb.short || tb.label}: ${to12Hour(tb.from)} – ${to12Hour(tb.to)}`}</TagLabel>
                                                                 </Tag>
                                                             </WrapItem>
                                                         ))}

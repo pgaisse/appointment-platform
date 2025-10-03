@@ -12,16 +12,21 @@ import {
   Spacer,
   IconButton,
   Tooltip,
+  Input,
+  InputGroup,
+  InputLeftElement,
+  CloseButton,
 } from "@chakra-ui/react";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { FaUserAlt } from "react-icons/fa";
+import { FiArchive, FiInbox, FiSearch } from "react-icons/fi";
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import AddPatientButton from "../DraggableCards/AddPatientButton";
 import { formatFromE164 } from "@/Functions/formatFromE164";
-import { FiArchive, FiInbox } from "react-icons/fi";
 import { useArchiveConversation } from "@/Hooks/Query/useArchiveConversation";
+import { useConversationSearch } from "@/Hooks/Query/useConversationsSearch";
 
 type Props = {
   setChat: (c: ConversationChat) => void | Promise<void>;
@@ -39,9 +44,27 @@ export default function MessageList({
   readOverrides,
   archivedMode = "active",
 }: Props) {
-  if (isLoadingConversation) {
+  // Debounced search
+  const [term, setTerm] = useState("");
+  const [debounced, setDebounced] = useState("");
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(term.trim()), 300);
+    return () => clearTimeout(id);
+  }, [term]);
+
+  const searchEnabled = debounced.length >= 2;
+  const { data: searchData, isLoading: isSearching } = useConversationSearch(
+    debounced,
+    archivedMode,
+    1,
+    20
+  );
+
+  if (!searchEnabled && isLoadingConversation) {
     return (
       <Stack>
+        <SearchBox term={term} setTerm={setTerm} isSearching={false} />
         <Skeleton borderRadius="xl" height="60px" m={2} />
         <Skeleton borderRadius="xl" height="60px" m={2} />
         <Skeleton borderRadius="xl" height="60px" m={2} />
@@ -49,25 +72,117 @@ export default function MessageList({
     );
   }
 
-  if (!dataConversation?.length) {
-    return <Text color="gray.500">No conversations</Text>;
-  }
+  const list = searchEnabled ? (searchData?.items ?? []) : (dataConversation ?? []);
 
   return (
     <VStack align="stretch" spacing={4}>
-      {dataConversation.map((contact) => (
-        <SortableChatRow
-          key={contact.conversationId}
-          contact={contact}
-          onOpen={() => setChat(contact)}
-          readOverrides={readOverrides}
-          archivedMode={archivedMode}
-        />
-      ))}
+      <SearchBox term={term} setTerm={setTerm} isSearching={isSearching} />
+
+      {!searchEnabled && !list.length ? (
+        <Text color="gray.500">No conversations</Text>
+      ) : null}
+
+      {searchEnabled ? (
+        <>
+          {isSearching && <Text color="gray.500">Searching…</Text>}
+          {!isSearching && list.length === 0 && (
+            <Text color="gray.500">No matches</Text>
+          )}
+          {!isSearching &&
+            list.map((contact) => (
+              <PlainChatRow
+                key={`s-${contact.conversationId}`}
+                contact={contact}
+                onOpen={() => setChat(contact)}
+                readOverrides={readOverrides}
+                archivedMode={archivedMode}
+              />
+            ))}
+        </>
+      ) : (
+        list.map((contact) => (
+          <SortableChatRow
+            key={contact.conversationId}
+            contact={contact}
+            onOpen={() => setChat(contact)}
+            readOverrides={readOverrides}
+            archivedMode={archivedMode}
+          />
+        ))
+      )}
     </VStack>
   );
 }
 
+/* ------------------------------- Search box ------------------------------- */
+function SearchBox({
+  term,
+  setTerm,
+  isSearching,
+}: {
+  term: string;
+  setTerm: (v: string) => void;
+  isSearching: boolean;
+}) {
+  return (
+    <InputGroup size="sm">
+      <InputLeftElement pointerEvents="none">
+        <FiSearch />
+      </InputLeftElement>
+      <Input
+        value={term}
+        onChange={(e) => setTerm(e.target.value)}
+        placeholder="Search chats (name, phone, email, message, ID)…"
+        variant="filled"
+        borderRadius="xl"
+      />
+      {term && (
+        <CloseButton
+          aria-label="Clear"
+          onClick={() => setTerm("")}
+          position="absolute"
+          right="8px"
+          top="50%"
+          transform="translateY(-50%)"
+          isDisabled={isSearching}
+        />
+      )}
+    </InputGroup>
+  );
+}
+
+/* ------------------------- Non-sortable (search) row ---------------------- */
+function PlainChatRow({
+  contact,
+  onOpen,
+  readOverrides,
+  archivedMode = "active",
+}: {
+  contact: ConversationChat;
+  onOpen: () => void | Promise<void>;
+  readOverrides?: ReadonlySet<string>;
+  archivedMode?: "active" | "only" | "all";
+}) {
+  return (
+    <HStack
+      px={3}
+      py={2}
+      borderRadius="xl"
+      transition="background 0.2s ease"
+      _hover={{ bg: "blackAlpha.50", _dark: { bg: "whiteAlpha.100" } }}
+      onClick={onOpen}
+      cursor="pointer"
+    >
+      <InnerRowContent
+        contact={contact}
+        readOverrides={readOverrides}
+        archivedMode={archivedMode}
+      />
+    </HStack>
+  );
+}
+
+/* -------------------------------- Sortable row ---------------------------- */
 function SortableChatRow({
   contact,
   onOpen,
@@ -79,14 +194,7 @@ function SortableChatRow({
   readOverrides?: ReadonlySet<string>;
   archivedMode?: "active" | "only" | "all";
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: contact.conversationId,
     data: {
       type: "conversation",
@@ -110,10 +218,40 @@ function SortableChatRow({
     zIndex: isDragging ? 10 : "auto",
   };
 
+  return (
+    <HStack
+      ref={setNodeRef}
+      style={style}
+      px={3}
+      py={2}
+      borderRadius="xl"
+      transition="background 0.2s ease, transform 0.2s ease"
+      _hover={{ bg: "blackAlpha.50", _dark: { bg: "whiteAlpha.100" } }}
+      {...listeners}
+      {...attributes}
+      onClick={onOpen}
+    >
+      <InnerRowContent
+        contact={contact}
+        readOverrides={readOverrides}
+        archivedMode={archivedMode}
+      />
+    </HStack>
+  );
+}
+
+/* ---------------------------- Shared row content -------------------------- */
+function InnerRowContent({
+  contact,
+  readOverrides,
+  archivedMode = "active",
+}: {
+  contact: ConversationChat;
+  readOverrides?: ReadonlySet<string>;
+  archivedMode?: "active" | "only" | "all";
+}) {
   const displayName =
-    contact.owner?.unknown
-      ? undefined
-      : contact.owner?.name || contact.lastMessage?.author;
+    contact.owner?.unknown ? undefined : contact.owner?.name || contact.lastMessage?.author;
 
   const lastPreview = (() => {
     if (contact.lastMessage?.body) return contact.lastMessage.body;
@@ -123,7 +261,7 @@ function SortableChatRow({
 
   const formattedNumber = formatFromE164(contact.owner?.phone ? contact.owner?.phone : "");
 
-  // Apply local override: if present, display 0
+  // unread overrides
   const rawUnread = contact.unreadCount ?? 0;
   const overridden = readOverrides?.has(contact.conversationId) ?? false;
   const displayUnread = overridden ? 0 : rawUnread;
@@ -141,18 +279,7 @@ function SortableChatRow({
   };
 
   return (
-    <HStack
-      ref={setNodeRef}
-      style={style}
-      px={3}
-      py={2}
-      borderRadius="xl"
-      transition="background 0.2s ease, transform 0.2s ease"
-      _hover={{ bg: "blackAlpha.50", _dark: { bg: "whiteAlpha.100" } }}
-      {...listeners}
-      {...attributes}
-      onClick={onOpen}
-    >
+    <>
       <Avatar
         size="md"
         name={displayName}
@@ -167,7 +294,6 @@ function SortableChatRow({
             {contact.owner?.name || contact.lastMessage?.author || "No name"}
           </Text>
 
-          {/* Quick “Add Contact” if owner is unknown */}
           {contact.owner?.unknown ? (
             <AddPatientButton
               color="blue"
@@ -189,7 +315,6 @@ function SortableChatRow({
 
           <Spacer />
 
-          {/* Unread badge */}
           {displayUnread > 0 && (
             <Badge borderRadius="full" px="2" fontSize="0.75rem" colorScheme="blue">
               {displayUnread > 99 ? "99+" : displayUnread}
@@ -207,7 +332,6 @@ function SortableChatRow({
         </Text>
       </Box>
 
-      {/* Archive / Unarchive button */}
       {archivedMode === "only" ? (
         <Tooltip label="Unarchive">
           <IconButton
@@ -231,6 +355,6 @@ function SortableChatRow({
           />
         </Tooltip>
       )}
-    </HStack>
+    </>
   );
 }
