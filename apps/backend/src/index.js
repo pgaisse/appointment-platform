@@ -78,6 +78,7 @@ app.use('/api/profile', require('./routes/profile'));
 app.use("/api/message-templates", require("./routes/message-templates"));
 app.use('/api',  require('./routes/appointments-range'));
 app.use('/api/priorities/meta',  require('./routes/categories-priorities-manager'));
+app.use('/api/providers', require('./routes/providers'));
 
 // manejador de errores (después de rutas)
 app.use((err, _req, res, next) => {

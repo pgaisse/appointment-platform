@@ -32,6 +32,7 @@ const NS = process.env.AUTH0_NAMESPACE || 'https://letsmarter.com/';
 const populateFields = [
   { path: 'priority',  select: 'id description notes durationHours name color' },
   { path: 'treatment', select: '_id name notes duration icon color minIcon' },
+  { path: 'providers'},
   { path: 'selectedDates.days.timeBlocks' },
 ];
 

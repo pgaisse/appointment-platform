@@ -12,4 +12,4 @@ const to12Hour = (hhmm: string): string => {
 
   return `${String(h12).padStart(2, "0")}:${min} ${period}`;
 };
-mo
+module.exports = to12Hour;

@@ -725,6 +725,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       {lastColPainted && (
         <Fade in>
           <Card
+            pb={2}
             minW="250px"
             flex="0 0 auto"
             minHeight="300px"
@@ -867,6 +868,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       {lastColPainted && (
         <Fade in >
           <Card
+            pb={2}
             minW="250px"
             flex="0 0 auto"
             minHeight="300px"

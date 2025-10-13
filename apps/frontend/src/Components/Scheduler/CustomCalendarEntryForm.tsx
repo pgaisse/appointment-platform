@@ -16,9 +16,8 @@ import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 import "./CustomCalendar.css";
 
 import CustomDayHeader from "./CustomDayHeader";
-// ⚠️ Renombrado para no chocar con el import previo:
 import CustomTimeGutterHeader from "./CustomTimeGutterHeader";
-import { CalendarEvent, EventDropArg, EventResizeDoneArg } from "@/types";
+import { CalendarEvent, EventResizeDoneArg } from "@/types";
 import eventStyleGetter from "./eventStyleGetter";
 import { DateRange } from "@/Hooks/Handles/useSlotSelection";
 import { UseFormSetValue, UseFormTrigger } from "react-hook-form";
@@ -62,6 +61,14 @@ const coerceRange = (r: DateRange): DateRange | null => {
 };
 // --------------------------------------------
 
+// 🔹 Helper para armar el título: "{min} min (hh:mm a–hh:mm a)"
+const makeEventTitle = (start: Date, end: Date) => {
+  const mins = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
+  const s = format(start, "h:mm a");
+  const e = format(end, "h:mm a");
+  return `${mins} min`;
+};
+
 type Props = {
   setSelectedAppDates?: React.Dispatch<React.SetStateAction<DateRange[]>>;
   selectedAppDates?: DateRange[];
@@ -94,7 +101,7 @@ function CustomCalendarEntryForm({
   // ✅ Normaliza de entrada lo que venga por props
   const initialRange: DateRange[] | null =
     selectedAppDates
-      ? selectedAppDates.map(coerceRange).filter(Boolean) as DateRange[]
+      ? (selectedAppDates.map(coerceRange).filter(Boolean) as DateRange[])
       : null;
 
   const [range, setRange] = useState<DateRange[] | null>(initialRange);
@@ -106,8 +113,10 @@ function CustomCalendarEntryForm({
   const step = 15;
 
   // min/max anclados al día visible
-  const dayMin = new Date(currentDate); dayMin.setHours(9, 30, 0, 0);
-  const dayMax = new Date(currentDate); dayMax.setHours(18, 0, 0, 0);
+  const dayMin = new Date(currentDate);
+  dayMin.setHours(9, 30, 0, 0);
+  const dayMax = new Date(currentDate);
+  dayMax.setHours(18, 0, 0, 0);
 
   const handleNavigate = (newDate: Date, view: View, action: NavigateAction): void => {
     setCurrentDate(newDate);
@@ -126,13 +135,19 @@ function CustomCalendarEntryForm({
     const endTime = ev.end?.getTime();
     if (!startTime || !endTime) return;
 
-    setEvents(prev => prev.filter(
-      e => (e.start?e.start:new Date()).getTime() !== startTime || (e.end?e.end:new Date()).getTime() !== endTime
-    ));
+    setEvents((prev) =>
+      prev.filter(
+        (e) =>
+          (e.start ? e.start : new Date()).getTime() !== startTime ||
+          (e.end ? e.end : new Date()).getTime() !== endTime
+      )
+    );
 
-    setRange(prev => (prev ?? []).filter(
-      r => r.startDate.getTime() !== startTime || r.endDate.getTime() !== endTime
-    ));
+    setRange((prev) =>
+      (prev ?? []).filter(
+        (r) => r.startDate.getTime() !== startTime || r.endDate.getTime() !== endTime
+      )
+    );
   };
 
   const handleEventDrop = (args: EventInteractionArgs<CalendarEvent>) => {
@@ -141,48 +156,63 @@ function CustomCalendarEntryForm({
     const endDate = toDate(end);
     if (!startDate || !endDate) return;
 
-    const updated = { ...droppedEvent, start: startDate, end: endDate };
+    const updated: CalendarEvent = {
+      ...droppedEvent,
+      start: startDate,
+      end: endDate,
+      title: makeEventTitle(startDate, endDate),
+    };
 
-    setEvents(prev => prev.map(e => (e === droppedEvent ? updated : e)));
+    setEvents((prev) => prev.map((e) => (e === droppedEvent ? updated : e)));
 
-    setRange(prev => (prev ?? []).map(r =>
-      r.startDate.getTime() === ((droppedEvent.start?droppedEvent.start:new Date()).getTime()) &&
-      r.endDate.getTime() === (droppedEvent.end?droppedEvent.end:new Date()).getTime()
-        ? { startDate: startDate, endDate: endDate }
-        : r
-    ));
+    setRange((prev) =>
+      (prev ?? []).map((r) =>
+        r.startDate.getTime() === (droppedEvent.start ? droppedEvent.start : new Date()).getTime() &&
+        r.endDate.getTime() === (droppedEvent.end ? droppedEvent.end : new Date()).getTime()
+          ? { startDate: startDate, endDate: endDate }
+          : r
+      )
+    );
   };
 
   const handleEventResize = (args: EventInteractionArgs<CalendarEvent>) => {
-    const { event: resizedEvent, start, end } = args;
+    const { event: resizedEvent, start, end } = args as EventResizeDoneArg<CalendarEvent>;
     const startDate = toDate(start);
     const endDate = toDate(end);
     if (!startDate || !endDate) return;
 
-    const updated = { ...resizedEvent, start: startDate, end: endDate };
+    const updated: CalendarEvent = {
+      ...resizedEvent,
+      start: startDate,
+      end: endDate,
+      title: makeEventTitle(startDate, endDate),
+    };
 
-    setEvents(prev => prev.map(e => (e === resizedEvent ? updated : e)));
+    setEvents((prev) => prev.map((e) => (e === resizedEvent ? updated : e)));
 
-    setRange(prev => (prev ?? []).map(r =>
-      r.startDate.getTime() === (resizedEvent.start?resizedEvent.start:new Date()).getTime() &&
-      r.endDate.getTime() === (resizedEvent.end?resizedEvent.end:new Date()).getTime()
-        ? { startDate: startDate, endDate: endDate }
-        : r
-    ));
+    setRange((prev) =>
+      (prev ?? []).map((r) =>
+        r.startDate.getTime() === (resizedEvent.start ? resizedEvent.start : new Date()).getTime() &&
+        r.endDate.getTime() === (resizedEvent.end ? resizedEvent.end : new Date()).getTime()
+          ? { startDate: startDate, endDate: endDate }
+          : r
+      )
+    );
   };
 
   // ✅ Cada vez que cambia range, re-construimos events con fechas coaccionadas a Date
   useEffect(() => {
-    const newEvents =
-      (range ?? [])
-        .map(item => coerceEvent({
-          title: "",
+    const newEvents = (range ?? [])
+      .map((item) =>
+        coerceEvent({
+          title: makeEventTitle(item.startDate, item.endDate), // 🔹 aquí armamos el título
           start: item?.startDate,
           end: item?.endDate,
           desc: "Date Selected",
           color: colorEvent,
-        }))
-        .filter(Boolean) as CalendarEvent[];
+        })
+      )
+      .filter(Boolean) as CalendarEvent[];
 
     setEvents(newEvents);
 
@@ -205,7 +235,7 @@ function CustomCalendarEntryForm({
     <Box w="100%" overflow="auto" height={height}>
       <Calendar
         localizer={localizer}
-        events={events}                       // ✅ array siempre
+        events={events} // ✅ array siempre
         // ✅ accesores en forma de función: convierten por si acaso
         startAccessor={(e) => toDate(e.start)!}
         endAccessor={(e) => toDate(e.end)!}
@@ -219,7 +249,6 @@ function CustomCalendarEntryForm({
         timeslots={timeSlots}
         min={dayMin}
         max={dayMax}
-        // `selected` no es necesario para seleccionar fecha; lo quito para evitar confusiones
         onSelectSlot={handleSelectSlot}
         onSelectEvent={handleSelectEvent}
         onEventDrop={handleEventDrop}

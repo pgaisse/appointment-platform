@@ -147,25 +147,150 @@ router.get('/categories', jwtCheck, async (req, res) => {
   }
 });
 
-router.get('/treatments', jwtCheck, async (req, res) => {
-  const { org_id } = await helpers.getTokenInfo(req.headers.authorization)
-  try {
-    //pendiente de individualizar según empresa
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
 
-    const priorityList = await PriorityList.find({
-      organization: org_id
-    })
+// --- util: parseos seguros de query params
+function parseBool(v) {
+  if (v === undefined) return undefined;
+  if (typeof v === 'boolean') return v;
+  const s = String(v).toLowerCase().trim();
+  return s === '1' || s === 'true' || s === 'yes';
+}
 
-    //const priorityList = helpers.priorityList();
+function parseIntSafe(v, dflt) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : dflt;
+}
 
-    res.json(priorityList);
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  }
-  catch (err) {
-    console.log(err)
+// GET /treatments
+// Query soportadas:
+//   q: string (busca por nombre/código)
+//   active: boolean (true/false)
+//   limit: number (1..500)  default 50
+//   page: number (>=1)      default 1
+//   sort: campo             default "name" (fallback a "_id")
+//   order: "asc"|"desc"     default "asc"
+//   fields: "name,code,..." (proyección opcional)
+//   lean: bool              default true
+router.get(
+  '/treatments',
+  jwtCheck,
+  asyncHandler(async (req, res) => {
+    // --- Multi-tenant: obtenemos org desde el token
+    const auth = req.headers.authorization;
+    const tokenInfo = await helpers.getTokenInfo(auth).catch(() => null);
+    const org_id = tokenInfo?.org_id;
 
-  }
-});
+    if (!org_id) {
+      return res.status(400).json({
+        error: { code: 'ORG_REQUIRED', message: 'Missing organization in token.' },
+      });
+    }
+
+    // --- Query params
+    const {
+      q,
+      sort: sortFieldRaw,
+      order: orderRaw,
+      fields: fieldsRaw,
+    } = req.query;
+
+    const active = parseBool(req.query.active);
+    const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 50), 500));
+    const page = Math.max(1, parseIntSafe(req.query.page, 1));
+    const skip = (page - 1) * limit;
+    const lean = parseBool(req.query.lean);
+    const useLean = lean !== false; // por defecto true
+
+    // Orden por defecto: name asc, y si no existiera, Mongo ignora sin error; _id como fallback
+    const sortField = sortFieldRaw || 'name';
+    const order = (String(orderRaw || 'asc').toLowerCase() === 'desc') ? -1 : 1;
+    const sort = { [sortField]: order, _id: 1 }; // orden estable
+
+    // Filtro base por organización
+    const filter = { organization: org_id };
+
+    // Búsqueda por texto simple (name/code)
+    if (q) {
+      const rx = new RegExp(escapeRegex(q), 'i');
+      // intenta coincidir con campos comunes; si no existen, Mongo lo ignora
+      filter.$or = [{ name: rx }, { code: rx }, { title: rx }, { label: rx }];
+    }
+
+    // Filtro activo opcional (si el schema lo tiene)
+    if (typeof active === 'boolean') {
+      filter.isActive = active;
+    }
+
+    // Proyección opcional
+    let projection = undefined;
+    if (fieldsRaw) {
+      projection = {};
+      String(fieldsRaw)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((f) => (projection[f] = 1));
+      // nos aseguramos de incluir _id
+      projection._id = 1;
+    }
+
+    // Última actualización para caché condicional
+    const lastDoc = await PriorityList.find(filter)
+      .select('updatedAt')
+      .sort({ updatedAt: -1 })
+      .limit(1)
+      .lean();
+
+    if (lastDoc?.length) {
+      const lastUpdated = lastDoc[0].updatedAt instanceof Date
+        ? lastDoc[0].updatedAt
+        : new Date(lastDoc[0].updatedAt);
+
+      // If-Modified-Since → 304
+      const ims = req.headers['if-modified-since'];
+      if (ims) {
+        const imsDate = new Date(ims);
+        if (!isNaN(imsDate.getTime()) && lastUpdated <= imsDate) {
+          res.set('Cache-Control', 'private, max-age=60');
+          res.set('Last-Modified', lastUpdated.toUTCString());
+          return res.status(304).end();
+        }
+      }
+
+      res.set('Last-Modified', lastUpdated.toUTCString());
+    }
+
+    // Consulta principal (lean por rendimiento)
+    const query = PriorityList.find(filter, projection).sort(sort).skip(skip).limit(limit);
+    const docsPromise = useLean ? query.lean() : query.exec();
+
+    const totalPromise = PriorityList.countDocuments(filter);
+
+    const [items, total] = await Promise.all([docsPromise, totalPromise]);
+
+    res.set('Cache-Control', 'private, max-age=60');
+    return res.json({
+      data: items,
+      meta: {
+        total,
+        page,
+        limit,
+        hasMore: skip + items.length < total,
+        sort: { field: sortField, order: order === 1 ? 'asc' : 'desc' },
+        filter: {
+          q: q || null,
+          active: typeof active === 'boolean' ? active : null,
+        },
+        organization: org_id,
+      },
+    });
+  })
+);
 
 // routes/query.js (handler drop-in)
 router.get('/query/:collection', jwtCheck, async (req, res) => {
@@ -552,7 +677,7 @@ router.post('/add', jwtCheck, async (req, res) => {
 
 const clamp = (n, min, max) =>
   Math.max(min, Math.min(parseInt(n, 10) || 0, max));
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 
 /**
  * GET /appointments/mentions?nameInput=<q>&limit=5&mode=contains

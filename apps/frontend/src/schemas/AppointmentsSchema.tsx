@@ -62,13 +62,16 @@ export const appointmentsSchema = z.object({
       endDate: z.coerce.date({ required_error: "End date is required" }),
     })
   )
-  .min(1, "At least one date must be selected")
-  .max(1, "Only a single date is allowed.")
-  .refine(dates => dates.every(date => date.startDate < date.endDate), {
-    message: "Start date must be before end date",
-  }),
+    .min(1, "At least one date must be selected")
+    .max(1, "Only a single date is allowed.")
+    .refine(dates => dates.every(date => date.startDate < date.endDate), {
+      message: "Start date must be before end date",
+    }),
 
   reschedule: z.boolean().optional(),
+   providers: z.array(z.string()).min(1, "At least one provider is required"),
+
+
 });
 
 export type AppointmentForm = z.infer<typeof appointmentsSchema>;

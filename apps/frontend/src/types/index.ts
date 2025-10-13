@@ -227,7 +227,7 @@ export interface Message {
   updatedAt: string; // ISO string de última actualización
   tempOrder?: number;   // 👈 orden local para optimistas
   status: MessageStatus;   // <- usa el tipo flexible
-   proxyAddress?:string
+  proxyAddress?: string
 }
 
 
@@ -303,6 +303,33 @@ export type GroupedAppointments = AppointmentGroup[];
 export type ContactStatus = 'Pending' | 'Contacted' | 'Failed' | 'NoContacted' | 'Confirmed' | 'Rescheduled' | 'Cancelled' | 'Rejected'
 
 export type ContactPreference = "call" | "sms";
+
+export type Provider = {
+  _id: string;
+  org_id?: string;
+  user?: string | null;
+  firstName: string;
+  lastName: string;
+  initials?: string;
+  email?: string;
+  phone?: string;
+  ahpraNumber?: string;
+  avatarUrl?: string;
+  color?: string;
+  skills?: string[];
+  defaultDurations?: Record<string, number> | any;
+  locations?: string[];
+  chairs?: string[];
+  defaultSlotMinutes?: number;
+  bufferBefore?: number;
+  bufferAfter?: number;
+  maxOverlap?: number;
+  acceptingNewPatients?: boolean;
+  notes?: string;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
 export interface Appointment {
   contactPreference?: ContactPreference // 🆕
   _id: string;
@@ -328,6 +355,7 @@ export interface Appointment {
   proxyAddress: string;
   selectedDates: SelectedDates;
   selectedAppDates: Array<{
+    _id: string;
     status: ContactStatus;
     rescheduleRequested: boolean
     contact: ContactAppointment;
@@ -335,7 +363,23 @@ export interface Appointment {
     endDate: Date;
     propStartDate: Date,
     propEndDate: Date,
+    proposed?: {
+      startDate?: Date;
+      endDate?: Date;
+      proposedBy?: "clinic" | "patient" | "system";
+      reason?: string;
+      createdAt?: Date;
+    };
+    confirmation?: {
+      decision?: "confirmed" | "declined" | "reschedule" | "unknown";
+      decidedAt?: Date;
+      byMessageSid?: string;
+      lateResponse?: boolean;
+    };
+
+
   }>;
+  providers: [],
 }
 
 

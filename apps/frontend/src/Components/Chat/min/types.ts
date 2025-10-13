@@ -19,6 +19,9 @@ export type MessagePayload = {
   metadata?: Record<string, any>;
 };
 
+
+
+
 export type MessageComposerProps = {
   value?: string;
   defaultValue?: string;

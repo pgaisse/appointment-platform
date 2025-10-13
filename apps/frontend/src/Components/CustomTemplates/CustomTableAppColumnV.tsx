@@ -1,7 +1,6 @@
 import {
   Box,
   SimpleGrid,
-
   useDisclosure
 } from "@chakra-ui/react";
 import { useEffect, useState } from "react";
@@ -13,11 +12,9 @@ import { useDraggableCards } from "@/Hooks/Query/useDraggableCards";
 import { filterAppointmentsByRange, RangeOption } from "@/Functions/filterAppointmentsByRage";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import AppointmentModal from "../Modal/AppointmentModal";
-
+import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext"; // 👈 Provider para modal index
 
 const CustomTableAppColumnV = () => {
-
-
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [selectedItem, setSelectedItem] = useState<Appointment>();
@@ -43,7 +40,7 @@ const CustomTableAppColumnV = () => {
     ],
   };
 
-    const query2 = {
+  const query2 = {
     $and: [{ unknown: false },      {"selectedAppDates.status": "Pending" }    ],
   };
 
@@ -73,7 +70,6 @@ const CustomTableAppColumnV = () => {
 
   };
 
-
   const templateCoumns = {
     base: "repeat(1, minmax(150px, 1fr))",
     sm: "repeat(1, minmax(150px, 2fr))",
@@ -87,48 +83,42 @@ const CustomTableAppColumnV = () => {
     handleRangeChange("2weeks");
   }, [dataAP2]); // <-- importante: asegúrate de que 'data' esté cargada
 
-
   const handleCardClick = (item: Appointment) => {
     setSelectedItem(item);
     onOpen();
   };
 
-
   return (
-    <>
-      <Box
-        px={4}
-        fontWeight="normal"
-        display="flex"
-        width="100%"           // Ocupa todo el ancho del padre para que funcione el alineado
-        justifyContent="flex-end"  // Empuja contenido a la derecha
-        color="gray.300"
-      >
-        {dataAP2 &&<DateRangeSelector onFilterRange={handleRangeChange} />}
+    <ModalStackProvider>
+      <>
+        <Box
+          px={4}
+          fontWeight="normal"
+          display="flex"
+          width="100%"           // Ocupa todo el ancho del padre para que funcione el alineado
+          justifyContent="flex-end"  // Empuja contenido a la derecha
+          color="gray.300"
+        >
+          {dataAP2 && <DateRangeSelector onFilterRange={handleRangeChange} />}
+        </Box>
+        <Box px={4} py={6}>
+          {isOpen && selectedItem && (
+            <AppointmentModal id={selectedItem._id?? ""} isOpen={isOpen} onClose={onClose} />
+          )}
+        </Box>
 
-      </Box>
-      <Box px={4} py={6}>
-
-        {isOpen && selectedItem && (
-          <AppointmentModal id={selectedItem._id?? ""} isOpen={isOpen} onClose={onClose} />
-
-        )}
-      </Box>
-
-      <SimpleGrid spacing={6} templateColumns={templateCoumns}>
-
-        <DraggableCards
-          isPlaceholderData={isPlaceholderData}
-          dataAP2={filteredData ? filteredData : []}
-          dataContacts={dataContacts ? dataContacts : []}
-          dataPending={dataPending ? dataPending : []}
-          onCardClick={handleCardClick}
-        />
-      </SimpleGrid>
-    </>
+        <SimpleGrid spacing={6} templateColumns={templateCoumns}>
+          <DraggableCards
+            isPlaceholderData={isPlaceholderData}
+            dataAP2={filteredData ? filteredData : []}
+            dataContacts={dataContacts ? dataContacts : []}
+            dataPending={dataPending ? dataPending : []}
+            onCardClick={handleCardClick}
+          />
+        </SimpleGrid>
+      </>
+    </ModalStackProvider>
   );
-
-}
-  ;
+};
 
 export default CustomTableAppColumnV;

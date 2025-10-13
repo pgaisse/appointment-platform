@@ -97,7 +97,7 @@ export const TreatmentSelector = ({
               borderRadius="xl"
               px={4}
               py={3}
-              minW="180px"
+              minW="90px"
               boxShadow={selectedId === t._id ? "lg" : "sm"}
               border={selectedId === t._id ? "2px solid #3182CE" : "none"}
               cursor="pointer"
@@ -109,7 +109,7 @@ export const TreatmentSelector = ({
               _hover={{ transform: "scale(1.03)" }}
             >
               <Flex direction="column" align="center" justify="center">
-                {IconComponent && <Icon as={IconComponent} boxSize={6} mb={2} />}
+                {IconComponent && <Icon as={IconComponent} boxSize={4} mb={2} />}
                 <Text fontWeight="bold" fontSize="sm" textAlign="center">
                   {t.name}
                 </Text>

@@ -12,7 +12,7 @@ import { formatDateWS } from "@/Functions/FormatDateWS";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { formatDateSingle } from "@/Functions/FormatDateSingle";
 import { useDeleteItem } from "@/Hooks/Query/useDeleteItem";
-import { Appointment, TimeBlock, WeekDay } from "@/types";
+import { Appointment, Provider, TimeBlock, WeekDay } from "@/types";
 import AvailabilityDates2 from "./AvailabilityDates2";
 import Pagination from "../Pagination";
 import { iconMap } from "../CustomIcons";
@@ -195,6 +195,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                 <Th>Availability</Th>
                 <Th>Note</Th>
                 <Th>Appointment</Th>
+                <Th>Provider</Th>
                 <Th>Priority/Treatment</Th>
                 <Th>Phone</Th>
                 <Th textAlign="center">Actions</Th>
@@ -269,8 +270,30 @@ function CustomTableApp({ pageSize = 20 }: Props) {
 
                   {/* appointment */}
                   <Td>
-                    <Text>{item.selectedAppDates?.[0] ? formatDateWS(item.selectedAppDates[0]) : "No appointment"}</Text>
+                    <Tag colorScheme={item.selectedAppDates?.[0]?.status === "Confirmed" ? "green" : item.selectedAppDates?.[0]?.status === "Pending" ? "yellow" : "gray"} mr={1}>
+                      {item.selectedAppDates?.[0] ? formatDateWS(item.selectedAppDates[0]) : "No appointment"}
+                    </Tag>
                   </Td>
+
+
+                  <Td>
+                    {item.providers ? item.providers.map((prov: Provider) => (
+                      <Tag
+                        key={String(prov._id ?? prov._id)}
+                        size="sm"
+                        borderRadius="md"
+                        mr={2}
+                        mb={2}
+                      >
+                        {prov.firstName} {prov.lastName}
+                      </Tag>
+                    )) : "-"
+
+                    }
+
+                  </Td>
+
+
 
                   {/* priority/treatment */}
                   <Td>
@@ -300,6 +323,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                         variant="ghost"
                         colorScheme="blue"
                         onClick={async () => {
+                          console.log(item)
                           openEditor(item);
 
                         }}
@@ -341,7 +365,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
       )}
 
       {/* modales reutilizables */}
-      <AppointmentEditor />
+      {AppointmentEditor}
       <InfoModal />
 
       {/* confirmación borrar */}

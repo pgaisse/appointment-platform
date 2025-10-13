@@ -1,126 +1,75 @@
-/* ======== Base / Normalizaciones ======== */
+/* =========================
+   React Big Calendar – ajustes finos
+   ========================= */
 
-/* Todas las alturas derivan de variables para no romper si cambias step/slots */
-:root {
-  /* altura visual de un slot de 15min aprox */
-  --rbc-slot-h: 22px;
-  /* slots por hora (15min -> 4; 30min -> 2) */
-  --rbc-slots-per-hour: 4;
-}
-
-/* Ajusta la altura de cada grupo de 1h = slot-h * slotsPorHora */
-.rbc-time-view .rbc-timeslot-group {
-  min-height: calc(var(--rbc-slot-h) * var(--rbc-slots-per-hour));
-  border-top: 1px solid var(--rbc-color-border, rgba(125, 125, 125, 0.18));
-}
-
-/* Oculta fila "All day" correctamente */
-.rbc-allday-cell,
-.rbc-allday-events,
-.rbc-time-header .rbc-allday-cell {
+/* 1) Eliminar la PRIMERA FILA de la vista semanal (la de "All-day"), NO la de los días */
+.rbc-time-header .rbc-allday-cell,
+.rbc-time-header .rbc-allday-events,
+.rbc-time-header .rbc-row.rbc-allday {
   display: none !important;
+  height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
 }
 
-/* Encabezado de time view */
-.rbc-time-header {
-  background-color: #f0f0f0;
-  color: #333;
-  font-weight: bold;
-  font-size: 20px;
-  border-bottom: 1px solid #ddd;
-  border-color: rgba(125, 125, 125, 0.25);
+/* 2) Unir header y contenido sin saltos de 1px */
+.rbc-time-view .rbc-time-header {
+  border-bottom: 1px solid #e5e7eb !important;
+}
+.rbc-time-view .rbc-time-content {
+  margin-top: 0 !important;
+  border-top: 1px solid #e5e7eb !important;
 }
 
-/* Gutter de horas (columna izquierda) */
-.rbc-time-gutter {
-  background-color: #f0f0f0;
-  color: #333;
-  font-weight: bold;
-  border-right: 1px solid #ddd;
-  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.03));
+/* 3) Alinear EXACTAMENTE la altura de los grupos de tiempo (gutter y columnas) */
+:root {
+  /* Altura por slot (15 min). Ajusta si quieres ranuras más altas o bajas */
+  --rbc-slot-height: 24px;
+  /* Debe coincidir con tu prop timeslots (4) */
+  --rbc-timeslots-per-group: 4;
+  --rbc-group-min-height: calc(var(--rbc-slot-height) * var(--rbc-timeslots-per-group));
 }
 
-/* La altura del label acompaña al alto del grupo (1h) */
-.rbc-time-gutter .rbc-label {
-  height: calc(var(--rbc-slot-h) * var(--rbc-slots-per-hour));
-  line-height: calc(var(--rbc-slot-h) * var(--rbc-slots-per-hour));
-  border-bottom: 2px solid #ccc;
+/* Misma altura en todas las columnas */
+.rbc-timeslot-group {
+  min-height: var(--rbc-group-min-height) !important;
+  box-sizing: border-box;
 }
 
-/* Vista día: que ocupe todo el ancho disponible */
-.rbc-time-view-day .rbc-day-slot,
-.rbc-time-view-day .rbc-time-content .rbc-day-slot {
-  width: 100% !important;
-  display: block !important;
+/* Bordes iguales para gutter y day-slot (evita “descuadres”) */
+.rbc-time-gutter .rbc-timeslot-group,
+.rbc-day-slot .rbc-timeslot-group {
+  border-bottom: 1px solid #e5e7eb !important;
 }
 
-/* Mejor contraste de bordes en vistas de tiempo */
-.rbc-time-content,
-.rbc-time-header,
-.rbc-header {
-  border-color: rgba(125, 125, 125, 0.25);
+/* Evita diferencias de padding que mueven el contenido 1px */
+.rbc-time-gutter,
+.rbc-day-slot {
+  box-sizing: border-box;
 }
 
-/* Líneas suaves de slots (opcional, efecto sutil) */
-.rbc-slot--soft {
-  background-image: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.04) 50%);
-  background-size: 100% 2px;
-}
-
-/* Hoy resaltado (sutil) */
-.rbc-day--today-premium {
-  background: linear-gradient(180deg, rgba(56,189,248,0.08), transparent 35%);
-}
-
-/* Fines de semana con leve sombreado */
-.rbc-day--weekend {
-  background-color: rgba(128,128,128,0.05);
-}
-
-/* Eventos: transición suave y accesible en hover/focus */
+/* 4) El contenido del evento centrado y legible (duración dentro) */
 .rbc-event {
-  transition: top 0.15s ease, height 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-  cursor: pointer;
-}
-.rbc-event--premium:focus,
-.rbc-event--premium:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.18), inset 0 0 1px rgba(255,255,255,0.45);
-  outline: 2px solid rgba(255,255,255,0.35);
-  outline-offset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.15;
+  box-sizing: border-box;
 }
 
-/* Oculta la etiqueta de horas dentro del evento para ganar espacio */
-.rbc-event-label { 
-  display: none !important; 
+/* Que el label horario pequeño de RBC no “empuje” el contenido */
+.rbc-event .rbc-event-label {
+  font-size: 11px;
+  opacity: 0.9;
 }
 
-/* Contenido del evento con truncado fiable dentro de flex */
-.rbc-event,
-.rbc-event-content {
-  height: 100%;
-  min-width: 0; /* clave para ellipsis en flex */
-}
-.rbc-event-content > * {
-  height: 100%;
-  width: 100%;
-  min-width: 0;
+/* 5) Asegurar que no haya scrolls raros internos que cambien alturas */
+.rbc-day-slot .rbc-events-container {
+  margin-right: 0 !important;
 }
 
-/* Scrollbars finos (WebKit + Firefox) */
-.rbc-time-view,
-.rbc-month-view {
-  scrollbar-width: thin;
+/* (Opcional) Si NO usas all-day events nunca, quita también su borde superior */
+.rbc-time-header .rbc-row + .rbc-row {
+  border-top: 0 !important;
 }
-.rbc-time-view::-webkit-scrollbar,
-.rbc-month-view::-webkit-scrollbar {
-  height: 8px;
-  width: 8px;
-}
-.rbc-time-view::-webkit-scrollbar-thumb,
-.rbc-month-view::-webkit-scrollbar-thumb {
-  background: rgba(120,120,120,0.35);
-  border-radius: 8px;
-}
-
-/*

@@ -1,4 +1,13 @@
-import { Button, Flex, Icon, Skeleton, Stack, Tooltip } from "@chakra-ui/react";
+import {
+  Flex,
+  Icon,
+  Skeleton,
+  Stack,
+  Tooltip,
+  Tag,
+  TagLabel,
+  TagRightIcon,
+} from "@chakra-ui/react";
 import { QueryObserverResult, RefetchOptions } from "@tanstack/react-query";
 import React, { useEffect, useMemo } from "react";
 import { FieldError } from "react-hook-form";
@@ -15,7 +24,7 @@ type Props = {
   fontSize?: any; // ResponsiveValue<number | string>
   isPending?: boolean;
   gap?: string;
-  btnSize?: number;
+  btnSize?: number; // (se mantiene aunque ya no sean botones para no romper tipos)
   value?: string;
   onChange?: (id: string, value: string, color?: string, duration?: number | null) => void;
   error?: FieldError;
@@ -30,8 +39,6 @@ const CHAKRA_BASE_TOKENS = new Set([
 
 const isHex = (c?: string) => !!c && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(c);
 const isToken = (c?: string) => !!c && (CHAKRA_BASE_TOKENS.has(c.split(".")[0]));
-
-/** Devuelve un token base “blue” a partir de “blue.500” o el mismo si ya es base */
 const baseToken = (c: string) => c.split(".")[0];
 
 /** Sombrar/aclarecer hex mezclando con negro/blanco */
@@ -56,54 +63,79 @@ function shadeHex(hex: string, percent: number) {
   return `#${toHex(f(r))}${toHex(f(g))}${toHex(f(b))}`;
 }
 
-/** Estilos de botón según color (hex o token) y estado seleccionado */
-function getButtonStyles(color: string | undefined, selected: boolean) {
+/** Estilos de Tag según color (hex o token) y estado seleccionado */
+function getTagStyles(color: string | undefined, selected: boolean) {
   const fallbackHex = "#4A5568"; // gray.600
   const c = color || fallbackHex;
+
+  const common = {
+    borderRadius: "2xl",
+    transition: "transform 160ms ease, box-shadow 160ms ease, background 160ms ease",
+    cursor: "pointer",
+    px: { base: 3, md: 4 },
+    py: { base: 2, md: 2 },
+    height: "38px",
+    fontWeight: 600,
+    letterSpacing: "0.2px",
+    _focusVisible: {
+      outline: "none",
+      boxShadow: "0 0 0 3px white, 0 0 0 6px rgba(0,0,0,0.25)",
+    },
+    _hover: {
+      transform: "translateY(-1px)",
+      boxShadow: "lg",
+    },
+    _active: {
+      transform: "translateY(0)",
+      boxShadow: "md",
+    },
+  } as const;
 
   if (isToken(c)) {
     const base = baseToken(c);
     return {
       chakraProps: {
+        ...common,
         colorScheme: base,
-        variant: selected ? "solid" : "outline",
-        bgGradient: `linear(to-br, ${base}.500, ${base}.700)`,
+        variant: "solid",
+        bgGradient: selected
+          ? `linear(to-br, ${base}.500, ${base}.700)`
+          : `linear(to-br, ${base}.50, ${base}.100)`,
+        color: selected ? "white" : `${base}.800`,
+        border: selected ? `2px solid var(--chakra-colors-${base}-500)` : `1px solid var(--chakra-colors-${base}-200)`,
+        boxShadow: selected ? `0 0 0 3px white, 0 0 0 6px var(--chakra-colors-${base}-400)` : "sm",
         _hover: {
-          transform: "scale(1.03)",
-          bgGradient: `linear(to-br, ${base}.400, ${base}.800)`,
-          boxShadow: "xl",
+          ...common._hover,
+          bgGradient: selected
+            ? `linear(to-br, ${base}.400, ${base}.700)`
+            : `linear(to-br, ${base}.100, ${base}.200)`,
         },
-        _active: {
-          transform: "scale(0.97)",
-          bgGradient: `linear(to-br, ${base}.400, ${base}.800)`,
-        },
-        boxShadow: selected ? `0 0 0 3px white, 0 0 0 6px ${base}.500` : "md",
-        border: selected ? `3px solid var(--chakra-colors-${base}-500)` : "none",
-        color: "white",
       },
     };
   }
 
   // Hex
   const from = isHex(c) ? c : fallbackHex;
-  const to = shadeHex(from, -20);
+  const to = shadeHex(from, -18);
   const ring = shadeHex(from, -10);
+  const text = "#ffffff";
+
   return {
     chakraProps: {
+      ...common,
       variant: "solid",
       bgGradient: `linear(to-br, ${from}, ${to})`,
+      color: text,
+      border: selected ? `2px solid ${ring}` : "1px solid rgba(255,255,255,0.18)",
+      boxShadow: selected ? `0 0 0 3px white, 0 0 0 6px ${ring}` : "sm",
       _hover: {
-        transform: "scale(1.03)",
-        bgGradient: `linear(to-br, ${shadeHex(from, 5)}, ${shadeHex(to, -5)})`,
-        boxShadow: "xl",
+        ...common._hover,
+        bgGradient: `linear(to-br, ${shadeHex(from, 4)}, ${shadeHex(to, -4)})`,
       },
       _active: {
-        transform: "scale(0.97)",
-        bgGradient: `linear(to-br, ${shadeHex(from, -5)}, ${shadeHex(to, -10)})`,
+        ...common._active,
+        bgGradient: `linear(to-br, ${shadeHex(from, -4)}, ${shadeHex(to, -8)})`,
       },
-      boxShadow: selected ? `0 0 0 3px white, 0 0 0 6px ${ring}` : "md",
-      border: selected ? `3px solid ${ring}` : "none",
-      color: "white",
     },
   };
 }
@@ -140,7 +172,7 @@ function CustomButtonGroup({
           ...base,
         ]
       : base;
-    // evita duplicados por id
+    // evita duplicados por id (se mantiene la lógica original)
     const seen = new Set<number>();
     return withAny.filter((o) => (o?.id ?? NaN, !seen.has(o.id) && seen.add(o.id)));
   }, [options, defaultBtn]);
@@ -153,7 +185,6 @@ function CustomButtonGroup({
       onChange?.("any", "Any", "gray", 0);
       setCatSelected?.("Any");
     }
-    // no refetch acá
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultBtn]);
 
@@ -183,47 +214,62 @@ function CustomButtonGroup({
     return <></>;
   }
 
+  const disabledProps = isPending
+    ? { opacity: 0.6, pointerEvents: "none" as const, cursor: "not-allowed" as const, filter: "grayscale(0.2)" }
+    : {};
+
   return (
     <Flex wrap="wrap" gap={gap}>
       {updatedOptions.map((option) => {
         const isSel = selected === option.id || value === option.name;
-        const { chakraProps } = getButtonStyles(option.color, isSel);
+        const { chakraProps } = getTagStyles(option.color, isSel);
+
         return (
           <Tooltip
             key={option._id ?? option.id}
             hasArrow
             label={option.notes || option.description || option.name}
             placement="top"
+            openDelay={120}
           >
-            <Button
-              isDisabled={isPending}
+            <Tag
+              as="button"
+              type="button"
+              role="button"
+              aria-pressed={isSel}
               onClick={() => {
                 onChange?.(option._id ?? "", option.name, option.color, option.durationHours);
                 setSelected?.(option.id);
                 setCatSelected?.(option.name);
                 refetch?.();
               }}
-              borderRadius="2xl"
-              width={{ base: "auto", md: "150px" }}
-              minW={{ base: "44px", md: "150px" }}
-              position="relative"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onChange?.(option._id ?? "", option.name, option.color, option.durationHours);
+                  setSelected?.(option.id);
+                  setCatSelected?.(option.name);
+                  refetch?.();
+                }
+              }}
               fontSize={fontSize}
+              width={{ base: "auto", md: "150px" }}
+              minW={{ base: "56px", md: "150px" }}
+              justifyContent="center"
+              position="relative"
               data-value={option.durationHours}
               {...chakraProps}
+              {...disabledProps}
             >
-              {option.name}
+              <TagLabel noOfLines={1}>{option.name}</TagLabel>
               {isSel && (
-                <Icon
+                <TagRightIcon
                   as={FiCheckCircle}
-                  color="white"
-                  borderRadius="full"
+                  // reforzamos legibilidad del check
                   boxSize={4}
-                  position="absolute"
-                  top="6px"
-                  right="6px"
                 />
               )}
-            </Button>
+            </Tag>
           </Tooltip>
         );
       })}

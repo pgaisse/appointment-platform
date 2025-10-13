@@ -1,40 +1,19 @@
 const mongoose = require('mongoose');
 const { ContactStatus, MsgType } = require("../constants");
-const User = require('../models/User/User');
-const { boolean } = require('joi');
 // Priority Schema (subdocumento)
 const PrioritySchema = new mongoose.Schema({
-  org_id: {
-    type: String,
-    required: true,
-  },
-  id: {
-    type: Number,
-    required: true,
-    unique: true,
-  },
-  description: {
-    type: String,
-    required: true,
-  },
-  notes: {
-    type: String,
-    default: "",
-  },
-  durationHours: {
-    type: Number,
-    required: true,
-  },
-  name: {
-    type: String,
-    required: true,
-  },
-  color: {
-    type: String,
-    required: true,
-  }
-}, { collection: 'PriorityList' }); // Para que cada prioridad tenga su propio _id
+  org_id: { type: String, required: true },
+  id: { type: Number, required: true }, // no lo hagas global-unique si es por clínica
+  description: { type: String, required: true },
+  notes: { type: String, default: "" },
+  durationHours: { type: Number, required: true },
+  name: { type: String, required: true },
+  color: { type: String, required: true },
+}, { collection: 'PriorityList' });
 
+// Borra los viejos con 'organization'
+PrioritySchema.index({ org_id: 1, name: 1 }, { unique: true });
+PrioritySchema.index({ org_id: 1, id: 1 }, { unique: true });
 // Appointment Priority Schema (colección independiente)
 
 
@@ -129,7 +108,21 @@ const AppointmentsSchema = new mongoose.Schema({
     ]
   },
   selectedAppDates: { type: [SelectedAppDateSchema], default: [] },
+  providers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Provider', default: [] }],
+  providerNotes: { type: String, default: '' },
+  isProviderLocked: { type: Boolean, default: false },
+  location: { type: mongoose.Schema.Types.ObjectId, ref: 'Location', default: null },
+  chair: { type: mongoose.Schema.Types.ObjectId, ref: 'Chair', default: null },
 });
+
+AppointmentsSchema.pre('validate', function (next) {
+  if (!Array.isArray(this.providers)) this.providers = [];
+  if (this.provider && !this.providers.length) {
+    this.providers = [this.provider]; // migrate single -> array
+  }
+  next();
+});
+AppointmentsSchema.index({ provider: 1, 'selectedDates.startDate': 1, 'selectedDates.endDate': 1 });
 
 
 
@@ -233,52 +226,30 @@ const MessageSchema = new mongoose.Schema(
   },
   { timestamps: true } // agrega createdAt y updatedAt
 );
+MessageSchema.index({ conversationId: 1, index: 1 }, { unique: true });
+MessageSchema.index({ sid: 1 }, { unique: true });
+MessageSchema.index({ conversationId: 1, createdAt: 1 });
 
 const TreatmentSchema = new mongoose.Schema({
   org_id: String,
-  name: {
-    type: String,
-    required: true,
-    unique: true, // evita duplicados
-  },
-  duration: {
-    type: Number, // en minutos
-    required: true,
-  },
-  icon: {
-    type: String, // nombre del icono o identificador
-    required: true,
-  },
-  minIcon: {
-    type: String, // nombre del icono o identificador
-    required: true,
-  },
-  color: {
-    type: String, // ejemplo: "#EDF2F7" o "blue.100"
-    required: true,
-  },
-  category: {
-    type: String, // opcional: estética, cirugía, general, etc.
-    default: "General",
-  },
-  active: {
-    type: Boolean,
-    default: true,
-  },
-}, {
-  timestamps: true, // createdAt, updatedAt
-});
+  name: { type: String, required: true, unique: true },
+  duration: { type: Number, required: true },          // ← ya existe
+  defaultDuration: { type: Number, default: null },     // ← NUEVO (scheduler prioriza este si existe)
+  icon: { type: String, required: true },
+  minIcon: { type: String, required: true },
+  color: { type: String, required: true },
+  category: { type: String, default: "General" },
+  active: { type: Boolean, default: true },
+}, { timestamps: true });
 
 const ContactLogSchema = new mongoose.Schema({
   appointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true },
   contactedAt: { type: Date, default: Date.now },
-  contactedBy: { type: String, required: true }, // user_id o nombre del staff
+  contactedBy: { type: String, required: true },
   method: { type: String, enum: ['Phone', 'Email', 'SMS', 'WhatsApp'], required: true },
   status: { type: String, enum: ['Pending', 'Contacted', 'Failed', 'No Contacted'], default: 'No Contacted' },
   notes: { type: String, default: '' },
-  appointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true },
   org_id: { type: String, required: true },
-
 });
 
 
@@ -323,17 +294,19 @@ const TimeBlockSchema = new mongoose.Schema({
   to: { type: String, required: true },          // Ej: '11:30'
 });
 // Exportar modelos con nombres plurales (coinciden con `ref` en AppointmentSchema)
+const getModel = require('./_getModel');
+
 module.exports = {
-  Appointment: mongoose.model('Appointment', AppointmentsSchema),
-  Category: mongoose.model('Category', CategoriesSchema),
-  PriorityList: mongoose.model('PriorityList', PrioritySchema),
-  TimeBlock: mongoose.model('TimeBlock', TimeBlockSchema),
-  MessageLog: mongoose.model('MessageLog', ContactLogSchema),
-  Treatment: mongoose.model('Treatment', TreatmentSchema),
-  ContactAppointment: mongoose.model("ContactAppointment", ContactSchema),
-  ManualContact: mongoose.model("ManualContact", ManualContactSchema),
-  TemplateToken: mongoose.model("TemplateToken", TemplateTokenSchema),
-  MessageTemplate: mongoose.model("MessageTemplate", MessageTemplateSchema),
-  MediaFile: mongoose.model("MediaFile", MediaFileSchema),
-  Message: mongoose.model("Message", MessageSchema)
+  Appointment:   getModel('Appointment', AppointmentsSchema),
+  Category:      getModel('Category', CategoriesSchema),
+  PriorityList:  getModel('PriorityList', PrioritySchema),
+  TimeBlock:     getModel('TimeBlock', TimeBlockSchema),
+  MessageLog:    getModel('MessageLog', ContactLogSchema),
+  Treatment:     getModel('Treatment', TreatmentSchema),
+  ContactAppointment: getModel('ContactAppointment', ContactSchema),
+  ManualContact: getModel('ManualContact', ManualContactSchema),
+  TemplateToken: getModel('TemplateToken', TemplateTokenSchema),
+  MessageTemplate: getModel('MessageTemplate', MessageTemplateSchema),
+  MediaFile:     getModel('MediaFile', MediaFileSchema),
+  Message:       getModel('Message', MessageSchema),
 };
