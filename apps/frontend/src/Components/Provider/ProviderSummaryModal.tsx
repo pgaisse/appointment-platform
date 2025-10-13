@@ -548,7 +548,7 @@ export default function ProviderSummaryModal({
                       </HStack>
                       <HStack>
                         <PhoneIcon />
-                        <Text>{formatAustralianMobile(provider.phone) || "—"}</Text>
+                        <Text>{provider.phone ? formatAustralianMobile(provider.phone) : "—"}</Text>
                         {provider.phone && (
                           <Tooltip label="Copy phone">
                             <IconButton
