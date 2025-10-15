@@ -12,7 +12,7 @@ const SMS = require('./routes/sms');
 const Topics = require('./routes/topics.routes');
 const SocketRoutes = require('./routes/socket');
 
-const { connectDB, getSessionIfAvailable, supportsTransactions }=require('./config/db');
+const { connectDB, initIndexes, getSessionIfAvailable, supportsTransactions }=require('./config/db');
 const setupSocket = require('./config/setupSocket');
 
 const app = express();
@@ -79,6 +79,7 @@ app.use("/api/message-templates", require("./routes/message-templates"));
 app.use('/api',  require('./routes/appointments-range'));
 app.use('/api/priorities/meta',  require('./routes/categories-priorities-manager'));
 app.use('/api/providers', require('./routes/providers'));
+app.use('/api/validate', require('./routes/validate'));
 
 // manejador de errores (después de rutas)
 app.use((err, _req, res, next) => {
@@ -91,6 +92,7 @@ app.use((err, _req, res, next) => {
 // ARRANQUE: **espera** Mongo antes de escuchar
 (async () => {
   await connectDB(); // 👈 evita "buffering timed out"
+  await initIndexes(); // 2) asegura índices únicos
   server.listen(port, '0.0.0.0', () => {
     console.log(`HTTP server listening on :${port}`);
   });

@@ -9,9 +9,9 @@ const {
   MONGO_USER,
   MONGO_PASS,
   MONGO_AUTH_SOURCE = 'admin',
-  MONGO_RS,                          // ej: rs0 (setéalo si tienes replica set)
-  MONGO_USE_TRANSACTIONS = 'false',  // 'true' para intentar usar transacciones
-  MONGO_DIRECT_CONNECTION,           // 'true' fuerza standalone
+  MONGO_RS,
+  MONGO_USE_TRANSACTIONS = 'false',
+  MONGO_DIRECT_CONNECTION,
   MONGO_SERVER_SELECTION_TIMEOUT_MS = '5000',
 } = process.env;
 
@@ -20,7 +20,7 @@ mongoose.set('bufferTimeoutMS', 10000);
 // opcional: mongoose.set('strictQuery', true);
 
 function buildUri() {
-  if (MONGO_URI_ENV) return MONGO_URI_ENV; // permite URI completa por env
+  if (MONGO_URI_ENV) return MONGO_URI_ENV;
 
   const creds = MONGO_USER
     ? `${encodeURIComponent(MONGO_USER)}:${encodeURIComponent(MONGO_PASS || '')}@`
@@ -37,7 +37,6 @@ function buildUri() {
   } else if (MONGO_DIRECT_CONNECTION !== undefined) {
     params.set('directConnection', String(MONGO_DIRECT_CONNECTION) === 'true' ? 'true' : 'false');
   } else {
-    // Standalone por defecto
     params.set('directConnection', 'true');
     params.set('retryWrites', 'false');
   }
@@ -60,7 +59,6 @@ async function connectDB() {
       // maxPoolSize: 10,
     });
 
-    // Detectar replica set => soporte de transacciones
     try {
       const hello = await conn.connection.db.admin().command({ hello: 1 });
       const rsName = hello.setName || null;
@@ -82,6 +80,36 @@ async function connectDB() {
   }
 }
 
+// 👉 NUEVO: materializar índices DESPUÉS de conectar
+async function initIndexes() {
+  // Requiere los modelos aquí para evitar ciclos de import
+  const models = require('../models/Appointments'); // ajusta la ruta si es distinta
+
+  await Promise.allSettled([
+    models.Appointment.init(),
+    models.Message.init(),
+    models.Treatment.init(),
+    models.PriorityList.init(),
+    models.Category?.init?.(),
+    models.TimeBlock?.init?.(),
+    models.MessageLog?.init?.(),
+    models.MessageTemplate?.init?.(),
+    models.TemplateToken?.init?.(),
+    models.MediaFile?.init?.(),
+    models.ContactAppointment?.init?.(),
+  ]).then(results => {
+    const failures = results
+      .map((r, i) => ({ r, i }))
+      .filter(x => x.r.status === 'rejected');
+    if (failures.length) {
+      console.error('⚠️ Index init errors:');
+      failures.forEach(f => console.error(`  • Model #${f.i} ->`, f.r.reason?.message || f.r.reason));
+    } else {
+      console.log('✅ Mongo indexes ensured');
+    }
+  });
+}
+
 // Helpers para usar en tus servicios
 async function getSessionIfAvailable() {
   if (String(MONGO_USE_TRANSACTIONS) === 'true' && _supportsTransactions) {
@@ -94,7 +122,6 @@ function supportsTransactions() {
   return _supportsTransactions;
 }
 
-// Observabilidad útil
 mongoose.connection.on('error', (e) => console.error('🔴 Mongo error:', e));
 mongoose.connection.on('disconnected', () => console.warn('🟠 Mongo disconnected'));
 
@@ -110,6 +137,7 @@ process.on('SIGTERM', gracefulExit);
 
 module.exports = {
   connectDB,
+  initIndexes,              // 👉 exporta esto
   getSessionIfAvailable,
   supportsTransactions,
 };

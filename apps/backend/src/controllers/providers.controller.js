@@ -99,7 +99,7 @@ async function getProviderAppointments(req, res, next) {
     // Ordena si existen campos de fecha; si no, Mongo igual permite el sort sin romper
     const items = await Appointment.find(filter, projection)
       .sort({ startUtc: 1, start: 1 })
-       .populate({
+      .populate({
         path: 'priority',
         select: 'name color durationHours order isActive', // ajusta a tu esquema
         options: { lean: true },
@@ -225,7 +225,7 @@ async function listTimeOff(req, res, next) {
       filter,
       { _id: 1, kind: 1, start: 1, end: 1, reason: 1, location: 1, chair: 1 }
     ).sort({ start: 1 }).lean();
-console.log("items", items)
+    console.log("items", items)
     res.json({ data: items, total: items.length });
   } catch (err) {
     next(err);
@@ -267,7 +267,7 @@ function rangesFromAppointment(a) {
 const suggestProviders = async (req, res, next) => {
   try {
     const fromD = parseISO('from', req.query.from);
-    const toD   = parseISO('to',   req.query.to);
+    const toD = parseISO('to', req.query.to);
 
     // uno o varios tratamientos
     const treatmentIds = Array.isArray(req.query.treatmentIds)
@@ -279,7 +279,7 @@ const suggestProviders = async (req, res, next) => {
 
     // opcionales (si te sirven en getAvailability)
     const locationId = req.query.location ? validateObjectId(req.query.location, 'location') : undefined;
-    const chairId    = req.query.chair    ? validateObjectId(req.query.chair,    'chair')    : undefined;
+    const chairId = req.query.chair ? validateObjectId(req.query.chair, 'chair') : undefined;
 
     // 1) providers activos que tengan la(s) skill(s)
     const providers = await Provider.find({
@@ -291,7 +291,7 @@ const suggestProviders = async (req, res, next) => {
 
     const providerIds = providers.map(p => p._id);
     const fromTs = fromD.getTime();
-    const toTs   = toD.getTime();
+    const toTs = toD.getTime();
 
     // 2) citas que se solapen con la ventana (varias formas de rango en tu modelo)
     const appts = await Appointment.find({
@@ -300,7 +300,7 @@ const suggestProviders = async (req, res, next) => {
         { selectedAppDates: { $elemMatch: { startDate: { $lt: toD }, endDate: { $gt: fromD } } } },
         { 'selectedDates.startDate': { $lt: toD }, 'selectedDates.endDate': { $gt: fromD } },
         { startUtc: { $lt: toD }, endUtc: { $gt: fromD } },
-        { start:    { $lt: toD }, end:    { $gt: fromD } },
+        { start: { $lt: toD }, end: { $gt: fromD } },
       ],
     }, {
       providers: 1,
@@ -314,7 +314,7 @@ const suggestProviders = async (req, res, next) => {
     const pto = await ProviderTimeOff.find({
       provider: { $in: providerIds },
       start: { $lt: toD },
-      end:   { $gt: fromD },
+      end: { $gt: fromD },
     }, { provider: 1, start: 1, end: 1 }).lean();
 
     // 4) disponibilidad real por provider via servicio
@@ -466,6 +466,68 @@ async function deleteTimeOff(req, res, next) {
   }
 }
 
+async function blockAvailability(req, res, next) {
+  try {
+    const providerId = validateObjectId(req.params.id, 'provider');
+    const { start, end, reason, location, chair } = req.body || {};
+    if (!start || !end) throw badRequest('start and end are required');
+
+    const doc = await ProviderTimeOff.create({
+      provider: providerId,
+      kind: 'Block',
+      start: new Date(start),
+      end: new Date(end),
+      reason: reason || 'Availability block',
+      location: location ? validateObjectId(location, 'location') : null,
+      chair: chair ? validateObjectId(chair, 'chair') : null,
+    });
+
+    res.status(201).json({ data: doc });
+  } catch (err) { next(err); }
+}
+
+// GET /providers/:id/availability/blocks?from&to
+// Solo devuelve TimeOff con kind='Block', con opcional solape por rango.
+async function listAvailabilityBlocks(req, res, next) {
+  try {
+    const providerId = validateObjectId(req.params.id, 'provider');
+    const { from, to } = req.query;
+
+    const filter = { provider: providerId, kind: 'Block' };
+    if (from && to) {
+      const fromD = new Date(from);
+      const toD = new Date(to);
+      filter.$and = [{ start: { $lt: toD } }, { end: { $gt: fromD } }];
+    } else if (from) {
+      filter.end = { $gt: new Date(from) };
+    } else if (to) {
+      filter.start = { $lt: new Date(to) };
+    }
+
+    const items = await ProviderTimeOff
+      .find(filter, { _id: 1, kind: 1, start: 1, end: 1, reason: 1, location: 1, chair: 1 })
+      .sort({ start: 1 })
+      .lean();
+
+    res.json({ data: items, total: items.length });
+  } catch (err) { next(err); }
+}
+
+// DELETE /providers/:id/availability/blocks/:blockId
+// Borra SOLO si es kind='Block'
+async function deleteAvailabilityBlock(req, res, next) {
+  try {
+    const providerId = validateObjectId(req.params.id, 'provider');
+    const blockId = validateObjectId(req.params.blockId, 'blockId');
+
+    const toDelete = await ProviderTimeOff.findOne({ _id: blockId, provider: providerId }).lean();
+    if (!toDelete) throw notFound('Availability block not found');
+    if (toDelete.kind !== 'Block') throw badRequest('The specified time off is not a Block');
+
+    await ProviderTimeOff.deleteOne({ _id: blockId, provider: providerId });
+    res.json({ ok: true, deletedId: blockId });
+  } catch (err) { next(err); }
+}
 
 
 module.exports = {
@@ -482,4 +544,7 @@ module.exports = {
   upsertSchedule,
   createTimeOff,
   providerAvailability,
+  blockAvailability,
+  listAvailabilityBlocks,
+  deleteAvailabilityBlock,
 };

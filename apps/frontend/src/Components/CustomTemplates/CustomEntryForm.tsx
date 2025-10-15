@@ -6,7 +6,8 @@ import CustomHeading from "../Form/CustomHeading";
 import CustomInputN from "../Form/CustomInputN";
 
 import { MarkedEvents } from "@/Hooks/Handles/useSlotSelection";
-import { AppointmentForm, appointmentsSchema } from "@/schemas/AppointmentsSchema";
+import type { AppointmentForm } from "@/schemas/AppointmentsSchema";
+import { makeAppointmentsSchemaOptionalProviders } from "@/schemas/AppointmentsSchema";
 import {
   Alert,
   AlertIcon,
@@ -43,7 +44,6 @@ import {
   VStack,
   Kbd,
   Skeleton,
-  Badge,
   Radio as ChakraRadio,
 } from "@chakra-ui/react";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -53,7 +53,7 @@ import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import he from "he";
 import { SlotInfo } from "react-big-calendar";
-import { Controller, FieldErrors, useForm, useWatch } from "react-hook-form";
+import { Controller, FieldError, FieldErrors, useForm } from "react-hook-form";
 import { FiPhone, FiSearch } from "react-icons/fi";
 import { LuUserPen } from "react-icons/lu";
 import { MdAlternateEmail, MdEventBusy, MdEventNote } from "react-icons/md";
@@ -61,9 +61,6 @@ import CustomButtonGroup from "../Form/CustomButtonGroup";
 import CustomCheckbox from "../Form/CustomCheckbox";
 import CustomTextArea from "../Form/CustomTextArea";
 import { DateRange } from "./CustomBestApp";
-import { useNavigate } from "react-router-dom";
-// ⬇️ Reemplazo: usamos SmartCalendar en vez de CustomCalendarEntryForm
-import SmartCalendar from "../Scheduler/SmartCalendarEntry";
 import { Appointment, ContactPreference, Priority, Provider, SelectedDates, TimeBlock, Treatment, WeekDay } from "@/types";
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
 import AvailabilityDates2 from "./AvailabilityDates2";
@@ -73,18 +70,15 @@ import PhoneInput from "../Form/PhoneInput";
 import { ContactForm, contactsSchema } from "@/schemas/ContactSchema";
 import { appointmentsKey, appointmentsSearchKey } from "@/lib/queryKeys";
 import { PageResp } from "@/Hooks/Query/useAppointmentsPaginated";
-
-// ⬇️ nuevo: zod para derivar esquema con providers opcional
-import { z } from "zod";
-
-// Providers hooks
-import {
-  useProvidersList,
-  useProviderAvailability,
-} from "@/Hooks/Query/useProviders";
+import { useProvidersList } from "@/Hooks/Query/useProviders";
 import { useProviderAppointments, useProviderTimeOff } from "@/Hooks/Query/useProviderAppointments";
 import { SuggestItem, useSuggestProviders } from "@/Hooks/Query/useSuggestProviders";
 import CustomCalendarEntryForm from "../Scheduler/CustomCalendarEntryForm";
+import type { Weekly } from "@/Hooks/Query/useProviders";
+import { useProviderSchedule } from "@/Hooks/Query/useProviderSchedule";
+import { useCheckPhoneUnique } from "@/Hooks/Query/useCheckPhoneUnique";
+import { toE164AU } from "@/utils/phoneAU";
+
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -99,448 +93,83 @@ function useDebounced<T>(value: T, delay = 250) {
   }, [value, delay]);
   return v;
 }
-function fmtSydney(iso: string) {
-  return dayjs.utc(iso).tz(SYD_TZ).format("YYYY/MM/DD hh:mm A");
-}
-function fmtSydneyTime(iso: string) {
-  return dayjs.utc(iso).tz(SYD_TZ).format("hh:mm A");
-}
 
-/* ----------------- filas de providers ----------------- */
-function ProviderRow({
-  p,
-  highlight,
-  onAdd,
-  rightAdornment,
-}: {
-  p: Provider;
-  highlight?: string;
-  onAdd: (p: Provider) => void;
-  rightAdornment?: React.ReactNode;
-}) {
-  const label = `${p.firstName} ${p.lastName}`.trim();
-  const renderHighlighted = (text: string, q?: string) => {
-    if (!q) return text;
-    const parts = text.split(new RegExp(`(${q})`, "i"));
-    return (
-      <>
-        {parts.map((part, i) =>
-          part.toLowerCase() === q.toLowerCase() ? (
-            <mark key={i} style={{ background: "transparent", color: "inherit", fontWeight: 700 }}>
-              {part}
-            </mark>
-          ) : (
-            <React.Fragment key={i}>{part}</React.Fragment>
-          )
-        )}
-      </>
-    );
-  };
+/* ----------------- util fechas y schedule ----------------- */
+type DayKey = keyof Weekly; // 'mon' | 'tue' | ...
+const IDX_TO_DAYKEY: DayKey[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const HHMMtoMin = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10) || 0);
+  return h * 60 + m;
+};
+/** Segmenta un rango UTC [from,to) en tramos por día local (tz) */
+function splitRangeByLocalDays(fromTs: number, toTs: number, tz = SYD_TZ): Array<{ day: DayKey; startMin: number; endMin: number }> {
+  if (toTs <= fromTs) return [];
+  const out: Array<{ day: DayKey; startMin: number; endMin: number }> = [];
 
-  return (
-    <HStack
-      as="button"
-      type="button"
-      w="100%"
-      justify="space-between"
-      px={2}
-      py={2}
-      borderRadius="md"
-      _hover={{ bg: "blackAlpha.50" }}
-      onClick={() => onAdd(p)}
-    >
-      <HStack overflow="hidden">
-        <Box w="8px" h="8px" borderRadius="full" bg={p.color || "gray.300"} />
-        <Text noOfLines={1}>{renderHighlighted(label, highlight)}</Text>
-      </HStack>
-      {rightAdornment}
-    </HStack>
-  );
-}
+  let cursor = fromTs;
+  const end = toTs;
 
-// util local: fusionar slots contiguos con tolerancia (ms)
-function mergeSlots(
-  slots: { startUtc: string; endUtc: string }[],
-  toleranceMs = 60_000
-): { start: number; end: number }[] {
-  if (!slots?.length) return [];
-  const arr = [...slots]
-    .map(s => ({ start: new Date(s.startUtc).getTime(), end: new Date(s.endUtc).getTime() }))
-    .filter(s => s.end > s.start)
-    .sort((a, b) => a.start - b.start);
+  const endLocal = dayjs.utc(end).tz(tz);
+  const endLocalYMD = endLocal.format("YYYY-MM-DD");
 
-  const merged: { start: number; end: number }[] = [];
-  let curr = { ...arr[0] };
-  for (let i = 1; i < arr.length; i++) {
-    const s = arr[i];
-    if (s.start <= curr.end + toleranceMs) {
-      curr.end = Math.max(curr.end, s.end);
-    } else {
-      merged.push(curr);
-      curr = { ...s };
-    }
+  while (cursor < end) {
+    const cLocal = dayjs.utc(cursor).tz(tz);
+    const dayKey = IDX_TO_DAYKEY[cLocal.day()] as DayKey;
+    const startMin = cLocal.hour() * 60 + cLocal.minute();
+
+    const endOfDayLocal = cLocal.endOf("day");
+    const segmentEnd = Math.min(end, endOfDayLocal.valueOf() + 1);
+    const sameDayAsEnd = cLocal.format("YYYY-MM-DD") === endLocalYMD;
+    const endMin = sameDayAsEnd ? endLocal.hour() * 60 + endLocal.minute() : 24 * 60;
+
+    out.push({ day: dayKey, startMin, endMin });
+
+    const nextStartLocal = cLocal.add(1, "day").startOf("day");
+    cursor = Math.max(segmentEnd, nextStartLocal.valueOf());
   }
-  merged.push(curr);
-  return merged;
-}
 
+  return out;
+}
+/** True si todos los tramos del rango [from,to) quedan totalmente cubiertos por algún bloque del schedule */
+function fitsSchedule(weekly: Weekly, tz: string, fromTs: number, toTs: number) {
+  const segs = splitRangeByLocalDays(fromTs, toTs, tz);
+  if (!segs.length) return false;
+  return segs.every((seg) => {
+    const blocks = (weekly?.[seg.day] ?? []) as { start: string; end: string }[];
+    return blocks.some((b) => HHMMtoMin(b.start) <= seg.startMin && HHMMtoMin(b.end) >= seg.endMin);
+  });
+}
+/** True si existe algún solape parcial del rango [from,to) con los bloques del schedule */
+function partialSchedule(weekly: Weekly, tz: string, fromTs: number, toTs: number) {
+  const segs = splitRangeByLocalDays(fromTs, toTs, tz);
+  return segs.some((seg) => {
+    const blocks = (weekly?.[seg.day] ?? []) as { start: string; end: string }[];
+    return blocks.some((b) => {
+      const bs = HHMMtoMin(b.start);
+      const be = HHMMtoMin(b.end);
+      return Math.max(0, Math.min(be, seg.endMin) - Math.max(bs, seg.startMin)) > 0;
+    });
+  });
+}
 function overlaps(a0: number, a1: number, b0: number, b1: number) {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0)) > 0;
 }
-
-/** Fila con consulta de disponibilidad + lógica flexible (fit/partial) */
-function ProviderRowAvailability({
-  p,
-  windowIso,
-  skillId,
-  onAdd,
-  qHighlight,
-  minMatch = "partialOrBetter",
-  hideIfBusy = false,
-  hideIfTimeOff = false,
-}: {
-  p: Provider;
-  windowIso: { fromIso: string; toIso: string } | null;
-  skillId?: string;
-  onAdd: (p: Provider) => void;
-  qHighlight?: string;
-  /** 'fit' = solo mostrar si cubre 100%; 'partialOrBetter' = mostrar si encaja o solapa */
-  minMatch?: "fit" | "partialOrBetter";
-  /** si true, oculta la fila cuando el provider ya está ocupado en la ventana */
-  hideIfBusy?: boolean;
-  /** si true, oculta la fila cuando el provider tiene time-off en la ventana */
-  hideIfTimeOff?: boolean;
-}) {
-  const toast = useToast();
-
-  // 0) Si aún no hay ventana, mostramos el provider con “unknown”
-  if (!windowIso) {
-    return (
-      <ProviderRow
-        p={p}
-        onAdd={(prov) => {
-          // extra guard: requiere tratamiento seleccionado para agregar
-          if (!skillId) {
-            toast({
-              title: "Select a treatment first",
-              status: "warning",
-              duration: 2500,
-              isClosable: true,
-            });
-            return;
-          }
-          // skills check
-          const hasSkill = (p.skills || []).map(String).includes(String(skillId));
-          if (!hasSkill) {
-            toast({
-              title: "Provider doesn’t perform the selected treatment",
-              status: "error",
-              duration: 3500,
-              isClosable: true,
-            });
-            return;
-          }
-          onAdd(prov);
-        }}
-        highlight={qHighlight}
-        rightAdornment={<Tag size="sm">Availability unknown</Tag>}
-      />
-    );
+/** Normaliza un appointment del backend a una lista de rangos [ms,ms) para chequear solapes */
+function appointmentRanges(a: any): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  if (Array.isArray(a?.selectedAppDates)) {
+    for (const r of a.selectedAppDates) {
+      const s = r?.startDate ?? r?.propStartDate;
+      const e = r?.endDate ?? r?.propEndDate;
+      if (s && e) out.push([new Date(s).getTime(), new Date(e).getTime()]);
+    }
   }
-
-  // 1) Tu cálculo visual de “Fits / Partial” usando getAvailability
-  const { data, isFetching } = useProviderAvailability(p._id, {
-    from: windowIso.fromIso,
-    to: windowIso.toIso,
-    treatmentId: skillId,
-  });
-
-  // 2) Citas ocupadas del provider usando /providers/:id/appointments
-  const { data: busyEvents = [], isFetching: isFetchingApps } = useProviderAppointments(
-    p._id,
-    { from: windowIso.fromIso, to: windowIso.toIso }
-  );
-
-  const from = new Date(windowIso.fromIso).getTime();
-  const to = new Date(windowIso.toIso).getTime();
-  const { data: timeOff = [], isFetching: isFetchingTO } = useProviderTimeOff(
-    p._id,
-    { from: windowIso.fromIso, to: windowIso.toIso }
-  );
-
-  const hasPTOOverlap = useMemo(() => {
-    if (!timeOff.length) return false;
-    return timeOff.some(t => {
-      const s = new Date(t.start).getTime();
-      const e = new Date(t.end).getTime();
-      return overlaps(from, to, s, e);
-    });
-  }, [timeOff, from, to]);
-
-  // helpers de arriba
-  const merged = useMemo(() => mergeSlots(data || [], 60_000), [data]);
-  const fits = useMemo(() => merged.some(b => b.start <= from && b.end >= to), [merged, from, to]);
-  const partial = useMemo(
-    () => !fits && merged.some(b => overlaps(b.start, b.end, from, to)),
-    [merged, fits, from, to]
-  );
-
-  // 3) Conflicto real con citas ya agendadas — BLOQUEANTE
-  const hasBusyOverlap = useMemo(() => {
-    if (!busyEvents?.length) return false;
-    return busyEvents.some((ev: any) => {
-      const s = new Date(ev.start).getTime();
-      const e = new Date(ev.end).getTime();
-      return overlaps(from, to, s, e); // cualquier intersección bloquea
-    });
-  }, [busyEvents, from, to]);
-
-  const loading = isFetching || isFetchingApps;
-
-  if (loading) return <Skeleton height="28px" borderRadius="md" />;
-
-  // filtros de visibilidad
-  if (minMatch === "fit" && !fits) return null;
-  if (!fits && !partial) return null; // sin solape de disponibilidad, no lo mostramos
-  if (hideIfBusy && hasBusyOverlap) return null;
-  if (hideIfTimeOff && hasPTOOverlap) return null;
-
-  // Click con validaciones duras: skills + ocupación por citas
-  const handleAdd = () => {
-    // skills
-    if (skillId) {
-      const hasSkill = (p.skills || []).map(String).includes(String(skillId));
-      if (!hasSkill) {
-        toast({ title: "Provider doesn’t perform the selected treatment", status: "error", duration: 3500, isClosable: true });
-        return;
-      }
-    }
-
-    // busy by appointment
-    if (hasBusyOverlap) {
-      toast({ title: "Provider already has an appointment in that window", description: "Pick another time or a different provider", status: "error", duration: 3500, isClosable: true });
-      return;
-    }
-
-    // time off overlap
-    if (hasPTOOverlap) {
-      toast({ title: "Provider is on time off in that window", description: "Pick another time or a different provider", status: "error", duration: 3500, isClosable: true });
-      return;
-    }
-
-    onAdd(p);
-  };
-
-  return (
-    <ProviderRow
-      p={p}
-      onAdd={handleAdd}
-      highlight={qHighlight}
-      rightAdornment={
-        hasBusyOverlap ? (
-          <Tag size="sm" colorScheme="red">Booked</Tag>
-        ) : hasPTOOverlap ? (
-          <Tag size="sm" colorScheme="red">Time off</Tag>
-        ) : fits ? (
-          <Tag size="sm" colorScheme="green">Fits</Tag>
-        ) : (
-          <Tag size="sm" colorScheme="yellow">Partial</Tag>
-        )
-      }
-    />
-  );
-}
-
-
-/* ----------------- buscador inline (SIN HOOKS propios externos) ----------------- */
-function ProviderFinderInline({
-  providers,
-  skillId,
-  selectedIds,
-  onAdd,
-  windowIso,
-}: {
-  providers: Provider[];
-  skillId?: string;
-  selectedIds: string[];
-  onAdd: (p: Provider) => void;
-  windowIso: { fromIso: string; toIso: string } | null;
-}) {
-  const [query, setQuery] = useState("");
-  const q = useDebounced(query, 200);
-
-  const baseFiltered = useMemo(() => {
-    let arr = providers.filter((p) => !selectedIds.includes(String(p._id)));
-    if (skillId) {
-      const sid = String(skillId);
-      arr = arr.filter((p) => (p.skills || []).map(String).includes(sid));
-    }
-    if (q) {
-      const qq = q.trim().toLowerCase();
-      arr = arr.filter((p) => `${p.firstName} ${p.lastName}`.toLowerCase().includes(qq));
-    }
-    return arr;
-  }, [providers, selectedIds, q, skillId]);
-
-  return (
-    <VStack align="stretch" spacing={2}>
-      <InputGroup>
-        <InputLeftElement pointerEvents="none">
-          <FiSearch />
-        </InputLeftElement>
-        <Input
-          placeholder="Search provider by name"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </InputGroup>
-
-      <Box borderWidth="1px" borderRadius="md" maxH="240px" overflowY="auto" px={1} py={1}>
-        {baseFiltered.length === 0 ? (
-          <Box p={3} color="gray.500">No providers found.</Box>
-        ) : (
-          baseFiltered.map((p) => (
-            <ProviderRowAvailability
-              key={p._id}
-              p={p}
-              windowIso={windowIso}
-              skillId={skillId}
-              onAdd={onAdd}
-              qHighlight={q}
-              // buscador manual: permitimos parciales
-              minMatch="partialOrBetter"
-            />
-          ))
-        )}
-      </Box>
-
-      <HStack color="gray.500" fontSize="xs">
-        <Kbd>Enter</Kbd> / click to add · <Kbd>Esc</Kbd> to clear
-      </HStack>
-    </VStack>
-  );
-}
-
-/* ----------------- comparación disponibilidad para seleccionados ----------------- */
-function ProviderAvailabilityCompareRow({
-  provider,
-  windowIso,
-  treatmentId,
-  onRemove,
-}: {
-  provider: Provider;
-  windowIso: { fromIso: string; toIso: string } | null;
-  treatmentId?: string;
-  onRemove?: (id: string) => void;
-}) {
-  const { data, isFetching } = useProviderAvailability(
-    provider?._id,
-    windowIso
-      ? { from: windowIso.fromIso, to: windowIso.toIso, treatmentId }
-      : undefined as any
-  );
-
-  if (!windowIso) {
-    return (
-      <HStack justify="space-between">
-        <HStack>
-          <Box w="8px" h="8px" borderRadius="full" bg={provider.color || "gray.300"} />
-          <Text>{provider.firstName} {provider.lastName}</Text>
-        </HStack>
-        <Tag>Pick an appointment date</Tag>
-      </HStack>
-    );
+  if (a?.selectedDates?.startDate && a?.selectedDates?.endDate) {
+    out.push([new Date(a.selectedDates.startDate).getTime(), new Date(a.selectedDates.endDate).getTime()]);
   }
-
-  const fromTs = new Date(windowIso.fromIso).getTime();
-  const toTs = new Date(windowIso.toIso).getTime();
-
-  const merged = useMemo(() => mergeSlots(data || [], 60_000), [data]);
-  const fits = useMemo(() => merged.some(b => b.start <= fromTs && b.end >= toTs), [merged, fromTs, toTs]);
-  const partial = useMemo(() => !fits && merged.some(b => overlaps(b.start, b.end, fromTs, toTs)), [merged, fits, fromTs, toTs]);
-
-  return (
-    <HStack justify="space-between" align="center" px={2} py={1} borderRadius="md" _hover={{ bg: "blackAlpha.50" }}>
-      <HStack overflow="hidden">
-        <Box w="8px" h="8px" borderRadius="full" bg={provider.color || "gray.300"} />
-        <Text noOfLines={1}>{provider.firstName} {provider.lastName}</Text>
-        <Badge>{provider.initials || ""}</Badge>
-      </HStack>
-
-      {isFetching ? (
-        <Skeleton h="22px" w="120px" borderRadius="md" />
-      ) : fits ? (
-        <HStack>
-          <Tag colorScheme="green">Covers window</Tag>
-          <Badge variant="outline">
-            {fmtSydney(windowIso.fromIso)} – {fmtSydneyTime(windowIso.toIso)}
-          </Badge>
-          {onRemove && (
-            <Tag size="sm" variant="subtle" as="button" onClick={() => onRemove(String(provider._id))}>
-              Remove
-            </Tag>
-          )}
-        </HStack>
-      ) : partial ? (
-        <HStack>
-          <Tag colorScheme="yellow">Partial</Tag>
-          {onRemove && (
-            <Tag size="sm" variant="subtle" as="button" onClick={() => onRemove(String(provider._id))}>
-              Remove
-            </Tag>
-          )}
-        </HStack>
-      ) : (
-        <HStack>
-          <Tag colorScheme="red">Unavailable</Tag>
-          {onRemove && (
-            <Tag size="sm" variant="subtle" as="button" onClick={() => onRemove(String(provider._id))}>
-              Remove
-            </Tag>
-          )}
-        </HStack>
-      )}
-    </HStack>
-  );
-}
-
-function ProviderAvailabilityComparisonList({
-  selectedIds,
-  allActive,
-  windowIso,
-  treatmentId,
-  onRemove,
-}: {
-  selectedIds: string[];
-  allActive: Provider[];
-  windowIso: { fromIso: string; toIso: string } | null;
-  treatmentId?: string;
-  onRemove?: (id: string) => void;
-}) {
-  const byId = useMemo(() => new Map(allActive.map(p => [String(p._id), p])), [allActive]);
-  const rows = selectedIds.map(id => byId.get(id)).filter(Boolean) as Provider[];
-
-  if (!rows.length) {
-    return (
-      <Box borderWidth="1px" borderRadius="md" p={3} color="gray.500">
-        No providers selected.
-      </Box>
-    );
-  }
-
-  return (
-    <VStack align="stretch" spacing={1} borderWidth="1px" borderRadius="md" p={2} maxH="220px" overflowY="auto">
-      {rows.map((p) => (
-        <ProviderAvailabilityCompareRow
-          key={String(p._id)}
-          provider={p}
-          windowIso={windowIso}
-          treatmentId={treatmentId}
-          onRemove={onRemove}
-        />
-      ))}
-    </VStack>
-  );
+  if (a?.startUtc && a?.endUtc) out.push([new Date(a.startUtc).getTime(), new Date(a.endUtc).getTime()]);
+  if (a?.start && a?.end) out.push([new Date(a.start).getTime(), new Date(a.end).getTime()]);
+  return out.filter(([s, e]) => e > s);
 }
 
 /* ===================== COMPONENTE PRINCIPAL ===================== */
@@ -581,7 +210,7 @@ type Props = {
   conversationId?: string;
   refetchPage?: (options?: RefetchOptions | undefined) => Promise<QueryObserverResult<PageResp<Appointment>, Error>>;
   contactPreference?: ContactPreference;
-  providers?: Provider[]
+  providers?: Provider[];
 };
 
 function CustomEntryForm({
@@ -613,12 +242,10 @@ function CustomEntryForm({
   conversationId,
   providers,
 }: Props) {
-  /* —— hooks TOP-LEVEL —— */
   const { data: allProviders = [] } = useProvidersList({ active: true });
   const { onOpen: onOpenApp, onClose: onCloseApp, isOpen: isOpenApp } = useDisclosure();
   const [isAnAppointment, setIsAnAppointment] = useState(!onlyPatient);
   const onToggle = useCallback(() => setIsAnAppointment((s) => !s), []);
-  const navigate = useNavigate();
   const providerIdsFromProps = React.useMemo(
     () => (providers ?? []).map((p: any) => String(p?._id ?? p)),
     [providers]
@@ -628,31 +255,35 @@ function CustomEntryForm({
     isAnAppointment ? "update-items" : "update-items-contacts"
   );
   const formBusy = isPending || editIsPending;
-
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  // ⬇️ esquema derivado: providers opcional (default [])
-  const appointmentsSchemaOptionalProviders = useMemo(
-    () =>
-      appointmentsSchema.extend({
-        providers: z.array(z.string()).optional().default([]),
-      }),
-    []
-  );
+  // === checkUnique (servidor) ===
+  const checkPhoneUnique = useCheckPhoneUnique();
 
+  const schema = useMemo(
+    () => makeAppointmentsSchemaOptionalProviders(checkPhoneUnique),
+    [checkPhoneUnique]
+  );
   const {
     register,
     reset,
     handleSubmit,
+    clearErrors,
     control,
     setValue,
     trigger,
     getValues,
+    setError,
+    watch,             // suscripción sin re-render
+    getFieldState,     // estado del campo sin re-render
     formState: { errors },
   } = useForm<AppointmentForm | ContactForm>({
-    resolver: zodResolver(isAnAppointment ? appointmentsSchemaOptionalProviders : contactsSchema),
+    resolver: zodResolver(isAnAppointment ? schema : contactsSchema),
     shouldUnregister: true,
+    mode: "onSubmit",
+    reValidateMode: "onBlur",
+    criteriaMode: "firstError",
     defaultValues: {
       treatment: he.decode(treatmentBack?._id?.toString?.() || ""),
       selectedAppDates: datesAppSelected || [],
@@ -666,14 +297,61 @@ function CustomEntryForm({
       priority: priorityVal?._id ?? undefined,
       id: idVal || "default",
       reschedule: !!reschedule,
-      providers: providerIdsFromProps
+      providers: providerIdsFromProps,
     } as any,
-    mode: "onSubmit",
-    reValidateMode: "onChange",
   });
 
-  const appointmentErrors = errors as FieldErrors<AppointmentForm>;
+  // 🔥 Suscripción ligera al cambio de phoneInput SIN re-render global
+  const phoneTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCheckedRef = React.useRef<string>("");
+  useEffect(() => {
+    const sub = watch((values, info) => {
+      if (info.name !== "phoneInput") return;
 
+      const raw = String(values.phoneInput ?? "").replace(/\s+/g, "");
+      if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
+
+      phoneTimerRef.current = setTimeout(async () => {
+        const isCompleteAU =
+          /^04\d{8}$/.test(raw) || /^\+61\d{9}$/.test(raw) || /^61\d{9}$/.test(raw);
+
+        const errType = getFieldState("phoneInput").error?.type;
+        if (!isCompleteAU) {
+          if (errType === "duplicate") clearErrors("phoneInput" as any);
+          lastCheckedRef.current = "";
+          return;
+        }
+
+        if (lastCheckedRef.current === raw) return; // evita repeticiones
+        lastCheckedRef.current = raw;
+
+        try {
+          const e164 = toE164AU(raw);
+          const exists = await checkPhoneUnique(e164, {
+            excludeId: getValues("id") || undefined,
+          });
+
+          if (exists) {
+            setError("phoneInput" as any, {
+              type: "duplicate",
+              message: "Phone number already exists",
+            });
+          } else if (errType === "duplicate") {
+            clearErrors("phoneInput" as any);
+          }
+        } catch {
+          // opcional: toast de red
+        }
+      }, 250);
+    });
+
+    return () => {
+      sub.unsubscribe();
+      if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
+    };
+  }, [watch, getFieldState, clearErrors, setError, checkPhoneUnique, getValues]);
+
+  const appointmentErrors = errors as FieldErrors<AppointmentForm>;
   const [duration, setDuration] = useState<number>(priorityVal?.durationHours || 0);
   const [, setIdpriority] = useState<string>("");
   const [color, setColor] = useState<string>("");
@@ -684,7 +362,7 @@ function CustomEntryForm({
   useEffect(() => {
     if (!priorityVal) return;
     const current = getValues("priority") as unknown as string | undefined;
-    const next = priorityVal._id ?? "";
+    const next = (priorityVal as any)._id ?? "";
     if (!current && next) {
       setValue("priority", next, { shouldDirty: false, shouldTouch: false });
       trigger("priority");
@@ -695,10 +373,8 @@ function CustomEntryForm({
   React.useEffect(() => {
     if (mode === "EDITION") {
       setValue("providers", providerIdsFromProps, { shouldDirty: false, shouldTouch: false });
-      // Si prefieres reasignar todo el formulario (cuando cambias de paciente):
-      // reset({ ...getValues(), providers: providerIdsFromProps });
     }
-  }, [mode, providerIdsFromProps, setValue /*, reset, getValues */]);
+  }, [mode, providerIdsFromProps, setValue]);
 
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [selectedAppDates, setSelectedAppDates] = useState<DateRange[]>(datesAppSelected || []);
@@ -712,19 +388,21 @@ function CustomEntryForm({
     return {};
   });
 
-  // WATCH: treatment y appointment window (1er rango)
-  const selectedTreatmentId = useWatch({ control, name: "treatment" }) as string | undefined;
-  const watchedAppDates = useWatch({ control, name: "selectedAppDates" }) as DateRange[] | undefined;
-
+  // Appointment window a partir del primer rango seleccionado
   const appointmentWindow = useMemo(() => {
-    const pick = (watchedAppDates && watchedAppDates.length ? watchedAppDates[0] : selectedAppDates[0]) as
+    const pick = (selectedAppDates && selectedAppDates.length ? selectedAppDates[0] : undefined) as
       | DateRange
       | undefined;
     if (!pick?.startDate || !pick?.endDate) return null;
     const fromIso = dayjs.utc(pick.startDate).toDate().toISOString();
     const toIso = dayjs.utc(pick.endDate).toDate().toISOString();
     return { fromIso, toIso };
-  }, [watchedAppDates, selectedAppDates]);
+  }, [selectedAppDates]);
+
+  const selectedTreatmentId = ((): string | undefined => {
+    const v = getValues("treatment") as unknown as string | undefined;
+    return v;
+  })();
 
   const suggestParams = useMemo(() => {
     if (!appointmentWindow || !selectedTreatmentId) return undefined;
@@ -732,15 +410,13 @@ function CustomEntryForm({
       from: appointmentWindow.fromIso,
       to: appointmentWindow.toIso,
       treatmentIds: [selectedTreatmentId],
-      durationMin: duration ? duration * 60 : undefined, // duration en minutos si quieres respetarla
-      // locationId, chairId si aplican
+      durationMin: duration ? duration * 60 : undefined,
     };
   }, [appointmentWindow, selectedTreatmentId, duration]);
 
   const {
-    data: suggestResp = [],     // <- por defecto [], y ya tipado como SuggestItem[]
+    data: suggestResp = [],
     isFetching: isSuggesting,
-    error: suggestErr,
   } = useSuggestProviders(suggestParams);
 
   const suggestedProviders = useMemo<Provider[]>(() => {
@@ -749,20 +425,6 @@ function CustomEntryForm({
       .map((r: SuggestItem) => r.provider)
       .filter((p: Provider) => !selectedSet.has(String(p._id)));
   }, [suggestResp, getValues]);
-
-  /* —— SmartCalendar helpers (sustituto de CustomCalendarEntryForm) —— */
-  // Mapeo de los rangos seleccionados a eventos para el SmartCalendar
-  const calendarEvents = useMemo(
-    () =>
-      (selectedAppDates ?? []).map((r, i) => ({
-        id: `sel-${i}`,
-        title: "Date Selected",
-        start: r.startDate,
-        end: r.endDate,
-        color: color || "teal",
-      })),
-    [selectedAppDates, color]
-  );
 
   const applySelectedRange = useCallback(
     (range: DateRange[] | null) => {
@@ -773,29 +435,6 @@ function CustomEntryForm({
       if (setDatesApp) setDatesApp(next);
     },
     [setSelectedAppDates, setValue, trigger, setDatesApp]
-  );
-
-  const handleSmartSelectSlot = useCallback(
-    (start: Date /* endFromGrid */) => {
-      // Usamos la duración en horas de la prioridad seleccionada
-      const durMs = Math.max(0, duration || 0) * 60 * 60 * 1000;
-      if (!durMs) return; // no hay categoría/duración seleccionada
-      const end = new Date(start.getTime() + durMs);
-      applySelectedRange([{ startDate: start, endDate: end }]);
-    },
-    [duration, applySelectedRange]
-  );
-
-  const handleSmartSelectEvent = useCallback(
-    (ev: { start: Date | string | number; end: Date | string | number }) => {
-      const s = new Date(ev.start as any).getTime();
-      const e = new Date(ev.end as any).getTime();
-      const filtered = (selectedAppDates ?? []).filter(
-        (r) => r.startDate.getTime() !== s || r.endDate.getTime() !== e
-      );
-      applySelectedRange(filtered);
-    },
-    [selectedAppDates, applySelectedRange]
   );
 
   /* —— submit —— */
@@ -813,11 +452,6 @@ function CustomEntryForm({
   const onSubmit = (data: AppointmentForm | ContactForm) => {
     const cleanedData: any = sanitize(data);
 
-    // Si providers queda vacío, envíalo como [] (opcional) o elimínalo del payload si prefieres
-    if ("providers" in cleanedData && Array.isArray((cleanedData as any).providers) && (cleanedData as any).providers.length === 0) {
-      // delete cleanedData.providers; // (opcional) — dejamos vacío si prefieres
-    }
-
     if (mode === "CREATION") {
       mutate(cleanedData, {
         onSuccess: () => {
@@ -833,10 +467,25 @@ function CustomEntryForm({
           queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["Appointment"] });
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
-          if (conversationId) queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
-          if (onClose_1) onClose_1();
         },
         onError: (error: any) => {
+          const status = error?.response?.status;
+          if (status === 409) {
+            const field = error?.response?.data?.field ?? "phoneInput";
+            const value = error?.response?.data?.value ?? cleanedData?.phoneInput ?? "";
+            setError("phoneInput" as any, {
+              type: "manual",
+              message: `Duplicate ${field}: ${value}`,
+            });
+            toast({
+              title: "Duplicate record",
+              description: `There is already a record with ${field}: ${value} in this organization.`,
+              status: "error",
+              duration: 5000,
+              isClosable: true,
+            });
+            return;
+          }
           toast({
             title: "Error submitting the form.",
             description: error?.response?.data?.message || "An unexpected error occurred.",
@@ -1011,7 +660,7 @@ function CustomEntryForm({
               type="tel"
               isPending={formBusy}
               name="phoneInput"
-              error={errors?.phoneInput}
+              error={errors?.phoneInput as FieldError | undefined}
               ico={<FiPhone color="gray.300" />}
               placeholder="04XX XXX XXX"
               anotherName="Phone Number"
@@ -1158,7 +807,6 @@ function CustomEntryForm({
               )}
             />
 
-
             <FormControl pt={4}>
               {selected > 0 ? (
                 <>
@@ -1204,8 +852,6 @@ function CustomEntryForm({
 
         <Divider my={5} />
 
-        
-
         {/* Providers debajo del Appointment Date */}
         <Divider my={5} />
         <FormControl isInvalid={!!(appointmentErrors as any)?.providers}>
@@ -1241,12 +887,33 @@ function CustomEntryForm({
                     <Alert status="info" borderRadius="md">
                       <AlertIcon />
                       Select a <b style={{ margin: "0 4px" }}>treatment</b> and an{" "}
-                      <b style={{ margin: "0 4px" }}>appointment date</b> so I can suggest available providers.
+                      <b style={{ margin: "0 4px" }}>appointment date</b> so I can suggest providers by schedule.
                     </Alert>
 
                   ) : (
                     <>
-                      
+                      {/* Sugeridos */}
+                      {isSuggesting ? (
+                        <Skeleton h="28px" borderRadius="md" />
+                      ) : suggestedProviders.length > 0 ? (
+                        <Box>
+                          <Text fontWeight="semibold" fontSize="sm" mb={1}>Suggested</Text>
+                          <Box borderWidth="1px" borderRadius="md" maxH="180px" overflowY="auto" px={1} py={1}>
+                            {suggestedProviders.map((p) => (
+                              <ProviderRowScheduleAvailability
+                                key={`sugg-${p._id}`}
+                                p={p}
+                                windowIso={appointmentWindow}
+                                skillId={selectedTreatmentId}
+                                onAdd={addProvider}
+                                minMatch="partialOrBetter"
+                                hideIfBusy={false}
+                                hideIfTimeOff={false}
+                              />
+                            ))}
+                          </Box>
+                        </Box>
+                      ) : null}
 
                       {/* Fallback buscador manual */}
                       <Text fontWeight="semibold" fontSize="sm" mt={2}>All providers (manual search)</Text>
@@ -1263,9 +930,6 @@ function CustomEntryForm({
                   <FormErrorMessage>
                     {(appointmentErrors as any)?.providers?.message}
                   </FormErrorMessage>
-
-                  {/* Comparación cita vs disponibilidad */}
-
                 </VStack>
               );
             }}
@@ -1297,21 +961,19 @@ function CustomEntryForm({
         </SimpleGrid>
       </Collapse>
 
-      {
-        mode === "EDITION" && reschedule && (
-          <SimpleGrid columns={1} spacing={4} my={2}>
-            <Box borderWidth="1px" rounded="lg" shadow="1px 1px 3px rgba(0,0,0,0.1)" py={2}>
-              <CustomCheckbox
-                name="reschedule"
-                isPending={formBusy}
-                anotherName="Re-Schedule"
-                register={register}
-                error={(appointmentErrors as any)?.reschedule}
-              />
-            </Box>
-          </SimpleGrid>
-        )
-      }
+      {mode === "EDITION" && reschedule && (
+        <SimpleGrid columns={1} spacing={4} my={2}>
+          <Box borderWidth="1px" rounded="lg" shadow="1px 1px 3px rgba(0,0,0,0.1)" py={2}>
+            <CustomCheckbox
+              name="reschedule"
+              isPending={formBusy}
+              anotherName="Re-Schedule"
+              register={register}
+              error={(appointmentErrors as any)?.reschedule}
+            />
+          </Box>
+        </SimpleGrid>
+      )}
 
       {/* Hidden id */}
       <CustomInputN type="hidden" name="id" register={register} error={(appointmentErrors as any)?.id} />
@@ -1323,7 +985,259 @@ function CustomEntryForm({
           {formBusy ? <Spinner size="sm" /> : btnName}
         </Button>
       </Flex>
-    </Box >
+    </Box>
+  );
+}
+
+/* ----------------- Subcomponentes usados arriba ----------------- */
+function ProviderRow({
+  p,
+  highlight,
+  onAdd,
+  rightAdornment,
+}: {
+  p: Provider;
+  highlight?: string;
+  onAdd: (p: Provider) => void;
+  rightAdornment?: React.ReactNode;
+}) {
+  const label = `${p.firstName} ${p.lastName}`.trim();
+  const renderHighlighted = (text: string, q?: string) => {
+    if (!q) return text;
+    const parts = text.split(new RegExp(`(${q})`, "i"));
+    return (
+      <>
+        {parts.map((part, i) =>
+          part.toLowerCase() === q.toLowerCase() ? (
+            <mark key={i} style={{ background: "transparent", color: "inherit", fontWeight: 700 }}>
+              {part}
+            </mark>
+          ) : (
+            <React.Fragment key={i}>{part}</React.Fragment>
+          )
+        )}
+      </>
+    );
+  };
+
+  return (
+    <HStack
+      as="button"
+      type="button"
+      w="100%"
+      justify="space-between"
+      px={2}
+      py={2}
+      borderRadius="md"
+      _hover={{ bg: "blackAlpha.50" }}
+      onClick={() => onAdd(p)}
+    >
+      <HStack overflow="hidden">
+        <Box w="8px" h="8px" borderRadius="full" bg={p.color || "gray.300"} />
+        <Text noOfLines={1}>{renderHighlighted(label, highlight)}</Text>
+      </HStack>
+      {rightAdornment}
+    </HStack>
+  );
+}
+
+function ProviderRowScheduleAvailability({
+  p,
+  windowIso,
+  skillId,
+  onAdd,
+  qHighlight,
+  minMatch = "partialOrBetter",
+  hideIfBusy = false,
+  hideIfTimeOff = false,
+}: {
+  p: Provider;
+  windowIso: { fromIso: string; toIso: string } | null;
+  skillId?: string;
+  onAdd: (p: Provider) => void;
+  qHighlight?: string;
+  minMatch?: "fit" | "partialOrBetter";
+  hideIfBusy?: boolean;
+  hideIfTimeOff?: boolean;
+}) {
+  const toast = useToast();
+
+  // 0) sin ventana, mostramos “unknown”
+  if (!windowIso) {
+    return (
+      <ProviderRow
+        p={p}
+        onAdd={(prov) => {
+          if (!skillId) {
+            toast({ title: "Select a treatment first", status: "warning", duration: 2500, isClosable: true });
+            return;
+          }
+          const hasSkill = (p.skills || []).map(String).includes(String(skillId));
+          if (!hasSkill) {
+            toast({
+              title: "Provider doesn’t perform the selected treatment",
+              status: "error",
+              duration: 3500,
+              isClosable: true,
+            });
+            return;
+          }
+          onAdd(prov);
+        }}
+        highlight={qHighlight}
+        rightAdornment={<Tag size="sm">Schedule unknown</Tag>}
+      />
+    );
+  }
+
+  // 1) SCHEDULE (fuente de verdad)
+  const { data: sched, isFetching: isFetchingSched } = useProviderSchedule(p._id);
+
+  // 2) Citas ocupadas del provider
+  const { data: busyEvents = [], isFetching: isFetchingApps } = useProviderAppointments(
+    p._id,
+    { from: windowIso.fromIso, to: windowIso.toIso }
+  );
+
+  // 3) Time off
+  const { data: timeOff = [], isFetching: isFetchingTO } = useProviderTimeOff(
+    p._id,
+    { from: windowIso.fromIso, to: windowIso.toIso }
+  );
+
+  const tz = sched?.timezone || SYD_TZ;
+  const from = new Date(windowIso.fromIso).getTime();
+  const to = new Date(windowIso.toIso).getTime();
+
+  const hasBusyOverlap = useMemo(() => {
+    if (!busyEvents?.length) return false;
+    return busyEvents.some((ev: any) =>
+      appointmentRanges(ev).some(([s, e]) => overlaps(from, to, s, e))
+    );
+  }, [busyEvents, from, to]);
+
+  const hasPTOOverlap = useMemo(() => {
+    if (!timeOff.length) return false;
+    return timeOff.some((t) => overlaps(from, to, new Date(t.start).getTime(), new Date(t.end).getTime()));
+  }, [timeOff, from, to]);
+
+  const fitBySchedule = useMemo(() => fitsSchedule(sched?.weekly ?? ({} as Weekly), tz, from, to), [sched, tz, from, to]);
+  const partialBySchedule = useMemo(
+    () => !fitBySchedule && partialSchedule(sched?.weekly ?? ({} as Weekly), tz, from, to),
+    [sched, tz, from, to, fitBySchedule]
+  );
+
+  const loading = isFetchingSched || isFetchingApps || isFetchingTO;
+  if (loading) return <Skeleton height="28px" borderRadius="md" />;
+
+  if (minMatch === "fit" && !fitBySchedule) return null;
+  if (!fitBySchedule && !partialBySchedule) return null;
+  if (hideIfBusy && hasBusyOverlap) return null;
+  if (hideIfTimeOff && hasPTOOverlap) return null;
+
+  const handleAdd = () => {
+    if (skillId) {
+      const hasSkill = (p.skills || []).map(String).includes(String(skillId));
+      if (!hasSkill) {
+        toast({ title: "Provider doesn’t perform the selected treatment", status: "error", duration: 3500, isClosable: true });
+        return;
+      }
+    }
+    if (hasBusyOverlap) {
+      toast({ title: "Provider already has an appointment in that window", status: "error", duration: 3500, isClosable: true });
+      return;
+    }
+    if (hasPTOOverlap) {
+      toast({ title: "Provider is on time off in that window", status: "error", duration: 3500, isClosable: true });
+      return;
+    }
+    onAdd(p);
+  };
+
+  return (
+    <ProviderRow
+      p={p}
+      onAdd={handleAdd}
+      highlight={qHighlight}
+      rightAdornment={
+        hasBusyOverlap ? (
+          <Tag size="sm" colorScheme="red">Booked</Tag>
+        ) : hasPTOOverlap ? (
+          <Tag size="sm" colorScheme="red">Time off</Tag>
+        ) : fitBySchedule ? (
+          <Tag size="sm" colorScheme="green">Fits</Tag>
+        ) : (
+          <Tag size="sm" colorScheme="yellow">Partial</Tag>
+        )
+      }
+    />
+  );
+}
+
+function ProviderFinderInline({
+  providers,
+  skillId,
+  selectedIds,
+  onAdd,
+  windowIso,
+}: {
+  providers: Provider[];
+  skillId?: string;
+  selectedIds: string[];
+  onAdd: (p: Provider) => void;
+  windowIso: { fromIso: string; toIso: string } | null;
+}) {
+  const [query, setQuery] = useState("");
+  const q = useDebounced(query, 200);
+
+  const baseFiltered = useMemo(() => {
+    let arr = providers.filter((p) => !selectedIds.includes(String(p._id)));
+    if (skillId) {
+      const sid = String(skillId);
+      arr = arr.filter((p) => (p.skills || []).map(String).includes(sid));
+    }
+    if (q) {
+      const qq = q.trim().toLowerCase();
+      arr = arr.filter((p) => `${p.firstName} ${p.lastName}`.toLowerCase().includes(qq));
+    }
+    return arr;
+  }, [providers, selectedIds, q, skillId]);
+
+  return (
+    <VStack align="stretch" spacing={2}>
+      <InputGroup>
+        <InputLeftElement pointerEvents="none">
+          <FiSearch />
+        </InputLeftElement>
+        <Input
+          placeholder="Search provider by name"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </InputGroup>
+
+      <Box borderWidth="1px" borderRadius="md" maxH="240px" overflowY="auto" px={1} py={1}>
+        {baseFiltered.length === 0 ? (
+          <Box p={3} color="gray.500">No providers found.</Box>
+        ) : (
+          baseFiltered.map((p) => (
+            <ProviderRowScheduleAvailability
+              key={p._id}
+              p={p}
+              windowIso={windowIso}
+              skillId={skillId}
+              onAdd={onAdd}
+              qHighlight={q}
+              minMatch="partialOrBetter"
+            />
+          ))
+        )}
+      </Box>
+
+      <HStack color="gray.500" fontSize="xs">
+        <Kbd>Enter</Kbd> / click to add · <Kbd>Esc</Kbd> to clear
+      </HStack>
+    </VStack>
   );
 }
 

@@ -13,13 +13,6 @@ import {
   Tooltip,
   Tag,
   useDisclosure,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  PopoverHeader,
-  PopoverBody,
-  PopoverArrow,
-  PopoverCloseButton,
   Collapse,
   useColorModeValue,
   Portal,
@@ -32,11 +25,11 @@ import { ChevronLeftIcon, ChevronRightIcon, CalendarIcon } from "@chakra-ui/icon
 /* Types                                                                  */
 /* ====================================================================== */
 export type CalendarEvent = {
-  id: string | number;
-  title: string;
-  start: Date | string | number;
-  end: Date | string | number;
-  color?: string; // Chakra token o css (#hex, rgb, etc.)
+  id: string | number
+  title: string
+  start: Date | string
+  end: Date | string
+  color?: string
 };
 
 export type SmartCalendarProps = {
@@ -69,6 +62,11 @@ export type SmartCalendarProps = {
 
   onSelectEvent?: (ev: CalendarEvent) => void;
   onSelectSlot?: (start: Date, end: Date) => void;
+
+  /** Opcionales: si quieres engancharte a los eventos de hover desde afuera */
+  onEventMouseEnter?: (ev: CalendarEvent, e: MouseEvent) => void;
+  onEventMouseMove?: (ev: CalendarEvent, e: MouseEvent) => void;
+  onEventMouseLeave?: (ev: CalendarEvent) => void;
 };
 
 /* ====================================================================== */
@@ -136,6 +134,10 @@ function fmtTime(d: Date | string | number) {
     hour12: true,
   }).format(toDateSafe(d));
 }
+function fmtRangeLocal(start?: Date | string | number, end?: Date | string | number) {
+  if (!start || !end) return "—";
+  return `${fmtTime(start)} – ${fmtTime(end)}`;
+}
 
 /** Convierte "9:15", "18:45", 9.5, 9 a minutos desde 00:00 */
 function toMinutesOfDay(input: string | number): number {
@@ -165,7 +167,7 @@ function layoutDay(events: CalendarEvent[]) {
   const overlaps = (a: E, b: E) => a._startMin < b._endMin && b._startMin < a._endMin;
 
   const items: E[] = events
-    .map((e) => ({ ...e, _startMin: toMin(e.start), _endMin: toMin(e.end) }))
+    .map((e) => ({ ...e, _startMin: toMin(e.start), _endMin: toMin(e.end) } as E))
     .filter((e) => Number.isFinite(e._startMin) && Number.isFinite(e._endMin) && e._endMin > e._startMin)
     .sort((a, b) => a._startMin - b._startMin || a._endMin - b._endMin);
 
@@ -367,7 +369,7 @@ function MiniCalendar({
                     </Text>
 
                     {/* Contador de citas: click navega al día */}
-                    {count > 0 && (
+                    {count > 1 ? (
                       <Tooltip label={`${count} ${count === 1 ? "appointment" : "appointments"}`} hasArrow>
                         <Badge
                           as="button"
@@ -381,10 +383,25 @@ function MiniCalendar({
                           {count}
                         </Badge>
                       </Tooltip>
-                    )}
-                  </VStack>
+                    ) : count === 1 ? (
+                      <Tooltip label={`${count} ${count === 1 ? "appointment" : "appointments"}`} hasArrow>
+                        <Box
+                          as="button"
+                          onClick={() => onSelectDate(d)}
+                          w="6px"
+                          h="6px"
+                          borderRadius="full"
+                          bg="red.500"                // color del punto
+                          boxShadow="0 0 0 2px var(--chakra-colors-chakra-body-bg)" // anillo para contraste
+                          cursor="pointer"
+                          transition="transform .12s ease"
+                          _hover={{ transform: "scale(1.15)" }}
+                          aria-label={`${count} ${count === 1 ? "appointment" : "appointments"}`}
+                        />
+                      </Tooltip>
 
-                  {/* Se eliminaron los “dots” por evento para usar un contador total */}
+                    ) : null}
+                  </VStack>
                 </Box>
               );
             })}
@@ -396,7 +413,59 @@ function MiniCalendar({
 }
 
 /* ====================================================================== */
-/* EventCard (premium)                                                    */
+/* CursorTooltip: sigue al mouse                                          */
+/* ====================================================================== */
+function CursorTooltip({
+  visible,
+  x,
+  y,
+  children,
+}: {
+  visible: boolean;
+  x: number;
+  y: number;
+  children: React.ReactNode;
+}) {
+  if (!visible) return null;
+
+  const OFFSET = 12;
+  const MAX_W = 320;
+  const MAX_H = 160;
+
+  const vw = typeof window !== "undefined" ? window.innerWidth : 0;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 0;
+
+  let left = x + OFFSET;
+  let top = y + OFFSET;
+
+  if (left + MAX_W > vw) left = Math.max(8, vw - MAX_W - 8);
+  if (top + MAX_H > vh) top = Math.max(8, vh - MAX_H - 8);
+
+  return (
+    <Portal appendToParentPortal={false}>
+      <Box
+        position="fixed"
+        left={left}
+        top={top}
+        pointerEvents="none"
+        bg={useColorModeValue("gray.800", "gray.900")}
+        color="white"
+        px={3}
+        py={2}
+        fontSize="sm"
+        borderRadius="md"
+        boxShadow="xl"
+        zIndex={2000}
+        maxW={`${MAX_W}px`}
+      >
+        {children}
+      </Box>
+    </Portal>
+  );
+}
+
+/* ====================================================================== */
+/* EventCard (premium, sin Popover; delega hover al padre)                */
 /* ====================================================================== */
 function gradientFor(color?: string) {
   const token = color || "teal.500";
@@ -410,6 +479,11 @@ function gradientFor(color?: string) {
   return undefined;
 }
 
+function normalizeBg(color?: string) {
+  if (!color) return "teal.500";
+  return color.includes(".") ? color : `${color}.500`;
+}
+
 function EventCard({
   ev,
   top,
@@ -417,6 +491,9 @@ function EventCard({
   widthPct,
   height,
   onClick,
+  onHoverEnter,
+  onHoverMove,
+  onHoverLeave,
 }: {
   ev: CalendarEvent & { _cols?: number; _col?: number };
   top: number;
@@ -424,95 +501,63 @@ function EventCard({
   widthPct: number;
   height: number;
   onClick?: () => void;
+  onHoverEnter?: (ev: CalendarEvent, e: React.MouseEvent) => void;
+  onHoverMove?: (ev: CalendarEvent, e: React.MouseEvent) => void;
+  onHoverLeave?: (ev: CalendarEvent) => void;
 }) {
-  const bg = `${ev.color}.500` || "teal.500";
-  const popBg = useColorModeValue("white", "gray.800");
+  const bg = normalizeBg(ev.color);
   const borderAccent = useColorModeValue("whiteAlpha.600", "whiteAlpha.400");
 
   return (
-    <Popover trigger="hover" openDelay={120} closeDelay={80} placement="auto-start">
-      <PopoverTrigger>
-        <Box
-          position="absolute"
-          top={`${top}px`}
-          left={`${leftPct}%`}
-          width={`calc(${widthPct}% - 6px)`}
-          height={`${height}px`}
-          borderRadius="xl"
-          px={3}
-          py={2}
-          color="white"
-          lineHeight="1.1"
-          overflow="hidden"
-          boxShadow="md"
-          border="1px solid"
-          borderColor={borderAccent}
-          bg={gradientFor(ev.color) ? undefined : bg}
-          bgGradient={gradientFor(ev.color)}
-          transition="transform .12s ease, box-shadow .12s ease"
-          _hover={{ transform: "translateY(-1px) scale(1.01)", boxShadow: "lg" }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick?.();
-          }}
+    <Box
+      position="absolute"
+      top={`${top}px`}
+      left={`${leftPct}%`}
+      width={`calc(${widthPct}% - 6px)`}
+      height={`${height}px`}
+      borderRadius="xl"
+      px={3}
+      py={2}
+      color="white"
+      lineHeight="1.1"
+      overflow="hidden"
+      boxShadow="md"
+      border="1px solid"
+      borderColor={borderAccent}
+      bg={gradientFor(ev.color) ? undefined : bg}
+      bgGradient={gradientFor(ev.color)}
+      transition="transform .12s ease, box-shadow .12s ease"
+      _hover={{ transform: "translateY(-1px) scale(1.01)", boxShadow: "lg" }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      onMouseEnter={(e) => onHoverEnter?.(ev, e)}
+      onMouseMove={(e) => onHoverMove?.(ev, e)}
+      onMouseLeave={() => onHoverLeave?.(ev)}
+      // ⬇️ Añadido para centrar verticalmente el contenido
+      display="flex"
+      flexDirection="column"
+      justifyContent="center"
+      alignItems="flex-start"
+    >
+      <Box position="relative" pr="16px">
+        <Text
+          fontWeight="normal"
+          fontSize={"xs"}
+          noOfLines={2}
+          sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
         >
-          <Box position="relative" pr="16px">
-            <Text
-              fontWeight="normal"
-              fontSize={"xs"}
-              noOfLines={2}
-              sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
-            >
-              {titleCase(ev.title)}
-            </Text>
-            <Box
-              position="absolute"
-              right={0}
-              top={0}
-              bottom={0}
-              w="22px"
-              pointerEvents="none"
-              borderTopRightRadius="xl"
-              borderBottomRightRadius="xl"
-            />
-          </Box>
+          {titleCase(ev.title)}
+        </Text>
+      </Box>
 
-          <HStack spacing={2} mt={1} opacity={0.95} fontSize="xs">
-            <Text>
-              {fmtTime(ev.start)} – {fmtTime(ev.end)}
-            </Text>
-          </HStack>
-        </Box>
-      </PopoverTrigger>
-
-      <Portal>
-        <PopoverContent
-          maxW="360px"
-          bg={popBg}
-          borderRadius="xl"
-          boxShadow="xl"
-          border="1px solid"
-          borderColor={useColorModeValue("gray.200", "whiteAlpha.200")}
-        >
-          <PopoverArrow />
-          <PopoverCloseButton />
-          <PopoverHeader fontWeight="semibold" pb={1}>
-            {titleCase(ev.title)}
-          </PopoverHeader>
-          <PopoverBody>
-            <HStack spacing={2} mb={2} color="gray.600" fontSize="xs">
-              <Text>
-                {fmtTime(ev.start)} – {fmtTime(ev.end)}
-              </Text>
-            </HStack>
-            <Divider my={2} />
-            <Text fontSize="sm" color="gray.700" noOfLines={6}>
-              {titleCase(ev.title)}
-            </Text>
-          </PopoverBody>
-        </PopoverContent>
-      </Portal>
-    </Popover>
+      <HStack spacing={2} mt={1} opacity={0.95} fontSize="xs">
+        <Text>
+          {fmtTime(ev.start)} – {fmtTime(ev.end)}
+        </Text>
+      </HStack>
+    </Box>
   );
 }
 
@@ -534,6 +579,9 @@ function CalendarGrid({
   startMin,
   endMin,
   scrollToEventId,
+  onEventMouseEnter,
+  onEventMouseMove,
+  onEventMouseLeave,
 }: {
   view: "week" | "day";
   anchorDate: Date;
@@ -549,6 +597,9 @@ function CalendarGrid({
   startMin: number;
   endMin: number;
   scrollToEventId?: string | number | null;
+  onEventMouseEnter?: (ev: CalendarEvent, e: MouseEvent) => void;
+  onEventMouseMove?: (ev: CalendarEvent, e: MouseEvent) => void;
+  onEventMouseLeave?: (ev: CalendarEvent) => void;
 }) {
   const weekStart = useMemo(() => startOfWeekMonday(anchorDate), [anchorDate]);
   const daysAll = useMemo(
@@ -629,6 +680,13 @@ function CalendarGrid({
     return () => clearInterval(id);
   }, []);
   const nowMin = minutesSinceStartOfDay(now);
+
+  // Estado del tooltip que sigue al cursor
+  const [hover, setHover] = useState<{ show: boolean; x: number; y: number; event?: CalendarEvent }>({
+    show: false,
+    x: 0,
+    y: 0,
+  });
 
   return (
     <Box w="full">
@@ -772,7 +830,7 @@ function CalendarGrid({
                 {/* Eventos posicionados */}
                 <Box
                   ref={(el) => {
-                    columnsRef.current[dayIdx] = el;
+                    registerColumnRef(el!, dayIdx);
                   }}
                   position="absolute"
                   inset={0}
@@ -809,6 +867,20 @@ function CalendarGrid({
                         widthPct={widthPct}
                         height={height}
                         onClick={() => onSelectEvent?.(ev)}
+                        onHoverEnter={(event, e) => {
+                          const me = e.nativeEvent as MouseEvent;
+                          setHover({ show: true, x: me.clientX, y: me.clientY, event });
+                          onEventMouseEnter?.(event, me);
+                        }}
+                        onHoverMove={(event, e) => {
+                          const me = e.nativeEvent as MouseEvent;
+                          setHover((h) => (h.show ? { ...h, x: me.clientX, y: me.clientY } : h));
+                          onEventMouseMove?.(event, me);
+                        }}
+                        onHoverLeave={(event) => {
+                          setHover((h) => ({ ...h, show: false }));
+                          onEventMouseLeave?.(event);
+                        }}
                       />
                     );
                   })}
@@ -818,6 +890,16 @@ function CalendarGrid({
           })}
         </Grid>
       </Box>
+
+      {/* Tooltip flotante pegado al cursor */}
+      <CursorTooltip visible={hover.show} x={hover.x} y={hover.y}>
+        <Box>
+          <Text fontWeight="semibold" mb={1}>
+            {titleCase(hover.event?.title ?? "Event")}
+          </Text>
+          <Text fontSize="xs">{fmtRangeLocal(hover.event?.start, hover.event?.end)}</Text>
+        </Box>
+      </CursorTooltip>
     </Box>
   );
 }
@@ -840,6 +922,9 @@ export default function SmartCalendar({
   endHour = 18,
   onSelectEvent,
   onSelectSlot,
+  onEventMouseEnter,
+  onEventMouseMove,
+  onEventMouseLeave,
 }: SmartCalendarProps) {
   const [view, setView] = useState<"week" | "day">(defaultView);
   const [anchor, setAnchor] = useState<Date>(() => toDateSafe(initialDate ?? new Date()));
@@ -895,7 +980,7 @@ export default function SmartCalendar({
     [eventMap]
   );
 
-  // Click en mini-event (se mantiene por compat, ya no se usa en el mini)
+  // Click en mini-event (compat)
   const handleMiniSelectEvent = useCallback(
     (ev: CalendarEvent) => {
       const d = toDateSafe(ev.start);
@@ -928,21 +1013,10 @@ export default function SmartCalendar({
 
   return (
     <Grid templateColumns={{ base: "1fr", lg: `${isMiniOpen ? miniWidth : "0px"} 1fr` }} gap={4} alignItems="start">
-      {/* Main calendar + top controls */}
-      {/* Mini calendar panel */}
+      {/* Panel mini */}
       <Box>
         <HStack mb={3} justify="space-between" wrap="wrap" gap={2}>
-          {/* <HStack>
-            <Button size="sm" variant={view === "week" ? "solid" : "outline"} colorScheme="teal" onClick={() => setView("week")}>
-              Week
-            </Button>
-            <Button size="sm" variant={view === "day" ? "solid" : "outline"} colorScheme="teal" onClick={() => setView("day")}>
-              Day
-            </Button>
-          </HStack>*/
-          }
-
-          {/* Toggle mini */}
+          {/* aquí podrías añadir botones Week/Day si quieres */}
           <HStack>
             <IconButton
               aria-label="Toggle mini calendar"
@@ -974,12 +1048,10 @@ export default function SmartCalendar({
             onToggle={toggleMini}
           />
         </Box>
-
-
       </Box>
+
+      {/* Calendario grande */}
       <Box>
-
-
         <CalendarGrid
           view={view}
           anchorDate={anchor}
@@ -995,10 +1067,11 @@ export default function SmartCalendar({
           startMin={startMin}
           endMin={endMin}
           scrollToEventId={scrollToEventId}
+          onEventMouseEnter={onEventMouseEnter}
+          onEventMouseMove={onEventMouseMove}
+          onEventMouseLeave={onEventMouseLeave}
         />
       </Box>
-
-
-    </Grid >
+    </Grid>
   );
 }

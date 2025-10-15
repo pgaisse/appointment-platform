@@ -1,4 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, {
+  createContext, useCallback, useContext, useEffect, useId,
+  useMemo, useRef, useState
+} from "react";
 
 type StackCtx = {
   register: (id: string) => number;
@@ -43,24 +46,42 @@ export function useModalIndex(isOpen: boolean, opts?: { id?: string }) {
   if (!ctx) throw new Error("useModalIndex must be used within <ModalStackProvider>.");
 
   const autoId = useId();
-  const id = opts?.id ?? autoId;
-  const [modalIndex, setModalIndex] = useState<number>(() => (isOpen ? ctx.register(id) : -1));
+  // id estable por defecto; si te pasan uno por props, puede cambiar y lo manejamos abajo
+  const [modalIndex, setModalIndex] = useState<number>(-1);
+  const idRef = useRef<string>(opts?.id ?? autoId);
 
+  // si el `id` externo cambia con el modal abierto, re-registra
   useEffect(() => {
+    if (!opts?.id || opts.id === idRef.current) return;
+    // si estaba registrado con el anterior, lo quitamos
+    const prev = idRef.current;
+    const wasRegistered = ctx.getIndex(prev) !== -1;
+    if (wasRegistered) ctx.unregister(prev);
+    idRef.current = opts.id;
     if (isOpen) {
-      const idx = ctx.register(id);
+      const idx = ctx.register(idRef.current);
       setModalIndex(idx);
-      return () => {
-        ctx.unregister(id);
-        setModalIndex(-1);
-      };
     } else {
-      if (ctx.getIndex(id) !== -1) {
-        ctx.unregister(id);
-        setModalIndex(-1);
-      }
+      setModalIndex(-1);
     }
-  }, [isOpen, id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [opts?.id, isOpen, ctx]);
+
+  // registra / desregistra en función de isOpen
+  useEffect(() => {
+    if (!isOpen) {
+      // asegúrate de dejarlo limpio si estaba registrado
+      const idx = ctx.getIndex(idRef.current);
+      if (idx !== -1) ctx.unregister(idRef.current);
+      setModalIndex(-1);
+      return;
+    }
+    const idx = ctx.register(idRef.current);
+    setModalIndex(idx);
+    return () => {
+      ctx.unregister(idRef.current);
+      setModalIndex(-1);
+    };
+  }, [isOpen, ctx]);
 
   return { modalIndex, topModalIndex: ctx.topIndex };
 }

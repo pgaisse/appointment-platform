@@ -12,7 +12,7 @@ import {
   Badge,
   Drawer, DrawerOverlay, DrawerContent, DrawerHeader, DrawerBody, DrawerFooter,
   Tabs, TabList, TabPanels, Tab, TabPanel,
-  FormControl, FormLabel, FormErrorMessage, Switch, NumberInput, NumberInputField,
+  FormControl, FormLabel, Switch, NumberInput, NumberInputField,
   useToast,
   SimpleGrid,
   Divider,
@@ -27,10 +27,13 @@ import {
   Skeleton,
   useColorModeValue,
   Spacer,
+  // ↓↓↓ premium confirm dialog
+  AlertDialog, AlertDialogBody, AlertDialogContent, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogOverlay,
 } from "@chakra-ui/react";
 import {
   SearchIcon, AddIcon, TimeIcon, CalendarIcon, EditIcon,
-  InfoOutlineIcon, EmailIcon, PhoneIcon,
+  InfoOutlineIcon, EmailIcon, PhoneIcon, DeleteIcon,
 } from "@chakra-ui/icons";
 import { useForm } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
@@ -43,7 +46,6 @@ import {
   useCreateProviderTimeOff,
   DayKey, DayBlock, Weekly,
   formatSydneyLabel,
-  useProviderAvailability,
   useProviderSchedule,
   useUpdateProviderTimeOff,
   useDeleteProviderTimeOff,
@@ -51,34 +53,16 @@ import {
 import { useMeta, Treatment } from "@/Hooks/Query/useMeta";
 import { Provider } from "@/types";
 
-// 👇 importamos los time off actuales (solo UI, la lógica ya existe)
+// time off (list) hook
 import { useProviderTimeOff, type TimeOffItem } from "@/Hooks/Query/useProviderAppointments";
-import SmartCalendar, { CalendarEvent } from "../Scheduler/SmartCalendar";
 import { ModalStackProvider } from "../ModalStack/ModalStackContext";
+import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 
-type HHMM = `${number}${number}:${number}${number}`;
-function normalizeHHMM(v: string): HHMM {
-  const m = /^(\d{1,2}):(\d{1,2})$/.exec(v.trim());
-  let h = 0, min = 0;
-  if (m) {
-    h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
-    min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
-  }
-  const HH = String(h).padStart(2, "0");
-  const MM = String(min).padStart(2, "0");
-  return `${HH}:${MM}` as HHMM;
-}
 const LazyProviderSummaryModal = lazy(() => import("@/Components/Provider/ProviderSummaryModal"));
 export const preloadProviderSummaryModal = () => import("@/Components/Provider/ProviderSummaryModal");
 
 // ------------------------------------------------------------
-// Small helpers
-const emptyWeekly = (): Weekly => ({ mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] });
-
-const dayLabels: Record<DayKey, string> = {
-  mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
-};
-
+// Helpers
 function LabelWithHelp({ label, help }: { label: string; help: string }) {
   return (
     <FormLabel display="flex" alignItems="center" gap={2}>
@@ -315,7 +299,7 @@ export default function ProviderManager() {
                     <VStack align="start" spacing={0}>
                       <Box fontSize="sm">{p.email || "—"}</Box>
                       <Box fontSize="xs" color="gray.500">
-                        {p.phone || ""}
+                        {formatAustralianMobile(p.phone || "")}
                       </Box>
                     </VStack>
                   </Td>
@@ -383,10 +367,10 @@ function ProviderDrawer({
   const createMut = useCreateProvider();
   const updateMut = useUpdateProvider();
 
-  // —— Treatments from your useMeta() hook
+  // treatments
   const { treatments: treatmentsData, isLoadingTreatments: trLoading } = useMeta();
 
-  // fuerza refetch availability tras guardar schedule
+  // force refetch availability after saving schedule (external)
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Form
@@ -443,7 +427,7 @@ function ProviderDrawer({
     }
   });
 
-  // —— Treatments: map to options from your exact Treatment type
+  // treatments -> options
   const treatmentOptions: Option[] = useMemo(() => {
     const arr = Array.isArray(treatmentsData) ? (treatmentsData as Treatment[]) : [];
     return arr
@@ -471,9 +455,9 @@ function ProviderDrawer({
               <Tab>Profile</Tab>
               <Tab>Weekly schedule</Tab>
               <Tab>Time off</Tab>
-              <Tab>Availability</Tab>
             </TabList>
             <TabPanels>
+              {/* Profile */}
               <TabPanel>
                 <VStack align="stretch" spacing={4}>
                   <HStack>
@@ -568,9 +552,11 @@ function ProviderDrawer({
                 </VStack>
               </TabPanel>
 
+              {/* Weekly schedule */}
               <TabPanel>
                 {provider ? (
                   <WeeklyScheduleEditor
+                    key={refreshKey} // ensure refresh on save if needed
                     providerId={provider._id}
                     initialWeekly={initialWeekly}
                     initialTimezone={initialTimezone}
@@ -581,19 +567,12 @@ function ProviderDrawer({
                 )}
               </TabPanel>
 
+              {/* Time off CRUD */}
               <TabPanel>
                 {provider ? (
-                  <TimeOffEditor providerId={provider._id} />
+                  <TimeOffTab providerId={provider._id} />
                 ) : (
-                  <Box color="gray.500">Create the provider first to add time off.</Box>
-                )}
-              </TabPanel>
-
-              <TabPanel>
-                {provider ? (
-                  <AvailabilityPreview providerId={provider._id} refreshKey={refreshKey} />
-                ) : (
-                  <Box color="gray.500">Create the provider first to preview availability.</Box>
+                  <Box color="gray.500">Create the provider first to manage time off.</Box>
                 )}
               </TabPanel>
             </TabPanels>
@@ -615,7 +594,7 @@ function ProviderDrawer({
 }
 
 // ------------------------------------------------------------------------------------
-// Weekly schedule editor (primero: horario actual; luego editor de blocks)
+// Weekly schedule editor
 function WeeklyScheduleEditor({
   providerId,
   initialWeekly,
@@ -632,32 +611,47 @@ function WeeklyScheduleEditor({
   const { data: currentSchedule, isFetching } = useProviderSchedule(providerId);
   const queryClient = useQueryClient();
 
-  // fuente de verdad para "current" (si existe en backend)
-  const currentWeekly = currentSchedule?.weekly ?? initialWeekly ?? emptyWeekly();
+  // source of truth for current
+  const currentWeekly = currentSchedule?.weekly ?? initialWeekly ?? { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] };
   const currentTZ = currentSchedule?.timezone ?? initialTimezone ?? "Australia/Sydney";
 
-  // estado del editor
+  // editor state
   const [weekly, setWeekly] = React.useState<Weekly>(currentWeekly);
   const [timezone, setTimezone] = React.useState(currentTZ);
 
-  // sincroniza al cambiar provider o recargar
   React.useEffect(() => {
     setWeekly(currentWeekly);
     setTimezone(currentTZ);
   }, [currentWeekly, currentTZ]);
 
-  // helpers UI
-  const startHour = 6, endHour = 22, totalMinutes = (endHour - startHour) * 60;
+  // helpers
+  const LABEL_COL_PX = 60;
+  const RIGHT_COL_PX = 220;
+  const startHour = 6;
+  const endHour = 20;
+  const totalMinutes = (endHour - startHour) * 60;
+
+  const dayName: Record<DayKey, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+
   const hhmmToMinutes = (v: string) => {
     const [h, m] = v.split(":");
-    return (parseInt(h || "0") || 0) * 60 + (parseInt(m || "0") || 0);
+    return (parseInt(h || "0", 10) || 0) * 60 + (parseInt(m || "0", 10) || 0);
   };
+
+  const to12h = (hhmm: string) => {
+    const [hStr, mStr] = hhmm.split(":");
+    let h = Math.max(0, Math.min(23, parseInt(hStr || "0", 10)));
+    const m = Math.max(0, Math.min(59, parseInt(mStr || "0", 10)));
+    const ampm = h < 12 ? "AM" : "PM";
+    const h12 = ((h + 11) % 12) + 1;
+    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+  };
+
   const hourLabel12h = (h24: number) => {
-    const h = ((h24 + 11) % 12) + 1;
+    const h12 = ((h24 + 11) % 12) + 1;
     const ampm = h24 < 12 ? "AM" : "PM";
-    return `${h} ${ampm}`;
+    return `${h12} ${ampm}`;
   };
-  const dayLabels: Record<DayKey, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
 
   const addBlock = (day: DayKey) => {
     setWeekly((prev) => ({ ...prev, [day]: [...(prev[day] || []), { start: "09:00", end: "17:00" }] }));
@@ -672,77 +666,149 @@ function WeeklyScheduleEditor({
     setWeekly((prev) => ({ ...prev, [day]: (prev[day] || []).filter((_, i) => i !== idx) }));
   };
   const clearDay = (day: DayKey) => setWeekly((prev) => ({ ...prev, [day]: [] }));
-  const clearAll = () => setWeekly(emptyWeekly());
+  const clearAll = () => setWeekly({ mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] });
 
   const save = async () => {
+    const key = ["provider-schedule", providerId] as const;
+    const previous = queryClient.getQueryData<any>(key);
+    const optimistic = { weekly, timezone };
+
+    // ⏩ Optimista: reflejamos inmediatamente
+    queryClient.setQueryData(key, (old: any) => ({ ...(old ?? {}), ...optimistic }));
+
     try {
       await upsert.mutateAsync({ id: providerId, payload: { weekly, timezone } });
       toast({ title: "Schedule saved", status: "success" });
-      // refresca schedule actual y availability
-      queryClient.invalidateQueries({ queryKey: ['provider-schedule', providerId] });
-      queryClient.invalidateQueries({
-        predicate: (q) =>
-          Array.isArray(q.queryKey) &&
-          q.queryKey[0] === "provider-availability" &&
-          q.queryKey.includes(providerId),
-      });
+      // refresca consumidores relacionados (schedule y availability que dependan de esto)
+      queryClient.invalidateQueries({ queryKey: key, exact: false });
+      queryClient.invalidateQueries({ queryKey: ["provider-availability", providerId], exact: false });
       onSaved?.();
     } catch (e: any) {
+      // ⏪ Rollback en error
+      queryClient.setQueryData(key, previous);
       toast({ title: "Error", description: e?.message ?? "Unexpected error", status: "error" });
     }
   };
 
-  // estilos
+  // styles
   const border = useColorModeValue("gray.200", "whiteAlpha.300");
   const trackBg = useColorModeValue("gray.50", "whiteAlpha.100");
   const labelColor = useColorModeValue("gray.600", "gray.300");
 
   return (
     <VStack align="stretch" spacing={4}>
+      {/* Current (read-only) */}
       <Card variant="outline">
         <CardHeader pb={2}>
           <HStack justify="space-between" align="center" wrap="wrap" gap={2}>
             <Heading size="sm">Current schedule (read-only)</Heading>
-            <HStack><Tag>Australia/Sydney</Tag>{isFetching && <Skeleton h="18px" w="80px" />}</HStack>
+            <HStack>
+              <Tag>{timezone}</Tag>
+              {isFetching && <Skeleton h="18px" w="80px" />}
+            </HStack>
           </HStack>
         </CardHeader>
         <CardBody>
-          <Box position="relative" pl="70px" pr="8px" mb={2}>
-            <HStack justify="space-between" fontSize="xs" color={labelColor}>
-              {Array.from({ length: (endHour - startHour) / 2 + 1 }).map((_, i) => {
+          {/* hours header */}
+          <Box
+            display="grid"
+            gridTemplateColumns={`${LABEL_COL_PX}px 1fr ${RIGHT_COL_PX}px`}
+            columnGap={3}
+            mb={2}
+            position="relative"
+          >
+            <Box />
+            <Box position="relative" h="20px">
+              {[...Array((endHour - startHour) / 2 + 1)].map((_, i) => {
                 const h = startHour + i * 2;
-                return <Text key={h} minW="32px" textAlign="center">{hourLabel12h(h)}</Text>;
+                const leftPct = ((h - startHour) / (endHour - startHour)) * 100;
+                const translate = h === startHour ? "0%" : h === endHour ? "-100%" : "-50%";
+                const textAlign = h === startHour ? "left" : h === endHour ? "right" : "center";
+
+                return (
+                  <Text
+                    key={h}
+                    position="absolute"
+                    left={`${leftPct}%`}
+                    transform={`translateX(${translate})`}
+                    textAlign={textAlign}
+                    fontSize="xs"
+                    color={labelColor}
+                    whiteSpace="nowrap"
+                    lineHeight="1"
+                    pointerEvents="none"
+                  >
+                    {hourLabel12h(h)}
+                  </Text>
+                );
               })}
-            </HStack>
+            </Box>
+            <Box />
           </Box>
 
+          {/* rows */}
           {(["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as DayKey[]).map((dk) => {
             const blocks = (currentWeekly?.[dk] || []) as DayBlock[];
             return (
-              <HStack key={dk} align="center" spacing={3} mb={2}>
-                <Box w="60px" textAlign="right" fontSize="sm" color={labelColor}>{dayLabels[dk]}</Box>
-                <Box flex="1" h="28px" position="relative" borderRadius="md" borderWidth="1px" borderColor={border} bg={trackBg} overflow="hidden">
+              <Box
+                key={dk}
+                display="grid"
+                gridTemplateColumns={`${LABEL_COL_PX}px 1fr ${RIGHT_COL_PX}px`}
+                columnGap={3}
+                alignItems="center"
+                mb={2}
+              >
+                <Box w={`${LABEL_COL_PX}px`} textAlign="right" fontSize="sm" color={labelColor}>
+                  {dayName[dk]}
+                </Box>
+
+                <Box
+                  h="28px"
+                  position="relative"
+                  borderRadius="md"
+                  borderWidth="1px"
+                  borderColor={border}
+                  bg={trackBg}
+                  overflow="hidden"
+                >
                   {blocks.length === 0 ? (
-                    <Text position="absolute" left="8px" top="4px" fontSize="xs" color={labelColor}>Off</Text>
+                    <Text position="absolute" left="8px" top="4px" fontSize="xs" color={labelColor}>
+                      Off
+                    </Text>
                   ) : (
                     blocks.map((b, i) => {
-                      const leftPct = ((hhmmToMinutes(b.start) - startHour * 60) / totalMinutes) * 100;
-                      const widthPct = ((hhmmToMinutes(b.end) - hhmmToMinutes(b.start)) / totalMinutes) * 100;
+                      const s = hhmmToMinutes(b.start);
+                      const e = hhmmToMinutes(b.end);
+                      const leftPct = ((Math.max(s, startHour * 60) - startHour * 60) / totalMinutes) * 100;
+                      const widthPct = ((Math.min(e, endHour * 60) - Math.max(s, startHour * 60)) / totalMinutes) * 100;
+                      if (widthPct <= 0) return null;
                       return (
-                        <Box key={i} position="absolute" left={`${Math.max(0, leftPct)}%`} width={`${Math.max(0, Math.min(100 - leftPct, widthPct))}%`} top="3px" bottom="3px" borderRadius="md" bg="teal.400" opacity={0.9} />
+                        <Box
+                          key={i}
+                          position="absolute"
+                          left={`${leftPct}%`}
+                          width={`${widthPct}%`}
+                          top="3px"
+                          bottom="3px"
+                          borderRadius="md"
+                          bg="teal.400"
+                          opacity={0.9}
+                        />
                       );
                     })
                   )}
                 </Box>
-                <Box w="220px" fontSize="xs" color={labelColor} textAlign="left">
-                  {blocks.length ? blocks.map((b) => `${b.start}–${b.end}`).join("  ·  ") : "—"}
+
+                <Box fontSize="xs" color={labelColor} textAlign="left">
+                  {blocks.length ? blocks.map((b) => `${to12h(b.start)}–${to12h(b.end)}`).join("  ·  ") : "—"}
                 </Box>
-              </HStack>
+              </Box>
             );
           })}
         </CardBody>
       </Card>
 
+      {/* Controls */}
       <HStack wrap="wrap" gap={3}>
         <FormControl maxW="sm">
           <FormLabel>Timezone</FormLabel>
@@ -752,18 +818,23 @@ function WeeklyScheduleEditor({
         </FormControl>
         <HStack ml="auto" gap={2}>
           <Button variant="outline" onClick={clearAll}>Clear all</Button>
-          <Button leftIcon={<CalendarIcon />} colorScheme="teal" onClick={save} isLoading={upsert.isPending}>Save schedule</Button>
-          <Button variant="ghost" onClick={() => { setWeekly(currentWeekly); setTimezone(currentTZ); }}>Reset to current</Button>
+          <Button leftIcon={<CalendarIcon />} colorScheme="teal" onClick={save} isLoading={upsert.isPending}>
+            Save schedule
+          </Button>
+          <Button variant="ghost" onClick={() => { setWeekly(currentWeekly); setTimezone(currentTZ); }}>
+            Reset to current
+          </Button>
         </HStack>
       </HStack>
 
+      {/* Block editor */}
       {(["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as DayKey[]).map((day) => (
         <Card key={day} variant="outline">
           <CardHeader>
             <HStack justify="space-between" wrap="wrap" gap={2}>
-              <Heading size="sm">{dayLabels[day]}</Heading>
+              <Heading size="sm">{dayName[day]}</Heading>
               <HStack>
-                <Button size="xs" variant="outline" onClick={() => setWeekly((p) => ({ ...p, [day]: [] }))}>Clear day</Button>
+                <Button size="xs" variant="outline" onClick={() => clearDay(day)}>Clear day</Button>
                 <Button size="xs" onClick={() => addBlock(day)}>Add block</Button>
               </HStack>
             </HStack>
@@ -777,15 +848,29 @@ function WeeklyScheduleEditor({
                     <FormLabel mb={0}>Start</FormLabel>
                     <InputGroup>
                       <InputLeftElement pointerEvents="none"><TimeIcon /></InputLeftElement>
-                      <Input type="time" value={b.start} onChange={(e) => updateBlock(day, idx, { start: e.target.value as HHMM })} />
+                      <Input
+                        type="time"
+                        value={b.start}
+                        onChange={(e) => updateBlock(day, idx, { start: e.target.value as any })}
+                      />
                     </InputGroup>
+                    <Text mt={1} fontSize="xs" color={labelColor}>
+                      {to12h(b.start)}
+                    </Text>
                   </FormControl>
                   <FormControl maxW="xs">
                     <FormLabel mb={0}>End</FormLabel>
                     <InputGroup>
                       <InputLeftElement pointerEvents="none"><TimeIcon /></InputLeftElement>
-                      <Input type="time" value={b.end} onChange={(e) => updateBlock(day, idx, { end: e.target.value as HHMM })} />
+                      <Input
+                        type="time"
+                        value={b.end}
+                        onChange={(e) => updateBlock(day, idx, { end: e.target.value as any })}
+                      />
                     </InputGroup>
+                    <Text mt={1} fontSize="xs" color={labelColor}>
+                      {to12h(b.end)}
+                    </Text>
                   </FormControl>
                   <Button size="sm" variant="ghost" onClick={() => removeBlock(day, idx)}>Remove</Button>
                 </HStack>
@@ -798,599 +883,446 @@ function WeeklyScheduleEditor({
   );
 }
 
-
 // ------------------------------------------------------------------------------------
-// Time off editor: lista actuales + alta de nuevos bloques
-function TimeOffEditor({ providerId }: { providerId: string }) {
-  const [fromLocal, setFromLocal] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 15);
-    return toLocalInputValue(d);
-  });
-  const [toLocal, setToLocal] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 45);
-    return toLocalInputValue(d);
-  });
-
-  const { data: items = [], isFetching } = useProviderTimeOff(providerId, {
-    from: new Date(fromLocal).toISOString(),
-    to: new Date(toLocal).toISOString(),
-  });
-
-  return (
-    <VStack align="stretch" spacing={6}>
-      {/* Lista actual */}
-      <Card variant="outline">
-        <CardHeader pb={2}>
-          <HStack justify="space-between" align="center" flexWrap="wrap" gap={2}>
-            <HStack>
-              <Heading size="sm">Current time off</Heading>
-              <Tag colorScheme="red">{items.length}</Tag>
-            </HStack>
-            <HStack>
-              <InputGroup maxW={{ base: "100%", md: "260px" }}>
-                <InputLeftElement pointerEvents="none">
-                  <CalendarIcon />
-                </InputLeftElement>
-                <Input
-                  type="datetime-local"
-                  value={fromLocal}
-                  onChange={(e) => setFromLocal(e.target.value)}
-                />
-              </InputGroup>
-              <InputGroup maxW={{ base: "100%", md: "260px" }}>
-                <InputLeftElement pointerEvents="none">
-                  <CalendarIcon />
-                </InputLeftElement>
-                <Input
-                  type="datetime-local"
-                  value={toLocal}
-                  onChange={(e) => setToLocal(e.target.value)}
-                />
-              </InputGroup>
-            </HStack>
-          </HStack>
-        </CardHeader>
-        <CardBody>
-          {isFetching ? (
-            <VStack align="stretch" spacing={2}>
-              <Skeleton h="20px" />
-              <Skeleton h="20px" />
-              <Skeleton h="20px" />
-            </VStack>
-          ) : items.length === 0 ? (
-            <Box color="gray.500">No time off in range.</Box>
-          ) : (
-            <VStack align="stretch" spacing={2} maxH="280px" overflowY="auto">
-              {items.map((t: TimeOffItem) => (
-                <HStack
-                  key={t._id}
-                  p={2}
-                  borderWidth="1px"
-                  borderRadius="md"
-                  _hover={{ bg: useColorModeValue("red.50", "whiteAlpha.100") }}
-                  align="center"
-                  spacing={3}
-                >
-                  <Tag colorScheme="red" minW="100px" justifyContent="center">
-                    {t.kind}
-                  </Tag>
-                  <Text flex={1}>
-                    {formatSydneyLabel(t.start, { weekday: "short", month: "short", day: "2-digit", hour: "numeric", minute: "2-digit" })}
-                    {" – "}
-                    {formatSydneyLabel(t.end, { hour: "numeric", minute: "2-digit" })}
-                  </Text>
-                  {t.reason ? <Badge variant="subtle">{t.reason}</Badge> : null}
-                </HStack>
-              ))}
-            </VStack>
-          )}
-        </CardBody>
-      </Card>
-
-      {/* Form alta */}
-      <TimeOffForm providerId={providerId} />
-    </VStack>
-  );
-}
-
-// ------------------------------------------------------------------------------------
-// Time-off form (alta)
-function TimeOffForm({ providerId }: { providerId: string }) {
+// Time off CRUD tab
+function TimeOffTab({ providerId }: { providerId: string }) {
   const toast = useToast();
-  const { data: items = [], refetch, isFetching } = useProviderTimeOff(providerId, {});
-  const createTO = useCreateProviderTimeOff();
-  const updateTO = useUpdateProviderTimeOff();
-  const deleteTO = useDeleteProviderTimeOff();
+  const qc = useQueryClient();
 
-  // Crear
-  type TimeOffKind = "PTO" | "Sick" | "Course" | "PublicHoliday" | "Block";
-  type TimeOffPatch = Partial<{
-    kind: TimeOffKind;
-    start: string;
-    end: string;
-    reason?: string;
-    location?: string | null;
-    chair?: string | null;
-  }>;
+  // Filters
+  const [fromLocal, setFromLocal] = React.useState<string>("");
+  const [toLocal, setToLocal] = React.useState<string>("");
 
-  const [kind, setKind] = useState<TimeOffKind>("PTO");
-  const [startLocal, setStartLocal] = useState(() => toLocalInputValue(new Date()));
-  const [endLocal, setEndLocal] = useState(() => toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)));
-  const [reason, setReason] = useState("");
+  const queryRange = React.useMemo(() => {
+    const from = fromLocal ? new Date(fromLocal).toISOString() : undefined;
+    const to = toLocal ? new Date(toLocal).toISOString() : undefined;
+    return { from, to };
+  }, [fromLocal, toLocal]);
 
-  const submit = async () => {
+  const exactKey = ["provider-timeoff", providerId, queryRange] as const;   // key exacta de la lista visible
+  const baseKey = ["provider-timeoff", providerId] as const;                // prefijo para setQueriesData/invalidate
+  const { data: items = [], isFetching } = useProviderTimeOff(providerId, queryRange);
+
+  // Create form
+  type Kind = "PTO" | "Sick" | "Course" | "PublicHoliday" | "Block";
+  const kinds: Kind[] = ["PTO", "Sick", "Course", "PublicHoliday", "Block"];
+
+  const now = new Date();
+  const in60 = new Date(now.getTime() + 60 * 60 * 1000);
+  const [cKind, setCKind] = React.useState<Kind>("PTO");
+  const [cStart, setCStart] = React.useState<string>(toLocalInputValue(now));
+  const [cEnd, setCEnd] = React.useState<string>(toLocalInputValue(in60));
+  const [cReason, setCReason] = React.useState<string>("");
+
+  const createMut = useCreateProviderTimeOff();
+  const updateMut = useUpdateProviderTimeOff();
+  const deleteMut = useDeleteProviderTimeOff();
+
+  // Inline edit
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [eKind, setEKind] = React.useState<Kind>("PTO");
+  const [eStart, setEStart] = React.useState<string>("");
+  const [eEnd, setEEnd] = React.useState<string>("");
+  const [eReason, setEReason] = React.useState<string>("");
+
+  // Premium confirm dialog
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const cancelRef = React.useRef<HTMLButtonElement>(null);
+  const [toDelete, setToDelete] = React.useState<TimeOffItem | null>(null);
+
+  const openDeleteDialog = (item: TimeOffItem) => {
+    setToDelete(item);
+    setConfirmOpen(true);
+  };
+  const closeDeleteDialog = () => {
+    setConfirmOpen(false);
+    setToDelete(null);
+  };
+
+  const beginEdit = (it: TimeOffItem) => {
+    setEditingId(it._id);
+    setEKind(it.kind as Kind);
+    setEStart(toLocalInputValue(new Date(it.start)));
+    setEEnd(toLocalInputValue(new Date(it.end)));
+    setEReason(it.reason || "");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEReason("");
+  };
+
+  const validateRange = (startLocal: string, endLocal: string) => {
+    const s = new Date(startLocal).getTime();
+    const e = new Date(endLocal).getTime();
+    return e > s;
+  };
+
+  /** Helpers de escritura */
+  const addOptimistic = (it: TimeOffItem) => {
+    // actualiza la lista visible (key exacta)
+    qc.setQueryData<TimeOffItem[]>(exactKey, (cur = []) => [it, ...cur]);
+    // y las demás listas del mismo proveedor (cualquier rango)
+    qc.setQueriesData<TimeOffItem[]>({ queryKey: baseKey, exact: false }, (cur) => {
+      if (!Array.isArray(cur)) return cur;
+      return [it, ...cur];
+    });
+  };
+  const replaceOptimistic = (id: string, patch: Partial<TimeOffItem>) => {
+    qc.setQueryData<TimeOffItem[]>(exactKey, (cur = []) => cur.map(i => i._id === id ? { ...i, ...patch } as TimeOffItem : i));
+    qc.setQueriesData<TimeOffItem[]>({ queryKey: baseKey, exact: false }, (cur) => {
+      if (!Array.isArray(cur)) return cur;
+      return cur.map(i => i._id === id ? { ...i, ...patch } as TimeOffItem : i);
+    });
+  };
+  const removeOptimistic = (id: string) => {
+    qc.setQueryData<TimeOffItem[]>(exactKey, (cur = []) => cur.filter(i => i._id !== id));
+    qc.setQueriesData<TimeOffItem[]>({ queryKey: baseKey, exact: false }, (cur) => {
+      if (!Array.isArray(cur)) return cur;
+      return cur.filter(i => i._id !== id);
+    });
+  };
+
+  const onCreate = async () => {
+    if (!validateRange(cStart, cEnd)) {
+      toast({ title: "Invalid range", description: "End must be after start.", status: "warning" });
+      return;
+    }
+    const optimisticItem: TimeOffItem = {
+      _id: `tmp-${Date.now()}`,
+      kind: cKind,
+      start: new Date(cStart).toISOString(),
+      end: new Date(cEnd).toISOString(),
+      reason: cReason || "",
+    };
+
+    const prevExact = qc.getQueryData<TimeOffItem[]>(exactKey) ?? [];
+    addOptimistic(optimisticItem);
+
     try {
-      const startIso = new Date(startLocal).toISOString();
-      const endIso = new Date(endLocal).toISOString();
-      await createTO.mutateAsync({ id: providerId, payload: { kind, start: startIso, end: endIso, reason } });
-      toast({ title: "Time off added", status: "success" });
-      setReason("");
-      await refetch();
+      const created: any = await createMut.mutateAsync({
+        id: providerId,
+        payload: {
+          kind: cKind,
+          start: optimisticItem.start,
+          end: optimisticItem.end,
+          reason: optimisticItem.reason,
+        },
+      });
+
+      if (created && created._id) {
+        // reemplaza el temporal por el real en todas las listas
+        removeOptimistic(optimisticItem._id);
+        addOptimistic(created);
+      } else {
+        qc.invalidateQueries({ queryKey: baseKey, exact: false });
+      }
+
+      toast({ title: "Time off created", status: "success" });
     } catch (e: any) {
-      toast({ title: "Error", description: e?.message ?? "Unexpected error", status: "error" });
+      // rollback solo en la visible; las demás también quedarán limpias por removeOptimistic
+      qc.setQueryData(exactKey, prevExact);
+      removeOptimistic(optimisticItem._id);
+      toast({ title: "Error creating", description: e?.message ?? "Unexpected error", status: "error" });
+    } finally {
+      // Asegura refresco por si hay otras vistas (summary modal con otro rango)
+      qc.invalidateQueries({ queryKey: baseKey, exact: false });
     }
   };
 
-  const onUpdate = async (rowId: string, patch: TimeOffPatch) => {
+  const onSaveEdit = async () => {
+    if (!editingId) return;
+    if (!validateRange(eStart, eEnd)) {
+      toast({ title: "Invalid range", description: "End must be after start.", status: "warning" });
+      return;
+    }
+    const patch: Partial<TimeOffItem> = {
+      kind: eKind,
+      start: new Date(eStart).toISOString(),
+      end: new Date(eEnd).toISOString(),
+      reason: eReason,
+    };
+
+    const prevExact = qc.getQueryData<TimeOffItem[]>(exactKey) ?? [];
+    replaceOptimistic(editingId, patch);
+
     try {
-      await updateTO.mutateAsync({
+      await updateMut.mutateAsync({
         providerId,
-        timeOffId: rowId,
+        timeOffId: editingId,
         payload: patch,
       });
       toast({ title: "Time off updated", status: "success" });
-      await refetch();
+      setEditingId(null);
     } catch (e: any) {
-      toast({ title: "Error", description: e?.message ?? "Unexpected error", status: "error" });
+      qc.setQueryData(exactKey, prevExact);
+      toast({ title: "Error updating", description: e?.message ?? "Unexpected error", status: "error" });
+    } finally {
+      qc.invalidateQueries({ queryKey: baseKey, exact: false });
     }
   };
 
-  const onDelete = async (rowId: string) => {
+  const handleConfirmDelete = async () => {
+    if (!toDelete) return;
+
+    const prevExact = qc.getQueryData<TimeOffItem[]>(exactKey) ?? [];
+    removeOptimistic(toDelete._id);
+
     try {
-      await deleteTO.mutateAsync({ providerId, timeOffId: rowId });
+      await deleteMut.mutateAsync({ providerId, timeOffId: toDelete._id });
       toast({ title: "Time off deleted", status: "success" });
-      await refetch();
     } catch (e: any) {
-      toast({ title: "Error", description: e?.message ?? "Unexpected error", status: "error" });
+      // rollback
+      qc.setQueryData(exactKey, prevExact);
+      addOptimistic(toDelete);
+      toast({ title: "Error deleting", description: e?.message ?? "Unexpected error", status: "error" });
+    } finally {
+      qc.invalidateQueries({ queryKey: baseKey, exact: false });
+      closeDeleteDialog();
     }
   };
+
+  const labelColor = useColorModeValue("gray.600", "gray.300");
 
   return (
-    <VStack align="stretch" spacing={6}>
-      {/* Crear nuevo */}
+    <VStack align="stretch" spacing={5}>
+      {/* Filters */}
       <Card variant="outline">
-        <CardHeader><Heading size="sm">Add time off</Heading></CardHeader>
+        <CardHeader pb={2}>
+          <Heading size="sm">Filter</Heading>
+        </CardHeader>
+        <CardBody>
+          <HStack gap={4} wrap="wrap">
+            <FormControl maxW="xs">
+              <FormLabel mb={1}>From</FormLabel>
+              <Input type="datetime-local" value={fromLocal} onChange={(e) => setFromLocal(e.target.value)} />
+            </FormControl>
+            <FormControl maxW="xs">
+              <FormLabel mb={1}>To</FormLabel>
+              <Input type="datetime-local" value={toLocal} onChange={(e) => setToLocal(e.target.value)} />
+            </FormControl>
+            <Spacer />
+            <HStack>
+              <Button variant="ghost" onClick={() => { setFromLocal(""); setToLocal(""); }}>
+                Clear
+              </Button>
+              <Tag>{isFetching ? "Loading…" : `${items.length} item${items.length === 1 ? "" : "s"}`}</Tag>
+            </HStack>
+          </HStack>
+        </CardBody>
+      </Card>
+
+      {/* Create */}
+      <Card variant="outline">
+        <CardHeader pb={2}>
+          <Heading size="sm">Add time off</Heading>
+        </CardHeader>
         <CardBody>
           <SimpleGrid columns={{ base: 1, md: 4 }} gap={4}>
             <FormControl>
-              <FormLabel>Kind</FormLabel>
-              <Select value={kind} onChange={(e) => setKind(e.target.value as TimeOffKind)}>
-                <option value="PTO">PTO</option>
-                <option value="Sick">Sick</option>
-                <option value="Course">Course</option>
-                <option value="PublicHoliday">Public holiday</option>
-                <option value="Block">Block</option>
+              <FormLabel mb={1}>Kind</FormLabel>
+              <Select value={cKind} onChange={(e) => setCKind(e.target.value as Kind)}>
+                {kinds.map((k) => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
               </Select>
             </FormControl>
             <FormControl>
-              <FormLabel>Start</FormLabel>
-              <InputGroup>
-                <InputLeftElement pointerEvents="none"><CalendarIcon /></InputLeftElement>
-                <Input type="datetime-local" value={startLocal} onChange={(e) => setStartLocal(e.target.value)} />
-              </InputGroup>
+              <FormLabel mb={1}>Start</FormLabel>
+              <Input type="datetime-local" value={cStart} onChange={(e) => setCStart(e.target.value)} />
+              <Text mt={1} fontSize="xs" color={labelColor}>
+                {formatSydneyLabel(new Date(cStart).toISOString())}
+              </Text>
             </FormControl>
             <FormControl>
-              <FormLabel>End</FormLabel>
-              <InputGroup>
-                <InputLeftElement pointerEvents="none"><CalendarIcon /></InputLeftElement>
-                <Input type="datetime-local" value={endLocal} onChange={(e) => setEndLocal(e.target.value)} />
-              </InputGroup>
+              <FormLabel mb={1}>End</FormLabel>
+              <Input type="datetime-local" value={cEnd} onChange={(e) => setCEnd(e.target.value)} />
+              <Text mt={1} fontSize="xs" color={labelColor}>
+                {formatSydneyLabel(new Date(cEnd).toISOString())}
+              </Text>
             </FormControl>
             <FormControl>
-              <FormLabel>Reason</FormLabel>
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Optional" />
+              <FormLabel mb={1}>Reason</FormLabel>
+              <Input value={cReason} onChange={(e) => setCReason(e.target.value)} placeholder="Optional" />
             </FormControl>
           </SimpleGrid>
-          <HStack justify="flex-end" mt={3}>
-            <Button colorScheme="teal" onClick={submit} isLoading={createTO.isPending}>Add time off</Button>
+          <HStack justify="flex-end" mt={4}>
+            <Button
+              leftIcon={<AddIcon />}
+              colorScheme="teal"
+              onClick={onCreate}
+              isLoading={createMut.isPending}
+            >
+              Create
+            </Button>
           </HStack>
         </CardBody>
       </Card>
 
-      {/* Lista / editar / eliminar */}
+      {/* List + inline edit */}
       <Card variant="outline">
-        <CardHeader>
-          <HStack justify="space-between">
-            <Heading size="sm">Current time off</Heading>
-            {isFetching && <Skeleton h="18px" w="80px" />}
-          </HStack>
+        <CardHeader pb={2}>
+          <Heading size="sm">Current time off</Heading>
         </CardHeader>
         <CardBody>
-          {items.length === 0 ? (
-            <Box color="gray.500">No time off registered.</Box>
-          ) : (
-            <Table size="sm" variant="simple">
-              <Thead>
-                <Tr>
-                  <Th>Kind</Th>
-                  <Th>Start</Th>
-                  <Th>End</Th>
-                  <Th>Reason</Th>
-                  <Th textAlign="right">Actions</Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {items.map((it) => {
-                  const startLocal = toLocalInputValue(new Date(it.start));
-                  const endLocal = toLocalInputValue(new Date(it.end));
-                  return (
-                    <Tr key={it._id} _hover={{ bg: "blackAlpha.50" }}>
-                      <Td>
-                        <Select
-                          size="sm"
-                          value={it.kind}
-                          onChange={(e) => onUpdate(it._id, { kind: e.target.value as TimeOffKind })}
-                        >
-                          <option value="PTO">PTO</option>
-                          <option value="Sick">Sick</option>
-                          <option value="Course">Course</option>
-                          <option value="PublicHoliday">PublicHoliday</option>
-                          <option value="Block">Block</option>
+          <Table size="sm">
+            <Thead>
+              <Tr>
+                <Th>Kind</Th>
+                <Th>Start</Th>
+                <Th>End</Th>
+                <Th>Reason</Th>
+                <Th isNumeric>Actions</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {items.map((it) => {
+                const isEditing = editingId === it._id;
+                return (
+                  <Tr key={it._id} _hover={{ bg: "blackAlpha.50" }}>
+                    <Td>
+                      {isEditing ? (
+                        <Select size="sm" value={eKind} onChange={(e) => setEKind(e.target.value as Kind)}>
+                          {kinds.map((k) => (
+                            <option key={k} value={k}>{k}</option>
+                          ))}
                         </Select>
-                      </Td>
-                      <Td>
-                        <Input
-                          size="sm"
-                          type="datetime-local"
-                          defaultValue={startLocal}
-                          onBlur={(e) => onUpdate(it._id, { start: new Date(e.target.value).toISOString() })}
-                        />
-                      </Td>
-                      <Td>
-                        <Input
-                          size="sm"
-                          type="datetime-local"
-                          defaultValue={endLocal}
-                          onBlur={(e) => onUpdate(it._id, { end: new Date(e.target.value).toISOString() })}
-                        />
-                      </Td>
-                      <Td>
-                        <Input
-                          size="sm"
-                          defaultValue={it.reason || ""}
-                          placeholder="Optional"
-                          onBlur={(e) => onUpdate(it._id, { reason: e.target.value })}
-                        />
-                      </Td>
-                      <Td textAlign="right">
-                        <Button size="xs" colorScheme="red" variant="outline" onClick={() => onDelete(it._id)}>
-                          Delete
-                        </Button>
-                      </Td>
-                    </Tr>
-                  );
-                })}
-              </Tbody>
-            </Table>
-          )}
-        </CardBody>
-      </Card>
-    </VStack>
-  );
-}
-
-
-// ------------------------------------------------------------------------------------
-// Availability preview — premium timeline por día
-function AvailabilityPreview({ providerId, refreshKey = 0 }: { providerId: string; refreshKey?: number }) {
-  // ---------- Controls (range + filters) ----------
-  const [rangeLocal, setRangeLocal] = React.useState<{ from: string; to: string }>(() => {
-    const now = new Date();
-    const to = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    return { from: toLocalInputValue(now), to: toLocalInputValue(to) };
-  });
-
-  const [view, setView] = React.useState<"list" | "grid" | "calendar">("grid");
-  const [minDurationMin, setMinDurationMin] = React.useState<number>(0); // filtro opcional
-
-  const params = React.useMemo(
-    () => ({
-      from: new Date(rangeLocal.from).toISOString(),
-      to: new Date(rangeLocal.to).toISOString(),
-      _force: refreshKey, // no se envía pero ayuda con la cache key del hook
-    }),
-    [rangeLocal, refreshKey]
-  );
-
-  const { data: rawSlots = [], isFetching, error } = useProviderAvailability(providerId, params as any);
-
-  // ---------- Helpers ----------
-  const ms = (v: number) => v * 60 * 1000;
-
-  function mergeSlots(
-    slots: { startUtc: string; endUtc: string }[],
-    toleranceMs = ms(1)
-  ) {
-    const arr = [...slots]
-      .map(s => ({ start: new Date(s.startUtc).getTime(), end: new Date(s.endUtc).getTime() }))
-      .filter(s => s.end > s.start)
-      .sort((a, b) => a.start - b.start);
-
-    const merged: { start: number; end: number }[] = [];
-    for (const s of arr) {
-      const last = merged[merged.length - 1];
-      if (!last) {
-        merged.push({ ...s });
-        continue;
-      }
-      if (s.start <= last.end + toleranceMs) {
-        last.end = Math.max(last.end, s.end);
-      } else {
-        merged.push({ ...s });
-      }
-    }
-    return merged;
-  }
-
-  // Aplica merge + filtro de duración mínima
-  const mergedSlots = React.useMemo(() => {
-    const merged = mergeSlots(rawSlots, ms(1));
-    if (!minDurationMin || minDurationMin <= 0) return merged;
-    const minMs = ms(minDurationMin);
-    return merged.filter(b => (b.end - b.start) >= minMs);
-  }, [rawSlots, minDurationMin]);
-
-  // Agrupar por día (Australia/Sydney)
-  function toSydneyYMD(d: number) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Australia/Sydney",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(new Date(d));
-    const y = parts.find(p => p.type === "year")!.value;
-    const m = parts.find(p => p.type === "month")!.value;
-    const day = parts.find(p => p.type === "day")!.value;
-    return `${y}-${m}-${day}`;
-  }
-
-  const groupedByDay = React.useMemo(() => {
-    const map = new Map<string, { start: number; end: number }[]>();
-    for (const b of mergedSlots) {
-      const key = toSydneyYMD(b.start);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(b);
-    }
-    // ordena slots por inicio en cada día
-    for (const [k, arr] of map) {
-      arr.sort((a, b) => a.start - b.start);
-    }
-    return map;
-  }, [mergedSlots]);
-
-  const totalSlots = mergedSlots.length;
-
-  // Para Calendar: SmartCalendar events
-  const calendarEvents: CalendarEvent[] = React.useMemo(() => {
-    return mergedSlots.map((b, i) => ({
-      id: `avail-${i}`,
-      title: "Available",
-      start: new Date(b.start),
-      end: new Date(b.end),
-      color: "green.500",
-    }));
-  }, [mergedSlots]);
-
-  // ---------- UI building blocks ----------
-  const HeaderControls = (
-    <HStack align="end" wrap="wrap" spacing={3}>
-      <FormControl maxW="sm">
-        <LabelWithHelp label="From" help="Start of preview (your timezone)." />
-        <InputGroup>
-          <InputLeftElement pointerEvents="none"><CalendarIcon /></InputLeftElement>
-          <Input
-            type="datetime-local"
-            value={rangeLocal.from}
-            onChange={(e) => setRangeLocal((r) => ({ ...r, from: e.target.value }))}
-          />
-        </InputGroup>
-      </FormControl>
-
-      <FormControl maxW="sm">
-        <LabelWithHelp label="To" help="End of preview (your timezone)." />
-        <InputGroup>
-          <InputLeftElement pointerEvents="none"><CalendarIcon /></InputLeftElement>
-          <Input
-            type="datetime-local"
-            value={rangeLocal.to}
-            onChange={(e) => setRangeLocal((r) => ({ ...r, to: e.target.value }))}
-          />
-        </InputGroup>
-      </FormControl>
-
-      <FormControl maxW="xs">
-        <LabelWithHelp label="Min duration (min)" help="Hide short slots to focus on viable windows." />
-        <NumberInput min={0} max={480} step={5} value={minDurationMin} onChange={(_, v) => setMinDurationMin(Number.isFinite(v) ? v : 0)}>
-          <NumberInputField />
-        </NumberInput>
-      </FormControl>
-
-      <FormControl maxW="xs">
-        <LabelWithHelp label="View" help="Choose how to visualize the availability." />
-        <Select value={view} onChange={(e) => setView(e.target.value as any)}>
-          <option value="grid">Grid</option>
-          <option value="list">List</option>
-          <option value="calendar">Calendar</option>
-        </Select>
-      </FormControl>
-
-      <HStack ml="auto" spacing={2}>
-        <Tag colorScheme="green">{totalSlots} slots</Tag>
-        <Tag>Australia/Sydney</Tag>
-      </HStack>
-    </HStack>
-  );
-
-  // Barra horaria para Grid
-  const startHour = 6, endHour = 22, totalMinutes = (endHour - startHour) * 60;
-  const hhmm = (d: number, tz = "Australia/Sydney") => new Intl.DateTimeFormat("en-AU", {
-    timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true,
-  }).format(new Date(d));
-  const headerScale = (
-    <Box position="relative" pl="70px" pr="8px" mb={2}>
-      <HStack justify="space-between" fontSize="xs" color="gray.500">
-        {Array.from({ length: (endHour - startHour) / 2 + 1 }).map((_, i) => {
-          const h = startHour + i * 2;
-          const h12 = ((h + 11) % 12) + 1;
-          const ampm = h < 12 ? "AM" : "PM";
-          return <Text key={h} minW="32px" textAlign="center">{h12} {ampm}</Text>;
-        })}
-      </HStack>
-    </Box>
-  );
-
-  // ---------- Render ----------
-  return (
-    <VStack align="stretch" spacing={3}>
-      {HeaderControls}
-
-      <Card variant="outline">
-        <CardHeader pb={0}>
-          <HStack justify="space-between" align="center">
-            <Heading size="sm">Availability</Heading>
-            {isFetching && <Skeleton height="16px" width="80px" />}
-          </HStack>
-        </CardHeader>
-        <CardBody>
-          {error && <Box color="red.500" mb={2}>Failed to load availability.</Box>}
-
-          {/* Views */}
-          {view === "list" && (
-            <VStack align="stretch" spacing={4}>
-              {[...groupedByDay.entries()]
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([ymd, arr]) => (
-                  <Box key={ymd} border="1px solid" borderColor="gray.100" borderRadius="md" p={3}>
-                    <HStack justify="space-between" mb={1}>
-                      <HStack>
-                        <Badge colorScheme="teal">{ymd}</Badge>
-                        <Tag>{arr.length} {arr.length === 1 ? "slot" : "slots"}</Tag>
-                      </HStack>
-                    </HStack>
-                    <VStack align="stretch" spacing={1}>
-                      {arr.map((b, i) => {
-                        const durMin = Math.round((b.end - b.start) / 60000);
-                        return (
-                          <HStack key={`${ymd}-${i}`} justify="space-between">
-                            <Box>
-                              {formatSydneyLabel(new Date(b.start).toISOString(), { weekday: "short", month: "short", day: "2-digit" })}
-                              {" · "}
-                              {hhmm(b.start)}
-                              {" – "}
-                              {hhmm(b.end)}
-                            </Box>
-                            <HStack>
-                              <Tag colorScheme="green">{durMin} min</Tag>
-                            </HStack>
-                          </HStack>
-                        );
-                      })}
-                    </VStack>
-                  </Box>
-                ))}
-              {(!isFetching && totalSlots === 0) && <Box color="gray.500">No slots in range</Box>}
-            </VStack>
-          )}
-
-          {view === "grid" && (
-            <VStack align="stretch" spacing={2}>
-              {headerScale}
-              {[...groupedByDay.entries()]
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([ymd, arr]) => (
-                  <HStack key={`grid-${ymd}`} spacing={3} align="center">
-                    <Box w="70px" textAlign="right" fontSize="sm" color="gray.600">
-                      {ymd}
-                    </Box>
-                    <Box
-                      flex="1"
-                      h="28px"
-                      position="relative"
-                      borderRadius="md"
-                      borderWidth="1px"
-                      borderColor="gray.200"
-                      bg="gray.50"
-                      overflow="hidden"
-                    >
-                      {arr.map((b, i) => {
-                        // posicion proporcional dentro de la barra del día (6–22 hs)
-                        const toSydney = (ts: number) => {
-                          const parts = new Intl.DateTimeFormat("en-GB", {
-                            timeZone: "Australia/Sydney",
-                            hour12: false, hour: "2-digit", minute: "2-digit"
-                          }).formatToParts(new Date(ts));
-                          const h = Number(parts.find(p => p.type === "hour")?.value ?? "0");
-                          const m = Number(parts.find(p => p.type === "minute")?.value ?? "0");
-                          return h * 60 + m;
-                        };
-                        const sMin = toSydney(b.start);
-                        const eMin = toSydney(b.end);
-                        const leftPct = ((sMin - startHour * 60) / totalMinutes) * 100;
-                        const widthPct = ((eMin - sMin) / totalMinutes) * 100;
-                        return (
-                          <Tooltip
-                            key={`${ymd}-${i}`}
-                            label={`${hhmm(b.start)} – ${hhmm(b.end)}`}
-                            hasArrow
-                          >
-                            <Box
-                              position="absolute"
-                              left={`${Math.max(0, leftPct)}%`}
-                              width={`${Math.max(0, Math.min(100 - leftPct, widthPct))}%`}
-                              top="3px"
-                              bottom="3px"
-                              borderRadius="md"
-                              bg="green.400"
-                              opacity={0.9}
-                            />
-                          </Tooltip>
-                        );
-                      })}
-                      {arr.length === 0 && (
-                        <Text position="absolute" left="8px" top="4px" fontSize="xs" color="gray.500">
-                          — no availability —
-                        </Text>
+                      ) : (
+                        <Tag>{it.kind}</Tag>
                       )}
-                    </Box>
-                    <HStack w="150px" spacing={1} justify="flex-end">
-                      <Tag variant="subtle">{arr.length} slots</Tag>
-                    </HStack>
-                  </HStack>
-                ))}
-              {(!isFetching && totalSlots === 0) && <Box color="gray.500">No slots in range</Box>}
-            </VStack>
-          )}
-
-          {view === "calendar" && (
-            <Box borderRadius="md" overflow="hidden" border="1px solid" borderColor="gray.100">
-              <SmartCalendar
-                events={calendarEvents}
-                initialDate={new Date(params.from)}
-                defaultView="week"
-                startHour={6}
-                endHour={22}
-                slotMinutes={15}
-                slotHeightPx={28}
-                timeColWidthPx={90}
-                onSelectSlot={() => { }}
-                onSelectEvent={() => { }}
-              />
-            </Box>
-          )}
+                    </Td>
+                    <Td>
+                      {isEditing ? (
+                        <VStack align="start" spacing={1}>
+                          <Input size="sm" type="datetime-local" value={eStart} onChange={(e) => setEStart(e.target.value)} />
+                          <Text fontSize="xs" color={labelColor}>
+                            {formatSydneyLabel(it.start)}
+                          </Text>
+                        </VStack>
+                      ) : (
+                        <Box>{formatSydneyLabel(it.start)}</Box>
+                      )}
+                    </Td>
+                    <Td>
+                      {isEditing ? (
+                        <VStack align="start" spacing={1}>
+                          <Input size="sm" type="datetime-local" value={eEnd} onChange={(e) => setEEnd(e.target.value)} />
+                          <Text fontSize="xs" color={labelColor}>
+                            {formatSydneyLabel(it.end)}
+                          </Text>
+                        </VStack>
+                      ) : (
+                        <Box>{formatSydneyLabel(it.end)}</Box>
+                      )}
+                    </Td>
+                    <Td>
+                      {isEditing ? (
+                        <Input
+                          size="sm"
+                          value={eReason}
+                          onChange={(e) => setEReason(e.target.value)}
+                          placeholder="Optional"
+                        />
+                      ) : (
+                        <Box>{it.reason || "—"}</Box>
+                      )}
+                    </Td>
+                    <Td isNumeric>
+                      <HStack justify="flex-end" spacing={2}>
+                        {isEditing ? (
+                          <>
+                            <Button
+                              size="xs"
+                              colorScheme="teal"
+                              onClick={onSaveEdit}
+                              isLoading={updateMut.isPending}
+                            >
+                              Save
+                            </Button>
+                            <Button size="xs" variant="ghost" onClick={cancelEdit}>
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              size="xs"
+                              leftIcon={<EditIcon />}
+                              variant="outline"
+                              onClick={() => beginEdit(it)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="xs"
+                              leftIcon={<DeleteIcon />}
+                              colorScheme="red"
+                              variant="outline"
+                              onClick={() => openDeleteDialog(it)}
+                              isLoading={deleteMut.isPending && toDelete?._id === it._id}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )}
+                      </HStack>
+                    </Td>
+                  </Tr>
+                );
+              })}
+              {items.length === 0 && (
+                <Tr>
+                  <Td colSpan={5}>
+                    <Box color="gray.500">No time off found for the selected range.</Box>
+                  </Td>
+                </Tr>
+              )}
+            </Tbody>
+          </Table>
         </CardBody>
       </Card>
+
+      {/* Premium confirm dialog */}
+      <AlertDialog
+        isOpen={confirmOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={closeDeleteDialog}
+        isCentered
+        motionPreset="scale"
+      >
+        <AlertDialogOverlay />
+        <AlertDialogContent>
+          <AlertDialogHeader fontSize="lg" fontWeight="bold">
+            Delete time off
+          </AlertDialogHeader>
+
+          <AlertDialogBody>
+            {toDelete ? (
+              <>
+                Are you sure you want to delete this time off?
+                <br />
+                <Text mt={2} fontSize="sm" color="gray.500">
+                  {formatSydneyLabel(toDelete.start)} — {formatSydneyLabel(toDelete.end)}
+                </Text>
+                {toDelete.reason ? (
+                  <Text mt={1} fontSize="sm" color="gray.500">
+                    Reason: {toDelete.reason}
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+          </AlertDialogBody>
+
+          <AlertDialogFooter>
+            <Button ref={cancelRef} onClick={closeDeleteDialog} variant="ghost">
+              Cancel
+            </Button>
+            <Button colorScheme="red" onClick={handleConfirmDelete} ml={3} isLoading={deleteMut.isPending}>
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </VStack>
   );
 }

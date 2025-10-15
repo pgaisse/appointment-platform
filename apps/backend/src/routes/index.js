@@ -602,12 +602,34 @@ router.post('/add', jwtCheck, async (req, res) => {
       return res.status(401).json({ error: 'User not resolved (ensureUser did not attach req.dbUser)' });
 
     const proxyAddress = process.env.TWILIO_FROM_MAIN;
-    let sid;
 
+    // ——— DEDUPE GUARD: solo para Appointments ———
+    let normalizedPhone;
     if (modelName === models.Appointment.modelName) {
-      const phoneE164 = helpers.localToE164AU(data.phoneInput);
+      // 1) Normaliza el teléfono al mismo formato que usa tu índice único
+      try {
+        normalizedPhone = helpers.localToE164AU(data.phoneInput || '');
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid Australian phone number', detail: e.message });
+      }
+      data.phoneInput = normalizedPhone; // tu índice unique es { org_id, phoneInput }
 
-      // 1) Busca/crea conv. singleton en Twilio (idempotente)
+      // 2) Chequeo rápido para evitar efectos laterales si ya existe
+      const dup = await models.Appointment.exists({ org_id, phoneInput: normalizedPhone });
+      if (dup) {
+        return res.status(409).json({
+          error: 'Duplicate key',
+          field: 'phoneInput',
+          value: normalizedPhone,
+          reason: 'An appointment with the same phone number already exists for this organization.',
+          existingId: dup._id,
+        });
+      }
+    }
+
+    // ——— Efectos laterales (Twilio) SOLO si no es duplicado ———
+    let sid;
+    if (modelName === models.Appointment.modelName) {
       const meta = {
         phone: data.phoneInput,
         nameInput: data.nameInput,
@@ -616,23 +638,22 @@ router.post('/add', jwtCheck, async (req, res) => {
       };
 
       sid = await sms.getOrCreatePhoneConversation({
-        client, org_id, phoneE164, proxyAddress, meta, createdByUserId: req.dbUser._id,
+        client, org_id, phoneE164: data.phoneInput, proxyAddress, meta, createdByUserId: req.dbUser._id,
       });
 
-      // 2) Upsert en enlace DB con índice único
       await PhoneConversationLink.findOneAndUpdate(
-        { org_id, phoneE164 },
+        { org_id, phoneE164: data.phoneInput },
         { conversationSid: sid, proxyAddress },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
-      // 3) (Opcional) sincroniza en Appointment
+
       await models.Appointment.updateMany(
-        { org_id, phoneInput: phoneE164 },
+        { org_id, phoneInput: data.phoneInput },
         { $set: { conversationSid: sid, proxyAddress, user: req.dbUser._id } }
       );
     }
 
-    // Data enriquecida para el doc a crear
+    // ——— Crea el documento ———
     const enrichedData = {
       ...data,
       org_id,
@@ -651,20 +672,23 @@ router.post('/add', jwtCheck, async (req, res) => {
       new mongoose.Schema({}, { strict: false, collection: modelName })
     );
 
-    const savedDoc = await new Model(enrichedData).save();
-    return res.status(201).json({ message: 'Document created successfully', document: savedDoc });
+    try {
+      const savedDoc = await new Model(enrichedData).save();
+      return res.status(201).json({ message: 'Document created successfully', document: savedDoc });
+    } catch (error) {
+      // 3) Carrera a pesar del exists: la BD protege con el índice unique → 409
+      if (error?.code === 11000) {
+        return res.status(409).json({
+          error: 'Duplicate key',
+          keyPattern: error.keyPattern,
+          keyValue: error.keyValue,
+          message: error.message,
+        });
+      }
+      throw error;
+    }
 
   } catch (error) {
-    // Si el error es por índice único (conflicto DB), vuelve a leer el SID y reintenta
-    if (error?.code === 11000) {
-      const { org_id } = await helpers.getTokenInfo(req.headers.authorization);
-      const phoneE164 = helpers.localToE164AU(req.body?.data?.phoneInput);
-      const link = await PhoneConversationLink.findOne({ org_id, phoneE164 });
-      return res.status(200).json({
-        message: 'Document created with existing conversation (deduped)',
-        conversationSid: link?.conversationSid || null,
-      });
-    }
     console.error('[POST /add] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }

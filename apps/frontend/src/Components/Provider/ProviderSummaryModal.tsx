@@ -45,6 +45,8 @@ import {
   Spacer,
   useDisclosure,
   Collapse,
+  ButtonGroup,
+  Portal,
 } from "@chakra-ui/react";
 import {
   EmailIcon,
@@ -55,7 +57,6 @@ import {
   InfoOutlineIcon,
 } from "@chakra-ui/icons";
 
-// ✅ Usamos el schedule real del provider
 import { useProviderSchedule } from "@/Hooks/Query/useProviders";
 import { useMeta, type Treatment } from "@/Hooks/Query/useMeta";
 import { useProviderAppointments, useProviderTimeOff } from "@/Hooks/Query/useProviderAppointments";
@@ -74,7 +75,7 @@ import { useModalIndex } from "../ModalStack/ModalStackContext";
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 
 /* ====================================================================== */
-/* Types & constants                                                      */
+/* Tipos y constantes                                                      */
 /* ====================================================================== */
 type DayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 type HHMM = `${number}${number}:${number}${number}`;
@@ -93,6 +94,16 @@ const DAY_LABELS: Record<DayKey, string> = {
 
 const SYD_TZ = "Australia/Sydney";
 
+/* Colores de Time Off (tokens Chakra) */
+const TIME_OFF_COLOR_TOKEN = {
+  PTO: "red.300",
+  Sick: "orange.300",
+  Course: "blue.300",
+  PublicHoliday: "purple.300",
+  Block: "gray.400",
+  default: "red.300",
+} as const;
+
 /* ====================================================================== */
 /* Helpers                                                                */
 /* ====================================================================== */
@@ -108,6 +119,18 @@ function formatDateSydney12h(iso?: string) {
     minute: "2-digit",
     hour12: true,
   });
+}
+function formatRangeLocal(start?: Date | string, end?: Date | string) {
+  if (!start || !end) return "—";
+  const s = new Date(start);
+  const e = new Date(end);
+  const f = (d: Date) =>
+    d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  return `${f(s)} – ${f(e)}`;
 }
 function sydneyWeekRangeUtc(anchor: Date) {
   const a = dayjs(anchor).tz(SYD_TZ);
@@ -135,13 +158,117 @@ function minutesTo12h(mins: number) {
   return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 function hourLabel12h(h24: number) {
-  const h = ((h24 + 11) % 12) + 1;
+  const h12 = ((h24 + 11) % 12) + 1;
   const ampm = h24 < 12 ? "AM" : "PM";
-  return `${h} ${ampm}`;
+  return `${h12}\u00A0${ampm}`;
+}
+
+/**
+ * Expande un time-off (rango) en eventos por día (00:00→24:00 en TZ proveedor),
+ * pero los **recorta** a la ventana visible del calendario (por ej. 6→22) y
+ * devuelve fechas en la TZ del calendario (navegador). Sin `allDay`.
+ */
+function expandTimeOffToDailyEventsClamped(
+  items: Array<{ _id: string; kind?: string; start: string; end: string; reason?: string }>,
+  providerTz: string,
+  calendarTz: string,
+  viewStartHour: number,
+  viewEndHour: number
+): SmartEvent[] {
+  const out: SmartEvent[] = [];
+
+  for (const t of items || []) {
+    const kind = t.kind || "Time off";
+    const color =
+      TIME_OFF_COLOR_TOKEN[kind as keyof typeof TIME_OFF_COLOR_TOKEN] ??
+      TIME_OFF_COLOR_TOKEN.default;
+
+    const startSYD = dayjs(t.start).tz(providerTz);
+    const endSYD = dayjs(t.end).tz(providerTz);
+    const safeEndSYD = endSYD.isAfter(startSYD) ? endSYD : startSYD.add(1, "minute");
+
+    let cursor = startSYD.startOf("day");
+    const lastInclusive = safeEndSYD.subtract(1, "millisecond").startOf("day");
+
+    while (cursor.isBefore(lastInclusive) || cursor.isSame(lastInclusive)) {
+      // Día en calendario local
+      const dayCal = cursor.tz(calendarTz).startOf("day");
+      const visibleStartCal = dayCal.hour(viewStartHour).minute(0).second(0).millisecond(0);
+      const visibleEndCal = dayCal.hour(viewEndHour).minute(0).second(0).millisecond(0);
+
+      if (visibleEndCal.isAfter(visibleStartCal)) {
+        out.push({
+          id: `to-${t._id}-${cursor.format("YYYYMMDD")}`,
+          title: `Time Off • ${kind}${t.reason ? ` – ${t.reason}` : ""}`,
+          start: visibleStartCal.toDate(),
+          end: visibleEndCal.toDate(),
+          color, // rojo / token por tipo
+        });
+      }
+
+      cursor = cursor.add(1, "day");
+    }
+  }
+
+  return out;
 }
 
 /* ====================================================================== */
-/* Weekly Working Hours (read-only, premium)                               */
+/* Cursor Tooltip (montado en document.body)                               */
+/* ====================================================================== */
+function CursorTooltip({
+  visible,
+  x,
+  y,
+  children,
+}: {
+  visible: boolean;
+  x: number;
+  y: number;
+  children: React.ReactNode;
+}) {
+  if (!visible) return null;
+
+  const OFFSET = 12;
+  const MAX_W = 320;
+  const MAX_H = 140;
+
+  const vw = typeof window !== "undefined" ? window.innerWidth : 0;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 0;
+
+  let left = x + OFFSET;
+  let top = y + OFFSET;
+
+  if (left + MAX_W > vw) left = Math.max(8, vw - MAX_W - 8);
+  if (top + MAX_H > vh) top = Math.max(8, vh - MAX_H - 8);
+
+  return (
+    // Montado fuera del portal del Modal:
+    <Portal appendToParentPortal={false}>
+      <Box
+        position="fixed"
+        left={left}
+        top={top}
+        pointerEvents="none"
+        bg="gray.800"
+        color="white"
+        px={3}
+        py={2}
+        fontSize="sm"
+        borderRadius="md"
+        boxShadow="xl"
+        zIndex={2000}
+        maxW={`${MAX_W}px`}
+        transform="translate3d(0,0,0)"
+      >
+        {children}
+      </Box>
+    </Portal>
+  );
+}
+
+/* ====================================================================== */
+/* Weekly Working Hours (read-only)                                       */
 /* ====================================================================== */
 function WeeklyWorkingHours({
   week,
@@ -180,14 +307,21 @@ function WeeklyWorkingHours({
       <Box position="relative" pl="70px" pr="8px">
         <HStack justify="space-between" fontSize="xs" color={labelColor}>
           {tickHours.map((h) => (
-            <Text key={h} minW="32px" textAlign="center">
+            <Text
+              key={h}
+              minW="44px"
+              textAlign="center"
+              whiteSpace="nowrap"
+              lineHeight="1"
+              sx={{ fontVariantNumeric: "tabular-nums" }}
+            >
               {hourLabel12h(h)}
             </Text>
           ))}
         </HStack>
       </Box>
 
-      {/* Day rows */}
+      {/* Rows */}
       {(["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as DayKey[]).map((dk) => {
         const blocks = week[dk] || [];
         return (
@@ -258,7 +392,7 @@ function WeeklyWorkingHours({
 }
 
 /* ====================================================================== */
-/* Section wrapper                                                         */
+/* Section                                                                 */
 /* ====================================================================== */
 function Section({
   title,
@@ -295,7 +429,7 @@ function useTreatmentIndex(external?: Treatment[]) {
 }
 
 /* ====================================================================== */
-/* Modal                                                                   */
+/* Modal principal                                                         */
 /* ====================================================================== */
 export type ProviderSummaryModalProps = {
   isOpen: boolean;
@@ -314,19 +448,16 @@ export default function ProviderSummaryModal({
 }: ProviderSummaryModalProps) {
   const toast = useToast();
   const border = useColorModeValue("gray.100", "whiteAlpha.300");
-  const timeOffHoverBg = useColorModeValue("red.50", "whiteAlpha.100"); // ✅ NO hooks dentro de maps
+  const timeOffHoverBg = useColorModeValue("red.50", "whiteAlpha.100");
   const tIndex = useTreatmentIndex(treatments);
 
   const fullName = provider ? `${provider.firstName ?? ""} ${provider.lastName ?? ""}`.trim() : "";
   const { isOpen: isOpenApp, onOpen: onOpenApp, onClose: onCloseApp } = useDisclosure();
 
-  // 🔑 ID único para evitar colisiones y flicker en el stack
   const stackId = React.useMemo(
     () => `provider-summary-modal-${provider?._id ?? "unknown"}`,
     [provider?._id]
   );
-
-  // 👇 Modal index (solo gestión open/close)
   const { modalIndex, topModalIndex } = useModalIndex(isOpen, { id: stackId });
   const isTopOpen = isOpen && modalIndex === topModalIndex;
 
@@ -365,11 +496,10 @@ export default function ProviderSummaryModal({
     }
   };
 
-  /* ================= Range state (Sydney-aware) =================== */
+  /* ================= Rango (aware Sydney) =================== */
   const [weekAnchor, setWeekAnchor] = useState<Date>(() => new Date());
   const weekRange = useMemo(() => sydneyWeekRangeUtc(weekAnchor), [weekAnchor]);
 
-  // inputs visibles en UI (hora local del usuario)
   const [rangeLocal, setRangeLocal] = useState<{ from: string; to: string }>(() => ({
     from: weekRange.fromLocalInput,
     to: weekRange.toLocalInput,
@@ -378,7 +508,6 @@ export default function ProviderSummaryModal({
     setRangeLocal({ from: weekRange.fromLocalInput, to: weekRange.toLocalInput });
   }, [weekRange.fromLocalInput, weekRange.toLocalInput]);
 
-  // parámetros reales al endpoint (UTC ISO)
   const weekParams = useMemo(
     () => ({
       from: dayjs(rangeLocal.from).toDate().toISOString(),
@@ -387,7 +516,7 @@ export default function ProviderSummaryModal({
     [rangeLocal]
   );
 
-  /* ================= Schedule (source of truth) ==================== */
+  /* ================= Schedule ==================== */
   const { data: schedule, isFetching: scheduleLoading } = useProviderSchedule(provider?._id);
   const weeklyFromSchedule: WeeklyHours = useMemo(() => {
     const src = (schedule as any)?.weekly || {};
@@ -423,15 +552,20 @@ export default function ProviderSummaryModal({
     [appts]
   );
 
-  const timeOffEvents: SmartEvent[] = useMemo(
+  // Time off como “bloques” por día recortados a la ventana visible
+  const CAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Sydney";
+  const VIEW_START = 6;
+  const VIEW_END = 22;
+
+  const timeOffDayEvents: SmartEvent[] = useMemo(
     () =>
-      (timeOff || []).map((t: any) => ({
-        id: `to-${t._id}`,
-        title: `Time off • ${t.kind}${t.reason ? ` – ${t.reason}` : ""}`,
-        start: new Date(t.start),
-        end: new Date(t.end),
-        color: "red.500",
-      })),
+      expandTimeOffToDailyEventsClamped(
+        (timeOff as any[]) ?? [],
+        SYD_TZ, // proveedor
+        CAL_TZ, // calendario
+        VIEW_START,
+        VIEW_END
+      ),
     [timeOff]
   );
 
@@ -439,20 +573,37 @@ export default function ProviderSummaryModal({
   const [showAppointments, setShowAppointments] = useState<boolean>(true);
   const [showTimeOff, setShowTimeOff] = useState<boolean>(true);
 
+  // Vista calendario
+  type CalView = "week" | "day";
+  const [calView, setCalView] = useState<CalView>("week");
+  const calendarKey = `${calView}-${dayjs(weekAnchor).format("YYYYMMDD")}`;
+
   const calendarEvents = useMemo(() => {
     const arr: SmartEvent[] = [];
     if (showAppointments) arr.push(...apptEvents);
-    if (showTimeOff) arr.push(...timeOffEvents);
+    if (showTimeOff) arr.push(...timeOffDayEvents);
     return arr;
-  }, [apptEvents, timeOffEvents, showAppointments, showTimeOff]);
+  }, [apptEvents, timeOffDayEvents, showAppointments, showTimeOff]);
 
   const { isOpen: isOpenTreatment, onToggle } = useDisclosure({ defaultIsOpen: false });
   const treatmentsCount = React.Children.count(skillTags);
   const [selectedApptId, setSelectedApptId] = useState<string | null>(null);
 
+  // Estado del tooltip que sigue el cursor
+  const [hover, setHover] = useState<{
+    show: boolean;
+    x: number;
+    y: number;
+    content: React.ReactNode;
+  }>({ show: false, x: 0, y: 0, content: null });
+
   /* ================= UI ================================================== */
   return (
-    <Modal isOpen={isTopOpen} onClose={onClose} size="6xl" motionPreset="scale"
+    <Modal
+      isOpen={isTopOpen}
+      onClose={onClose}
+      size="6xl"
+      motionPreset="scale"
       scrollBehavior="inside"
       blockScrollOnMount
       preserveScrollBarGap
@@ -461,7 +612,6 @@ export default function ProviderSummaryModal({
     >
       <ModalOverlay />
       <ModalContent maxH="85vh">
-        {/* Header limpio */}
         <ModalHeader>
           <HStack align="center" spacing={4}>
             <Avatar
@@ -476,12 +626,12 @@ export default function ProviderSummaryModal({
               </Text>
               <HStack spacing={2} flexWrap="wrap" mt={1}>
                 {provider?.acceptingNewPatients ? (
-                  <Badge colorScheme="green">Accepting new patients</Badge>
+                  <Badge colorScheme="green">ACCEPTING NEW PATIENTS</Badge>
                 ) : (
                   <Badge>Not accepting new</Badge>
                 )}
                 {provider?.isActive ? (
-                  <Badge colorScheme="green">Active</Badge>
+                  <Badge colorScheme="green">ACTIVE</Badge>
                 ) : (
                   <Badge>Inactive</Badge>
                 )}
@@ -501,7 +651,7 @@ export default function ProviderSummaryModal({
             <Text color="gray.500">No provider selected.</Text>
           ) : (
             <VStack align="stretch" spacing={6}>
-              {/* KPIs compactos */}
+              {/* KPIs */}
               <SimpleGrid columns={{ base: 2, md: 5 }} spacing={4}>
                 <Stat p={3} border="1px solid" borderColor={border} borderRadius="lg">
                   <StatLabel>Default slot</StatLabel>
@@ -527,7 +677,7 @@ export default function ProviderSummaryModal({
                 </Stat>
               </SimpleGrid>
 
-              {/* Contacto + Preferencias + Treatments (compacto) */}
+              {/* Contacto + Preferencias + Treatments */}
               <Grid templateColumns={{ base: "1fr", md: "1fr 1fr 1fr" }} gap={8}>
                 <GridItem>
                   <Section title="Contact" help="Primary contact methods.">
@@ -605,9 +755,7 @@ export default function ProviderSummaryModal({
                     <Collapse in={isOpenTreatment} animateOpacity>
                       <Box>
                         {treatmentsCount ? (
-                          <HStack spacing={0} flexWrap="wrap">
-                            {skillTags}
-                          </HStack>
+                          <HstackWrap>{skillTags}</HstackWrap>
                         ) : (
                           <Text color="gray.500">No treatments selected.</Text>
                         )}
@@ -627,7 +775,7 @@ export default function ProviderSummaryModal({
                   <Tab>Time off</Tab>
                 </TabList>
                 <TabPanels>
-                  {/* === Tab 1: Working schedule (desde useProviderSchedule) === */}
+                  {/* === Tab 1: Working schedule === */}
                   <TabPanel>
                     <Card variant="outline">
                       <CardHeader pb={2}>
@@ -655,11 +803,11 @@ export default function ProviderSummaryModal({
                     </Card>
                   </TabPanel>
 
-                  {/* === Tab 2: Appointments (SmartCalendar con overlay de Time off) === */}
+                  {/* === Tab 2: Appointments (Calendar + time off overlay rojo) === */}
                   <TabPanel>
                     <VStack align="stretch" spacing={3}>
-                      {/* Controles de rango */}
-                      <HStack>
+                      {/* Controles de rango + vista */}
+                      <HStack wrap="wrap" gap={3}>
                         <InputGroup maxW={{ base: "100%", md: "280px" }}>
                           <InputLeftElement pointerEvents="none">
                             <CalendarIcon />
@@ -686,67 +834,109 @@ export default function ProviderSummaryModal({
                             aria-label="to"
                           />
                         </InputGroup>
-                        <HStack gap={4}>
-                          <HStack justify="space-between" align="center" flexWrap="wrap" gap={2}>
-                            <HStack gap={2} fontSize="sm">
-                              <Text fontWeight="semibold">Calendar</Text>
-                              <Tag colorScheme="purple">Appts: {appts?.length ?? 0}</Tag>
-                              <Tag colorScheme="red">Time off: {timeOff?.length ?? 0}</Tag>
-                            </HStack>
-                            {(apptsLoading || timeOffLoading) && <Skeleton height="16px" width="140px" />}
-                          </HStack>
-                          <Spacer />
-                          {/* toggles de capas */}
 
-                          <HStack>
-                            <Switch
-                              size="sm"
-                              isChecked={showAppointments}
-                              onChange={(e) => setShowAppointments(e.target.checked)}
-                            />
-                            <Tag size="sm" colorScheme="purple">Appointments</Tag>
-                          </HStack>
-                          <HStack>
-                            <Switch
-                              size="sm"
-                              isChecked={showTimeOff}
-                              onChange={(e) => setShowTimeOff(e.target.checked)}
-                            />
-                            <Tag size="sm" colorScheme="red">Time off</Tag>
-                          </HStack>
+                        <Spacer />
+
+                        <HStack gap={2}>
+                          <Button size="sm" variant="outline" onClick={() => setWeekAnchor(new Date())}>
+                            Today
+                          </Button>
+                          <ButtonGroup isAttached size="sm" variant="outline">
+                            <Button
+                              onClick={() => setCalView("day")}
+                              colorScheme={calView === "day" ? "teal" : undefined}
+                            >
+                              Day
+                            </Button>
+                            <Button
+                              onClick={() => setCalView("week")}
+                              colorScheme={calView === "week" ? "teal" : undefined}
+                            >
+                              Week
+                            </Button>
+                          </ButtonGroup>
+                        </HStack>
+                      </HStack>
+
+                      {/* Toggles de capas */}
+                      <HStack justify="space-between" align="center" flexWrap="wrap" gap={2}>
+                        <HStack gap={2} fontSize="sm">
+                          <Text fontWeight="semibold">Calendar</Text>
+                          <Tag colorScheme="purple">Appts: {appts?.length ?? 0}</Tag>
+                          <Tag colorScheme="red">Time off: {timeOff?.length ?? 0}</Tag>
+                        </HStack>
+                        <HStack>
+                          <Switch
+                            size="sm"
+                            isChecked={showAppointments}
+                            onChange={(e) => setShowAppointments(e.target.checked)}
+                          />
+                          <Tag size="sm" colorScheme="purple">Appointments</Tag>
+                          <Switch
+                            size="sm"
+                            isChecked={showTimeOff}
+                            onChange={(e) => setShowTimeOff(e.target.checked)}
+                          />
+                          <Tag size="sm" colorScheme="red">Time off</Tag>
                         </HStack>
                       </HStack>
 
                       <Card variant="outline">
-                        <CardHeader pb={0}>
-
-                        </CardHeader>
                         <CardBody>
                           {!!apptsError && (
                             <Text color="red.500" mb={2}>
                               Failed to load appointments.
                             </Text>
                           )}
+
                           <SmartCalendar
-                            events={calendarEvents}
+                            key={calendarKey}                 // re-mount en cambio de vista/anchor
+                            events={calendarEvents}           // incluye time off en rojo
                             initialDate={weekAnchor}
-                            defaultView="week"
-                            startHour={9}
-                            endHour={19}
+                            defaultView={calView}
+                            startHour={VIEW_START}
+                            endHour={VIEW_END}
                             slotMinutes={15}
                             slotHeightPx={32}
-                            onSelectSlot={(start, end) => {
-                              setWeekAnchor(start);
-                            }}
                             timeColWidthPx={100}
+                            onSelectSlot={(start) => setWeekAnchor(start)}
                             onSelectEvent={(ev) => {
                               const start = new Date(ev.start);
                               setWeekAnchor(start);
-                              // ensure id is a string for AppointmentModal
                               setSelectedApptId(String(ev.id ?? ""));
                               onOpenApp();
                             }}
+                            // 👇 Handlers para tooltip tipo "cursor"
+                            onEventMouseEnter={(ev, e) => {
+                              setHover({
+                                show: true,
+                                x: (e as MouseEvent).clientX,
+                                y: (e as MouseEvent).clientY,
+                                content: (
+                                  <Box>
+                                    <Text fontWeight="semibold" mb={1}>
+                                      {ev.title || "Event"}
+                                    </Text>
+                                    <Text fontSize="xs">{formatRangeLocal(ev.start, ev.end)}</Text>
+                                  </Box>
+                                ),
+                              });
+                            }}
+                            onEventMouseMove={(ev, e) => {
+                              setHover((h) =>
+                                h.show
+                                  ? {
+                                      ...h,
+                                      x: (e as MouseEvent).clientX,
+                                      y: (e as MouseEvent).clientY,
+                                    }
+                                  : h
+                              );
+                            }}
+                            onEventMouseLeave={() => setHover((h) => ({ ...h, show: false }))}
                           />
+
+                          {/* Modal de cita al hacer click */}
                           {selectedApptId && (
                             <AppointmentModal
                               id={selectedApptId}
@@ -759,10 +949,15 @@ export default function ProviderSummaryModal({
                           )}
                         </CardBody>
                       </Card>
+
+                      {/* Tooltip flotante pegado al cursor */}
+                      <CursorTooltip visible={hover.show} x={hover.x} y={hover.y}>
+                        {hover.content}
+                      </CursorTooltip>
                     </VStack>
                   </TabPanel>
 
-                  {/* === Tab 3: Time off (lista detallada) === */}
+                  {/* === Tab 3: Time off (lista) === */}
                   <TabPanel>
                     <VStack align="stretch" spacing={3}>
                       <HStack>
@@ -792,7 +987,6 @@ export default function ProviderSummaryModal({
                             aria-label="to"
                           />
                         </InputGroup>
-                        <Tag>Australia/Sydney</Tag>
                       </HStack>
 
                       <Card variant="outline">
@@ -817,7 +1011,7 @@ export default function ProviderSummaryModal({
                                   borderWidth="1px"
                                   borderColor={border}
                                   borderRadius="md"
-                                  _hover={{ bg: timeOffHoverBg }} // ✅ hook hoisted
+                                  _hover={{ bg: timeOffHoverBg }}
                                   align="center"
                                   spacing={3}
                                 >
@@ -851,5 +1045,14 @@ export default function ProviderSummaryModal({
         </ModalFooter>
       </ModalContent>
     </Modal>
+  );
+}
+
+/* Utilidad para envolver tags sin romper flex-wrap */
+function HstackWrap({ children }: { children: React.ReactNode }) {
+  return (
+    <HStack spacing={0} flexWrap="wrap">
+      {children}
+    </HStack>
   );
 }

@@ -19,6 +19,12 @@ router.patch('/:id', /* requireAnyPermission(['provider:write']), */ ctrl.update
 
 router.get('/:id/appointments', /* requireAnyPermission(['provider:read']), */ ctrl.getProviderAppointments);
 router.get('/:id/availability', /* requireAnyPermission(['provider:read']), */ ctrl.providerAvailability);
+
+
+router.post('/:id/availability/blocks',               ctrl.blockAvailability);          // crear bloqueo (borra un hueco de availability)
+router.get('/:id/availability/blocks',                ctrl.listAvailabilityBlocks);     // listar solo los "Block"
+router.delete('/:id/availability/blocks/:blockId',    ctrl.deleteAvailabilityBlock);    // eliminar un bloqueo por id
+
 // === NEW: leer schedule actual (latest)
 router.get('/:id/schedule', ctrl.getLatestSchedule);
 

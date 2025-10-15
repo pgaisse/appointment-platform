@@ -673,17 +673,22 @@ const Composer = memo(function Composer({
               send();
             }
           }}
-          sx={{
-            overflow: "hidden",       // oculta scroll
-            
-            scrollbarWidth: "none",   // Firefox
-            "&::-webkit-scrollbar": { // Chrome, Safari
-              display: "none",
-            },
-          }}
+          onWheel={(e) => e.stopPropagation()} // evita que la rueda se vaya al contenedor
+          resize="vertical"                    // ⬅️ permite modificar la altura con el mouse
+          minH="44px"
+          maxH="50vh"
+          overflowY="auto"
           px={2}
           isDisabled={disabled}
+          sx={{
+            scrollbarWidth: "thin",
+            msOverflowStyle: "auto",
+            "&::-webkit-scrollbar": { width: "8px" },
+            "&::-webkit-scrollbar-thumb": { borderRadius: "8px", background: "var(--chakra-colors-gray-500)" },
+            "&::-webkit-scrollbar-track": { background: "transparent" },
+          }}
         />
+
 
         <IconButton
           icon={<FiSend size={18} />}
