@@ -594,6 +594,7 @@ router.post('/add', jwtCheck, async (req, res) => {
     if (!org_id) return res.status(400).json({ error: 'org_id not found in token' });
 
     const { modelName, data } = req.body;
+    console.log("Data received in /add:", { modelName, data });
     if (!modelName || typeof modelName !== 'string')
       return res.status(400).json({ error: 'modelName is required and must be a string' });
     if (!data || typeof data !== 'object' || Array.isArray(data))
@@ -602,34 +603,44 @@ router.post('/add', jwtCheck, async (req, res) => {
       return res.status(401).json({ error: 'User not resolved (ensureUser did not attach req.dbUser)' });
 
     const proxyAddress = process.env.TWILIO_FROM_MAIN;
+    const isAppointment = modelName === models.Appointment.modelName;
 
-    // ——— DEDUPE GUARD: solo para Appointments ———
+    // --- Detecta si es niño/dependiente (representative presente) ---
+    const isChild = !!(data?.representative && data.representative.appointment);
+
+    // ——— DEDUPE/NORMALIZACIÓN SOLO si NO es niño o si tiene teléfono explícito ———
     let normalizedPhone;
-    if (modelName === models.Appointment.modelName) {
-      // 1) Normaliza el teléfono al mismo formato que usa tu índice único
-      try {
-        normalizedPhone = helpers.localToE164AU(data.phoneInput || '');
-      } catch (e) {
-        return res.status(400).json({ error: 'Invalid Australian phone number', detail: e.message });
-      }
-      data.phoneInput = normalizedPhone; // tu índice unique es { org_id, phoneInput }
+    if (isAppointment) {
+      const rawPhone = (data.phoneInput ?? "").trim();
 
-      // 2) Chequeo rápido para evitar efectos laterales si ya existe
-      const dup = await models.Appointment.exists({ org_id, phoneInput: normalizedPhone });
-      if (dup) {
-        return res.status(409).json({
-          error: 'Duplicate key',
-          field: 'phoneInput',
-          value: normalizedPhone,
-          reason: 'An appointment with the same phone number already exists for this organization.',
-          existingId: dup._id,
-        });
+      if (!isChild || rawPhone) {
+        try {
+          normalizedPhone = helpers.localToE164AU(rawPhone || "");
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid Australian phone number', detail: e.message });
+        }
+        data.phoneInput = normalizedPhone;
+
+        // Chequeo rápido de duplicado por org+phone
+        const dup = await models.Appointment.exists({ org_id, phoneInput: normalizedPhone });
+        if (dup) {
+          return res.status(409).json({
+            error: 'Duplicate key',
+            field: 'phoneInput',
+            value: normalizedPhone,
+            reason: 'An appointment with the same phone number already exists for this organization.',
+            existingId: dup._id,
+          });
+        }
+      } else {
+        // Niño SIN teléfono → garantizamos string vacío para respetar índice parcial
+        data.phoneInput = "";
       }
     }
 
-    // ——— Efectos laterales (Twilio) SOLO si no es duplicado ———
+    // ——— Efectos laterales (Twilio) SOLO si NO es niño y tenemos teléfono ———
     let sid;
-    if (modelName === models.Appointment.modelName) {
+    if (isAppointment && !isChild && data.phoneInput) {
       const meta = {
         phone: data.phoneInput,
         nameInput: data.nameInput,
@@ -676,13 +687,20 @@ router.post('/add', jwtCheck, async (req, res) => {
       const savedDoc = await new Model(enrichedData).save();
       return res.status(201).json({ message: 'Document created successfully', document: savedDoc });
     } catch (error) {
-      // 3) Carrera a pesar del exists: la BD protege con el índice unique → 409
       if (error?.code === 11000) {
         return res.status(409).json({
           error: 'Duplicate key',
           keyPattern: error.keyPattern,
           keyValue: error.keyValue,
           message: error.message,
+        });
+      }
+      // Errores de validación del esquema (e.g. representante inválido, ciclo, org)
+      if (error?.name === 'ValidationError') {
+        console.log(error)
+        return res.status(400).json({
+          error: 'Validation error',
+          details: error.message,
         });
       }
       throw error;
@@ -693,6 +711,7 @@ router.post('/add', jwtCheck, async (req, res) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 
 

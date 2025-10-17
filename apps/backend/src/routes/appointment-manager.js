@@ -30,9 +30,14 @@ router.use(jwtCheck, attachUserInfo, ensureUser);
 const NS = process.env.AUTH0_NAMESPACE || 'https://letsmarter.com/';
 
 const populateFields = [
-  { path: 'priority',  select: 'id description notes durationHours name color' },
+  { path: 'priority', select: 'id description notes durationHours name color' },
   { path: 'treatment', select: '_id name notes duration icon color minIcon' },
-  { path: 'providers'},
+  { path: 'providers' },
+  {
+    path: 'representative.appointment',
+    select: 'phoneInput phoneE164 emailLower nameInput lastNameInput sid proxyAddress', // pon aquí lo que necesites
+    // model: 'Appointment', // opcional, Mongoose lo infiere porque el ref es a Appointment
+  },
   { path: 'selectedDates.days.timeBlocks' },
 ];
 
@@ -50,12 +55,12 @@ router.get('/', async (req, res, next) => {
 
     if (!org_id) return res.status(400).json({ error: 'Missing org_id' });
 
-    const page  = Math.max(parseInt(req.query.page  || '1', 10), 1);
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit || '20', 10), 1), 200);
-    const sort  = req.query.sort ? JSON.parse(req.query.sort) : { updatedAt: -1 };
+    const sort = req.query.sort ? JSON.parse(req.query.sort) : { updatedAt: -1 };
 
     let extra = {};
-    if (req.query.filter) { try { extra = JSON.parse(req.query.filter); } catch {} }
+    if (req.query.filter) { try { extra = JSON.parse(req.query.filter); } catch { } }
 
     const filter = { org_id, ...extra };
     console.log('[appointments] filter =', filter);

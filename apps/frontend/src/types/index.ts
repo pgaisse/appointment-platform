@@ -330,7 +330,52 @@ export type Provider = {
   createdAt?: string;
   updatedAt?: string;
 };
+
+export type RepresentativeRelationship =
+  | "parent"
+  | "legal_guardian"
+  | "grandparent"
+  | "sibling"
+  | "carer"
+  | "other";
+
+/**
+ * Subset del Appointment que solemos pedir al hacer
+ * populate('representative.appointment', 'phoneInput phoneE164 emailLower nameInput lastNameInput sid proxyAddress')
+ */
+export interface AppointmentMini {
+  _id: string;
+  phoneInput?: string;
+  phoneE164?: string;
+  emailLower?: string;
+  nameInput?: string;
+  lastNameInput?: string;
+  sid?: string | null;
+  proxyAddress?: string | null;
+}
+
+/**
+ * Cuando NO está populado es un ObjectId (string),
+ * cuando SÍ está populado recibimos el objeto con los campos seleccionados.
+ */
+export type RepAppointment = AppointmentMini;
+
+export interface Representative {
+  appointment?: RepAppointment;            // ObjectId o doc populado
+  relationship: RepresentativeRelationship;
+  verified: boolean;
+  verifiedAt?: string | Date | null;
+  verifiedBy?: string;
+  consentAt?: string | Date | null;
+  notes?: string;
+
+  /** Opcionales para UI (snapshot del representante seleccionado) */
+  nameInput?: string;
+  lastNameInput?: string;
+}
+
 export interface Appointment {
+  representative?: Representative; // opcional
   contactPreference?: ContactPreference // 🆕
   _id: string;
   sid: string;

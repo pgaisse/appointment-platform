@@ -1,5 +1,5 @@
-// apps/frontend/src/Components/Entry/CustomEntryForm.tsx
-import React, { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+// CustomEntryForm.tsx
+import React, { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import DOMPurify from "dompurify";
 import CustomHeading from "../Form/CustomHeading";
@@ -18,6 +18,7 @@ import {
   Flex,
   FormControl,
   FormErrorMessage,
+  FormErrorIcon,
   FormLabel,
   HStack,
   IconButton,
@@ -45,6 +46,10 @@ import {
   Kbd,
   Skeleton,
   Radio as ChakraRadio,
+  Switch,
+  Select,
+  Badge,
+  Avatar,
 } from "@chakra-ui/react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { QueryObserverResult, RefetchOptions, useQueryClient } from "@tanstack/react-query";
@@ -61,7 +66,7 @@ import CustomButtonGroup from "../Form/CustomButtonGroup";
 import CustomCheckbox from "../Form/CustomCheckbox";
 import CustomTextArea from "../Form/CustomTextArea";
 import { DateRange } from "./CustomBestApp";
-import { Appointment, ContactPreference, Priority, Provider, SelectedDates, TimeBlock, Treatment, WeekDay } from "@/types";
+import { Appointment, ContactPreference, Priority, Provider, Representative, SelectedDates, TimeBlock, Treatment, WeekDay } from "@/types";
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
 import AvailabilityDates2 from "./AvailabilityDates2";
 import { useInsertToCollection } from "@/Hooks/Query/useInsertToCollection";
@@ -79,6 +84,10 @@ import { useProviderSchedule } from "@/Hooks/Query/useProviderSchedule";
 import { useCheckPhoneUnique } from "@/Hooks/Query/useCheckPhoneUnique";
 import { toE164AU } from "@/utils/phoneAU";
 
+// 👇 hook genérico para colecciones
+import { useGetCollection } from "@/Hooks/Query/useGetCollection";
+import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
+
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -94,14 +103,43 @@ function useDebounced<T>(value: T, delay = 250) {
   return v;
 }
 
+// RHF error helpers
+const asFieldError = (err: unknown): FieldError | undefined =>
+  err && typeof err === "object" && "type" in (err as any)
+    ? (err as FieldError)
+    : undefined;
+
+const errMsg = (err: unknown): ReactNode =>
+  typeof err === "string" ? err : asFieldError(err)?.message ?? undefined;
+
+// utils
+const isObjectId = (s: string) => /^[0-9a-fA-F]{24}$/.test(s.trim());
+const norm = (s: string) => s.trim().replace(/\s+/g, " ");
+const onlyDigits = (s: string) => s.replace(/\D+/g, "");
+
+/** ✅ Normaliza ids venidos como string, ObjectId, { _id }, { $oid }, etc. */
+function normalizeId(v: any): string | undefined {
+  if (!v) return undefined;
+  if (typeof v === "string") return v;
+  if (typeof v === "object") {
+    if (typeof v._id === "string") return v._id;
+    if (v._id && typeof v._id.toString === "function") {
+      const s = v._id.toString();
+      if (s && s !== "[object Object]") return s;
+    }
+    if (typeof v.$oid === "string") return v.$oid;
+    if (typeof v.toHexString === "function") return v.toHexString();
+  }
+  return undefined;
+}
+
 /* ----------------- util fechas y schedule ----------------- */
-type DayKey = keyof Weekly; // 'mon' | 'tue' | ...
+type DayKey = keyof Weekly;
 const IDX_TO_DAYKEY: DayKey[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const HHMMtoMin = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10) || 0);
   return h * 60 + m;
 };
-/** Segmenta un rango UTC [from,to) en tramos por día local (tz) */
 function splitRangeByLocalDays(fromTs: number, toTs: number, tz = SYD_TZ): Array<{ day: DayKey; startMin: number; endMin: number }> {
   if (toTs <= fromTs) return [];
   const out: Array<{ day: DayKey; startMin: number; endMin: number }> = [];
@@ -130,7 +168,6 @@ function splitRangeByLocalDays(fromTs: number, toTs: number, tz = SYD_TZ): Array
 
   return out;
 }
-/** True si todos los tramos del rango [from,to) quedan totalmente cubiertos por algún bloque del schedule */
 function fitsSchedule(weekly: Weekly, tz: string, fromTs: number, toTs: number) {
   const segs = splitRangeByLocalDays(fromTs, toTs, tz);
   if (!segs.length) return false;
@@ -139,7 +176,6 @@ function fitsSchedule(weekly: Weekly, tz: string, fromTs: number, toTs: number) 
     return blocks.some((b) => HHMMtoMin(b.start) <= seg.startMin && HHMMtoMin(b.end) >= seg.endMin);
   });
 }
-/** True si existe algún solape parcial del rango [from,to) con los bloques del schedule */
 function partialSchedule(weekly: Weekly, tz: string, fromTs: number, toTs: number) {
   const segs = splitRangeByLocalDays(fromTs, toTs, tz);
   return segs.some((seg) => {
@@ -154,7 +190,6 @@ function partialSchedule(weekly: Weekly, tz: string, fromTs: number, toTs: numbe
 function overlaps(a0: number, a1: number, b0: number, b1: number) {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0)) > 0;
 }
-/** Normaliza un appointment del backend a una lista de rangos [ms,ms) para chequear solapes */
 function appointmentRanges(a: any): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   if (Array.isArray(a?.selectedAppDates)) {
@@ -172,6 +207,121 @@ function appointmentRanges(a: any): Array<[number, number]> {
   return out.filter(([s, e]) => e > s);
 }
 
+/* ===================== Representative search (soft) ===================== */
+type AppointmentHit = {
+  _id: string;
+  nameInput?: string;
+  lastNameInput?: string;
+  phoneInput?: string;
+  phoneE164?: string;
+  emailInput?: string;
+  emailLower?: string;
+  sid?: string;
+  createdAt?: string;
+};
+
+const hitKey = (h: AppointmentHit) =>
+  `${h._id}-${h.phoneE164 || h.phoneInput || ""}-${h.emailLower || h.emailInput || ""}`;
+
+const Highlight: React.FC<{ text?: string; q: string }> = React.memo(({ text, q }) => {
+  if (!text) return null;
+  if (!q) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i"));
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.toLowerCase() === q.toLowerCase() ? (
+          <mark key={i} style={{ background: "transparent", fontWeight: 700 }}>
+            {p}
+          </mark>
+        ) : (
+          <React.Fragment key={i}>{p}</React.Fragment>
+        )
+      )}
+    </>
+  );
+});
+Highlight.displayName = "Highlight";
+
+const RepRow: React.FC<{
+  h: AppointmentHit;
+  q: string;
+  onPick: (h: AppointmentHit) => void;
+}> = React.memo(({ h, q, onPick }) => {
+  return (
+    <HStack
+      as="div"
+      tabIndex={0}
+      w="100%"
+      justify="space-between"
+      px={2}
+      py={2}
+      borderRadius="md"
+      _hover={{ bg: "blackAlpha.50" }}
+      onClick={() => onPick(h)}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onPick(h)}
+    >
+      <Box textAlign="left" maxW="80%" overflow="hidden">
+        <HStack spacing={1} mb={1}>
+          <Avatar name={`${h.nameInput ?? ""} ${h.lastNameInput ?? ""}`.trim() || "(No name)"} size="sm" />
+          <Text noOfLines={1} fontWeight="semibold">
+            <Highlight
+              text={`${h.nameInput ?? ""} ${h.lastNameInput ?? ""}`.trim() || "(No name)"}
+              q={q}
+            />
+          </Text>
+          <HStack spacing={2} color="gray.600" fontSize="xs">
+            {h.phoneInput && <Badge>{formatAustralianMobile(h.phoneInput)}</Badge>}
+            {h.emailInput && <Badge>{h.emailInput}</Badge>}
+          </HStack>
+        </HStack>
+      </Box>
+      <Button
+        size="xs"
+        colorScheme="teal"
+        variant="outline"
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onPick(h);
+        }}
+      >
+        Select
+      </Button>
+    </HStack>
+  );
+});
+RepRow.displayName = "RepRow";
+
+/** Construye un mongoQuery “soft” */
+function buildRepMongoQuery(raw: string) {
+  const q = norm(raw);
+  if (!q || q.length < 2) {
+    return { _id: { $exists: false } };
+  }
+  const ors: any[] = [];
+  ors.push({ nameInput: { $regex: q, $options: "i" } });
+  ors.push({ lastNameInput: { $regex: q, $options: "i" } });
+  ors.push({ emailLower: { $regex: q.toLowerCase(), $options: "i" } });
+  ors.push({ sid: { $regex: q, $options: "i" } });
+
+  try {
+    const maybeE164 = toE164AU(q);
+    ors.push({ phoneE164: maybeE164 });
+    ors.push({ phoneInput: maybeE164 });
+  } catch {
+    const digits = onlyDigits(q);
+    if (digits.length >= 4) {
+      ors.push({ phoneInput: { $regex: digits, $options: "i" } });
+    }
+  }
+
+  if (isObjectId(q)) {
+    ors.push({ _id: q });
+  }
+
+  return { $or: ors };
+}
 /* ===================== COMPONENTE PRINCIPAL ===================== */
 type Props = {
   typeButonVisible?: boolean;
@@ -211,9 +361,11 @@ type Props = {
   refetchPage?: (options?: RefetchOptions | undefined) => Promise<QueryObserverResult<PageResp<Appointment>, Error>>;
   contactPreference?: ContactPreference;
   providers?: Provider[];
+  representative?: Representative;
 };
 
 function CustomEntryForm({
+  representative,
   contactPreference,
   children,
   dates,
@@ -258,13 +410,25 @@ function CustomEntryForm({
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  // === checkUnique (servidor) ===
+  // === checkUnique (servidor) solo en CREATION ===
   const checkPhoneUnique = useCheckPhoneUnique();
-
+  const isCreation = mode === "CREATION";
   const schema = useMemo(
-    () => makeAppointmentsSchemaOptionalProviders(checkPhoneUnique),
-    [checkPhoneUnique]
+    () =>
+      makeAppointmentsSchemaOptionalProviders(
+        isCreation ? checkPhoneUnique : async () => false // no valida duplicidad en edición
+      ),
+    [checkPhoneUnique, isCreation]
   );
+
+  // ✅ normaliza el representative para defaultValues (evita meter objetos en appointment)
+  const normalizedRepresentative: Representative | undefined = representative
+    ? ({
+        ...representative,
+        appointment: normalizeId((representative as any).appointment) || "",
+      } as unknown as Representative)
+    : undefined;
+
   const {
     register,
     reset,
@@ -275,8 +439,8 @@ function CustomEntryForm({
     trigger,
     getValues,
     setError,
-    watch,             // suscripción sin re-render
-    getFieldState,     // estado del campo sin re-render
+    watch,
+    getFieldState,
     formState: { errors },
   } = useForm<AppointmentForm | ContactForm>({
     resolver: zodResolver(isAnAppointment ? schema : contactsSchema),
@@ -298,13 +462,170 @@ function CustomEntryForm({
       id: idVal || "default",
       reschedule: !!reschedule,
       providers: providerIdsFromProps,
+      representative: normalizedRepresentative ?? ({
+        appointment: "",
+        relationship: "parent",
+        verified: false,
+        verifiedAt: undefined,
+        verifiedBy: "",
+        consentAt: undefined,
+        notes: "",
+      } as unknown as Representative),
     } as any,
   });
 
-  // 🔥 Suscripción ligera al cambio de phoneInput SIN re-render global
+  // Estado local de "es niño/dependiente"
+  const [isChild, setIsChild] = useState<boolean>(!!normalizeId(representative?.appointment));
+
+  // ========== 🚫 Detectar si este paciente YA es representante ==========
+  const currentPatientId = useMemo(() => normalizeId(idVal), [idVal]);
+
+  const repOfFilters = useMemo(() => {
+    return currentPatientId
+      ? {
+          mongoQuery: { "representative.appointment": currentPatientId },
+          limit: 1,
+          projection: { _id: 1 },
+        }
+      : { mongoQuery: { _id: { $exists: false } }, limit: 1, projection: { _id: 1 } };
+  }, [currentPatientId]);
+
+  const { data: repOfHits = [] } = useGetCollection<Pick<Appointment, "_id">>("Appointment", repOfFilters);
+  const isAlreadyRepresentative = repOfHits.length > 0;
+
+  // Si ya es representante, limpiamos y bloqueamos el bloque de dependiente
+  useEffect(() => {
+    if (isAlreadyRepresentative) {
+      if (isChild) setIsChild(false);
+      const rep = (getValues("representative") as any) || {};
+      if (rep?.appointment) {
+        setValue("representative.appointment" as any, "", { shouldDirty: true, shouldTouch: true });
+        trigger("representative");
+      }
+    }
+  }, [isAlreadyRepresentative, isChild, getValues, setValue, trigger]);
+
+  // =================== Representative Search State ===================
+  const [repQuery, setRepQuery] = useState("");
+  const repQ = useDebounced(repQuery, 250);
+
+  // Filtros MEMOizados
+  const repFilters = useMemo(() => {
+    const mongoQuery = buildRepMongoQuery(repQ);
+    const projection = {
+      nameInput: 1,
+      lastNameInput: 1,
+      phoneInput: 1,
+      phoneE164: 1,
+      emailInput: 1,
+      emailLower: 1,
+      sid: 1,
+      createdAt: 1,
+    };
+    return { mongoQuery, limit: 10, projection };
+  }, [repQ]);
+
+  const { data: repHits = [], isFetching: repLoading } = useGetCollection<AppointmentHit>("Appointment", repFilters);
+
+  const handlePickRepresentative = useCallback(
+    (h: AppointmentHit) => {
+      // 🚫 No permitas seleccionarse a sí mismo
+      if (currentPatientId && h._id === currentPatientId) {
+        toast({
+          title: "Invalid representative",
+          description: "A patient cannot be their own representative.",
+          status: "warning",
+          duration: 2500,
+          isClosable: true,
+        });
+        return;
+      }
+      setIsChild(true);
+      setValue("representative.appointment" as any, h._id, { shouldDirty: true, shouldTouch: true });
+      setValue("representative.relationship" as any, "parent", { shouldDirty: false, shouldTouch: false });
+      setValue("representative.nameInput" as any, h.nameInput || "", { shouldDirty: false, shouldTouch: false });
+      setValue("representative.lastNameInput" as any, h.lastNameInput || "", { shouldDirty: false, shouldTouch: false });
+      trigger("representative");
+      toast({
+        title: "Representative linked",
+        description: `${h.nameInput ?? ""} ${h.lastNameInput ?? ""}`.trim() || h._id,
+        status: "success",
+        duration: 1800,
+        isClosable: true,
+      });
+    },
+    [setValue, trigger, toast, currentPatientId]
+  );
+
+  // Valores derivados para UI
+  const Relationship = (getValues("representative") as any)?.relationship || "";
+  const fullName = `${(getValues("representative") as any)?.nameInput || ""} ${(getValues("representative") as any)?.lastNameInput || ""}`;
+  const selectedRepId = (getValues("representative") as any)?.appointment || "";
+
+  /* ───────────────── Prefill de representante en EDITION ───────────────── */
+  const repIdForEdition = useMemo(
+    () => (mode === "EDITION" ? normalizeId(representative?.appointment) : undefined),
+    [mode, representative]
+  );
+
+const repPrefillProjection = {
+  _id: 1,
+  nameInput: 1,
+  lastNameInput: 1,
+  phoneInput: 1,
+  emailInput: 1,
+  phoneE164: 1,
+  emailLower: 1,
+} as const;
+
+const repPrefillFilters = useMemo(() => {
+  const validId =
+    repIdForEdition && typeof repIdForEdition === "string" && repIdForEdition.trim();
+  return validId
+    ? {
+        mongoQuery: { _id: repIdForEdition },
+        limit: 1,
+        projection: repPrefillProjection,
+      }
+    : {
+        mongoQuery: { _id: { $exists: false } },
+        limit: 1,
+        projection: repPrefillProjection, // 👈 misma shape aquí
+      };
+}, [repIdForEdition]);
+
+const { data: repPrefillHits = [] } =
+  useGetCollection<AppointmentHit>("Appointment", repPrefillFilters);
+  const didPrefillRep = useRef(false);
+
+  useEffect(() => {
+    if (didPrefillRep.current) return;
+    if (mode !== "EDITION") return;
+    if (!repIdForEdition) return;
+    if (isAlreadyRepresentative) return; // 🚫 si es representante, no prellenes nada
+
+    const h = repPrefillHits?.[0];
+    if (!h) return;
+
+    setIsChild(true);
+    setValue("representative.appointment" as any, repIdForEdition, { shouldDirty: false, shouldTouch: false });
+    if (representative?.relationship) {
+      setValue("representative.relationship" as any, representative.relationship, { shouldDirty: false, shouldTouch: false });
+    }
+    setValue("representative.nameInput" as any, h.nameInput || "", { shouldDirty: false, shouldTouch: false });
+    setValue("representative.lastNameInput" as any, h.lastNameInput || "", { shouldDirty: false, shouldTouch: false });
+
+    trigger("representative");
+    didPrefillRep.current = true;
+  }, [mode, repIdForEdition, repPrefillHits, representative?.relationship, setValue, trigger, isAlreadyRepresentative]);
+
+  // 🔥 Suscripción ligera al cambio de phoneInput (solo en CREATION)
   const phoneTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCheckedRef = React.useRef<string>("");
+
   useEffect(() => {
+    if (!isCreation) return;
+
     const sub = watch((values, info) => {
       if (info.name !== "phoneInput") return;
 
@@ -312,9 +633,16 @@ function CustomEntryForm({
       if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
 
       phoneTimerRef.current = setTimeout(async () => {
+        const repId = (getValues("representative") as any)?.appointment;
+        if ((isChild || !!repId) && !raw) {
+          const errType = getFieldState("phoneInput").error?.type;
+          if (errType === "duplicate") clearErrors("phoneInput" as any);
+          lastCheckedRef.current = "";
+          return;
+        }
+
         const isCompleteAU =
           /^04\d{8}$/.test(raw) || /^\+61\d{9}$/.test(raw) || /^61\d{9}$/.test(raw);
-
         const errType = getFieldState("phoneInput").error?.type;
         if (!isCompleteAU) {
           if (errType === "duplicate") clearErrors("phoneInput" as any);
@@ -322,25 +650,19 @@ function CustomEntryForm({
           return;
         }
 
-        if (lastCheckedRef.current === raw) return; // evita repeticiones
+        if (lastCheckedRef.current === raw) return;
         lastCheckedRef.current = raw;
 
         try {
           const e164 = toE164AU(raw);
-          const exists = await checkPhoneUnique(e164, {
-            excludeId: getValues("id") || undefined,
-          });
-
+          const exists = await checkPhoneUnique(e164, { excludeId: getValues("id") || undefined });
           if (exists) {
-            setError("phoneInput" as any, {
-              type: "duplicate",
-              message: "Phone number already exists",
-            });
+            setError("phoneInput" as any, { type: "duplicate", message: "Phone number already exists" });
           } else if (errType === "duplicate") {
             clearErrors("phoneInput" as any);
           }
         } catch {
-          // opcional: toast de red
+          // opcional: manejo de red
         }
       }, 250);
     });
@@ -349,7 +671,7 @@ function CustomEntryForm({
       sub.unsubscribe();
       if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
     };
-  }, [watch, getFieldState, clearErrors, setError, checkPhoneUnique, getValues]);
+  }, [isCreation, watch, getFieldState, clearErrors, setError, checkPhoneUnique, getValues, isChild]);
 
   const appointmentErrors = errors as FieldErrors<AppointmentForm>;
   const [duration, setDuration] = useState<number>(priorityVal?.durationHours || 0);
@@ -367,8 +689,7 @@ function CustomEntryForm({
       setValue("priority", next, { shouldDirty: false, shouldTouch: false });
       trigger("priority");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [priorityVal]);
+  }, [priorityVal, getValues, setValue, trigger]);
 
   React.useEffect(() => {
     if (mode === "EDITION") {
@@ -388,11 +709,9 @@ function CustomEntryForm({
     return {};
   });
 
-  // Appointment window a partir del primer rango seleccionado
+  // Appointment window
   const appointmentWindow = useMemo(() => {
-    const pick = (selectedAppDates && selectedAppDates.length ? selectedAppDates[0] : undefined) as
-      | DateRange
-      | undefined;
+    const pick = (selectedAppDates && selectedAppDates.length ? selectedAppDates[0] : undefined) as DateRange | undefined;
     if (!pick?.startDate || !pick?.endDate) return null;
     const fromIso = dayjs.utc(pick.startDate).toDate().toISOString();
     const toIso = dayjs.utc(pick.endDate).toDate().toISOString();
@@ -414,10 +733,7 @@ function CustomEntryForm({
     };
   }, [appointmentWindow, selectedTreatmentId, duration]);
 
-  const {
-    data: suggestResp = [],
-    isFetching: isSuggesting,
-  } = useSuggestProviders(suggestParams);
+  const { data: suggestResp = [], isFetching: isSuggesting } = useSuggestProviders(suggestParams);
 
   const suggestedProviders = useMemo<Provider[]>(() => {
     const selectedSet = new Set((getValues("providers") as string[]) || []);
@@ -426,28 +742,58 @@ function CustomEntryForm({
       .filter((p: Provider) => !selectedSet.has(String(p._id)));
   }, [suggestResp, getValues]);
 
-  const applySelectedRange = useCallback(
-    (range: DateRange[] | null) => {
-      const next = range ?? [];
-      setSelectedAppDates(next);
-      setValue("selectedAppDates", next as any, { shouldDirty: true, shouldTouch: true });
-      trigger("selectedAppDates");
-      if (setDatesApp) setDatesApp(next);
-    },
-    [setSelectedAppDates, setValue, trigger, setDatesApp]
-  );
-
   /* —— submit —— */
-  const sanitize = (data: any) => ({
-    ...data,
-    nameInput: DOMPurify.sanitize(data.nameInput, { ALLOWED_TAGS: [] }),
-    lastNameInput: DOMPurify.sanitize(data.lastNameInput, { ALLOWED_TAGS: [] }),
-    phoneInput: DOMPurify.sanitize(data.phoneInput, { ALLOWED_TAGS: [] }),
-    emailInput: DOMPurify.sanitize(data.emailInput || "", { ALLOWED_TAGS: [] }),
-    priority: "priority" in data ? DOMPurify.sanitize(data.priority || "", { ALLOWED_TAGS: [] }) : undefined,
-    note: "note" in data ? DOMPurify.sanitize(data.note || "", { ALLOWED_TAGS: [] }) : undefined,
-    _id: data._id ? DOMPurify.sanitize(data._id, { ALLOWED_TAGS: [] }) : undefined,
-  });
+  const sanitize = (data: any) => {
+    const repApp = (data?.representative?.appointment ?? "").trim();
+
+    // 🚫 Si el paciente YA es representante, ignoramos por completo representative
+    if (isAlreadyRepresentative) {
+      const cleanedNoRep: any = {
+        ...data,
+        nameInput: DOMPurify.sanitize(data.nameInput, { ALLOWED_TAGS: [] }),
+        lastNameInput: DOMPurify.sanitize(data.lastNameInput, { ALLOWED_TAGS: [] }),
+        phoneInput: DOMPurify.sanitize(data.phoneInput || "", { ALLOWED_TAGS: [] }),
+        emailInput: DOMPurify.sanitize(data.emailInput || "", { ALLOWED_TAGS: [] }),
+        priority: "priority" in data ? DOMPurify.sanitize(data.priority || "", { ALLOWED_TAGS: [] }) : undefined,
+        note: "note" in data ? DOMPurify.sanitize(data.note || "", { ALLOWED_TAGS: [] }) : undefined,
+        _id: data._id ? DOMPurify.sanitize(data._id, { ALLOWED_TAGS: [] }) : undefined,
+      };
+      delete cleanedNoRep.representative;
+      return cleanedNoRep;
+    }
+
+    const repObj =
+      (isChild || !!repApp) && repApp
+        ? {
+            appointment: repApp,
+            relationship: data?.representative?.relationship || "parent",
+            verified: !!data?.representative?.verified,
+            verifiedAt: data?.representative?.verifiedAt || undefined,
+            verifiedBy: (data?.representative?.verifiedBy || "").trim(),
+            consentAt: data?.representative?.consentAt || undefined,
+            notes: DOMPurify.sanitize(data?.representative?.notes || "", { ALLOWED_TAGS: [] }),
+          }
+        : undefined;
+
+    const cleaned: any = {
+      ...data,
+      nameInput: DOMPurify.sanitize(data.nameInput, { ALLOWED_TAGS: [] }),
+      lastNameInput: DOMPurify.sanitize(data.lastNameInput, { ALLOWED_TAGS: [] }),
+      phoneInput: DOMPurify.sanitize(data.phoneInput || "", { ALLOWED_TAGS: [] }),
+      emailInput: DOMPurify.sanitize(data.emailInput || "", { ALLOWED_TAGS: [] }),
+      priority: "priority" in data ? DOMPurify.sanitize(data.priority || "", { ALLOWED_TAGS: [] }) : undefined,
+      note: "note" in data ? DOMPurify.sanitize(data.note || "", { ALLOWED_TAGS: [] }) : undefined,
+      _id: data._id ? DOMPurify.sanitize(data._id, { ALLOWED_TAGS: [] }) : undefined,
+    };
+
+    if (repObj) {
+      cleaned.representative = repObj;
+      if (!cleaned.phoneInput) cleaned.phoneInput = "";
+    } else {
+      delete cleaned.representative;
+    }
+    return cleaned;
+  };
 
   const onSubmit = (data: AppointmentForm | ContactForm) => {
     const cleanedData: any = sanitize(data);
@@ -457,12 +803,17 @@ function CustomEntryForm({
         onSuccess: () => {
           toast({
             title: "Patient successfully submitted.",
-            description: "Your new contact has been submitted successfully",
+            description: isChild
+              ? "Child/dependent has been registered and linked to their representative."
+              : "Your new contact has been submitted successfully",
             status: "success",
             duration: 3000,
             isClosable: true,
           });
           reset();
+          setRepQuery("");
+          setIsChild(false);
+
           queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["Appointment"] });
@@ -520,7 +871,10 @@ function CustomEntryForm({
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
           if (conversationId) {
             await queryClient.refetchQueries({
-              predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "messages" && q.queryKey[1] === conversationId,
+              predicate: (q) =>
+                Array.isArray(q.queryKey) &&
+                q.queryKey[0] === "messages" &&
+                q.queryKey[1] === conversationId,
               type: "active",
             });
           }
@@ -531,11 +885,7 @@ function CustomEntryForm({
   const onError = () => setHasSubmitted(true);
 
   // chips seleccionados horizontales
-  const renderSelectedProviderTags = (
-    providersList: Provider[],
-    values: string[],
-    removeById: (id: string) => void
-  ) => {
+  const renderSelectedProviderTags = (providersList: Provider[], values: string[], removeById: (id: string) => void) => {
     const byId = new Map(providersList.map((p) => [String(p._id), p]));
     const chips = values.map((id) => byId.get(String(id))).filter(Boolean) as Provider[];
     return (
@@ -629,7 +979,7 @@ function CustomEntryForm({
           name="nameInput"
           placeholder="Name"
           register={register}
-          error={errors?.nameInput}
+          error={asFieldError(errors?.nameInput)}
           ico={<LuUserPen color="gray.300" />}
           autoComplete="given-name"
           spellCheck={false}
@@ -640,35 +990,167 @@ function CustomEntryForm({
           name="lastNameInput"
           placeholder="Last Name"
           register={register}
-          error={errors?.lastNameInput}
+          error={asFieldError(errors?.lastNameInput)}
           ico={<LuUserPen color="gray.300" />}
           autoComplete="family-name"
           spellCheck={false}
         />
       </Flex>
 
+      {/* Representative (Child/Dependent) */}
+      <Box mt={3} borderWidth="1px" borderRadius="md" p={3}>
+        {isAlreadyRepresentative ? (
+          <Alert status="warning" borderRadius="md">
+            <AlertIcon />
+            This patient is already a representative of at least one dependent and cannot be represented by someone else.
+          </Alert>
+        ) : (
+          <>
+            <HStack justify="space-between" align="start">
+              <Text fontWeight="semibold">Is this a child/dependent?</Text>
+              <Switch
+                isChecked={isChild}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIsChild(checked);
+                  if (!checked) {
+                    setValue("representative.appointment" as any, "", { shouldDirty: true });
+                    setRepQuery("");
+                    trigger("representative");
+                  }
+                }}
+                colorScheme="teal"
+                isDisabled={formBusy}
+              />
+            </HStack>
+
+            <Collapse in={isChild} animateOpacity>
+              <SimpleGrid columns={1} spacing={3} mt={3}>
+                <FormControl>
+                  <FormLabel>Search representative (name, email or phone)</FormLabel>
+                  <InputGroup>
+                    <InputLeftElement pointerEvents="none">
+                      <FiSearch />
+                    </InputLeftElement>
+                    <Input
+                      placeholder="Type at least 2 characters…"
+                      value={repQuery}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setRepQuery(val);
+                        if (isObjectId(val)) {
+                          setValue("representative.appointment" as any, val.trim(), { shouldDirty: true });
+                          trigger("representative");
+                        }
+                      }}
+                      isDisabled={formBusy}
+                    />
+                  </InputGroup>
+                </FormControl>
+
+                {/* Selected representative summary */}
+                {selectedRepId ? (
+                  <Alert status="success" borderRadius="md" >
+                    <AlertIcon />
+                    <Text>Selected representative:</Text>
+                    <Text mx={2} fontWeight={"bold"}>{` ${fullName} (${Relationship})`}</Text>
+                    <Button
+                      size="xs"
+                      ml={3}
+                      variant="ghost"
+                      type="button"
+                      onClick={() => {
+                        setValue("representative.appointment" as any, "", { shouldDirty: true });
+                        setRepQuery("");
+                        trigger("representative");
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </Alert>
+                ) : (
+                  <Alert status="info" borderRadius="md">
+                    <AlertIcon />
+                    Messages will be routed to the representative if the child has no phone.
+                  </Alert>
+                )}
+
+                {/* Results */}
+                <Box borderWidth="1px" borderRadius="md" maxH="220px" overflowY="auto" px={1} py={1}>
+                  {repLoading ? (
+                    <Skeleton height="28px" borderRadius="md" />
+                  ) : repHits.length === 0 ? (
+                    <Box p={3} color="gray.500">
+                      {repQ && repQ.length >= 2 ? "No matches." : "Start typing to search…"}
+                    </Box>
+                  ) : (
+                    repHits.map((h) => (
+                      <RepRow key={hitKey(h)} h={h} q={repQ} onPick={handlePickRepresentative} />
+                    ))
+                  )}
+                </Box>
+
+                {/* Relationship / Parentesco */}
+                <FormControl
+                  isDisabled={!isChild}
+                  isInvalid={!!(errors as any)?.representative?.relationship}
+                >
+                  <FormLabel>Relationship</FormLabel>
+                  <Controller
+                    name={"representative.relationship" as any}
+                    control={control}
+                    render={({ field }) => (
+                      <Select {...field} placeholder="Select relationship" size="sm">
+                        <option value="parent">Parent</option>
+                        <option value="legal_guardian">Legal guardian</option>
+                        <option value="grandparent">Grandparent</option>
+                        <option value="sibling">Sibling</option>
+                        <option value="carer">Carer</option>
+                        <option value="other">Other</option>
+                      </Select>
+                    )}
+                  />
+                  <FormErrorMessage>
+                    <FormErrorIcon mr="1" />
+                    {errMsg((errors as any)?.representative?.relationship)}
+                  </FormErrorMessage>
+                </FormControl>
+              </SimpleGrid>
+            </Collapse>
+          </>
+        )}
+      </Box>
+
       {/* Contact */}
-      <Flex gap={3} mt={2}>
+      <Flex gap={3} mt={3}>
         <Controller
           name="phoneInput"
           control={control}
           render={({ field }) => (
-            <PhoneInput
-              {...field}
-              isReadOnly={phoneFieldReadOnly}
-              onChange={(val) => field.onChange(val)}
-              type="tel"
-              isPending={formBusy}
-              name="phoneInput"
-              error={errors?.phoneInput as FieldError | undefined}
-              ico={<FiPhone color="gray.300" />}
-              placeholder="04XX XXX XXX"
-              anotherName="Phone Number"
-              autoComplete="tel-national"
-              inputMode="tel"
-            />
+            <FormControl mt={3} isInvalid={!!errors?.phoneInput}>
+              <PhoneInput
+                {...field}
+                isReadOnly={phoneFieldReadOnly}
+                isDisabled={!!selectedRepId}
+                onChange={(val) => field.onChange(val)}
+                type="tel"
+                isPending={formBusy}
+                name="phoneInput"
+                error={asFieldError(errors?.phoneInput)}
+                ico={<FiPhone color="gray.300" />}
+                placeholder={!!selectedRepId ? "Child uses representative's phone" : "04XX XXX XXX"}
+                anotherName="Phone Number"
+                autoComplete="tel-national"
+                inputMode="tel"
+              />
+              <FormErrorMessage>
+                <FormErrorIcon mr="1" />
+                {errMsg(errors?.phoneInput)}
+              </FormErrorMessage>
+            </FormControl>
           )}
         />
+
         <FormControl mt={3} isInvalid={!!(errors as FieldErrors<AppointmentForm>).contactPreference}>
           <FormLabel textAlign={"center"}>Contact preference</FormLabel>
           <Controller
@@ -684,19 +1166,22 @@ function CustomEntryForm({
             )}
           />
           <FormErrorMessage>
-            {(errors as FieldErrors<AppointmentForm>).contactPreference?.message}
+            <FormErrorIcon mr="1" />
+            {errMsg((errors as FieldErrors<AppointmentForm>).contactPreference)}
           </FormErrorMessage>
         </FormControl>
+
         <CustomInputN
           isPending={formBusy}
           name="emailInput"
           type="email"
           placeholder="Email"
           register={register}
-          error={errors?.emailInput}
+          error={asFieldError(errors?.emailInput)}
           ico={<MdAlternateEmail color="gray.300" />}
           autoComplete="email"
           spellCheck={false}
+          isDisabled={isChild || !!selectedRepId}
         />
       </Flex>
 
@@ -716,7 +1201,7 @@ function CustomEntryForm({
                   selected={selected}
                   setSelected={setSelected}
                   isPending={formBusy}
-                  error={appointmentErrors?.priority}
+                  error={asFieldError(appointmentErrors?.priority)}
                   value={(field.value as string) || ""}
                   onChange={(id, _name, colorSel, durationSel) => {
                     setIdpriority(id);
@@ -729,7 +1214,10 @@ function CustomEntryForm({
               </Box>
             )}
           />
-          <FormErrorMessage>{appointmentErrors?.priority?.message}</FormErrorMessage>
+          <FormErrorMessage>
+            <FormErrorIcon mr="1" />
+            {errMsg(appointmentErrors?.priority)}
+          </FormErrorMessage>
         </FormControl>
 
         <Divider my={5} />
@@ -756,7 +1244,10 @@ function CustomEntryForm({
               </Box>
             )}
           />
-          <FormErrorMessage>{appointmentErrors?.treatment?.message}</FormErrorMessage>
+          <FormErrorMessage>
+            <FormErrorIcon mr="1" />
+            {errMsg(appointmentErrors?.treatment)}
+          </FormErrorMessage>
         </FormControl>
 
         <Divider my={5} />
@@ -772,7 +1263,7 @@ function CustomEntryForm({
               px={5}
               placeholder="Note for this appointment"
               register={register}
-              error={appointmentErrors?.note}
+              error={asFieldError((appointmentErrors as any)?.note)}
               spellCheck
               autoComplete="off"
             />
@@ -802,7 +1293,10 @@ function CustomEntryForm({
                       );
                     })}
                   </Flex>
-                  <FormErrorMessage>{appointmentErrors?.selectedAppDates?.message}</FormErrorMessage>
+                  <FormErrorMessage>
+                    <FormErrorIcon mr="1" />
+                    {errMsg(appointmentErrors?.selectedAppDates)}
+                  </FormErrorMessage>
                 </FormControl>
               )}
             />
@@ -881,7 +1375,9 @@ function CustomEntryForm({
               return (
                 <VStack align="stretch" spacing={3}>
                   {/* Chips seleccionados (horizontales) */}
-                  <Box>{renderSelectedProviderTags(allProviders, values, removeById)}</Box>
+                  <Box>
+                    {renderSelectedProviderTags(allProviders, values, removeById)}
+                  </Box>
 
                   {gateMissingInputs ? (
                     <Alert status="info" borderRadius="md">
@@ -889,7 +1385,6 @@ function CustomEntryForm({
                       Select a <b style={{ margin: "0 4px" }}>treatment</b> and an{" "}
                       <b style={{ margin: "0 4px" }}>appointment date</b> so I can suggest providers by schedule.
                     </Alert>
-
                   ) : (
                     <>
                       {/* Sugeridos */}
@@ -928,7 +1423,8 @@ function CustomEntryForm({
                   )}
 
                   <FormErrorMessage>
-                    {(appointmentErrors as any)?.providers?.message}
+                    <FormErrorIcon mr="1" />
+                    {errMsg((appointmentErrors as any)?.providers)}
                   </FormErrorMessage>
                 </VStack>
               );
@@ -954,7 +1450,10 @@ function CustomEntryForm({
                   isPending={formBusy}
                 />
               </Box>
-              <FormErrorMessage>{appointmentErrors?.selectedDates?.message}</FormErrorMessage>
+              <FormErrorMessage>
+                <FormErrorIcon mr="1" />
+                {errMsg(appointmentErrors?.selectedDates)}
+              </FormErrorMessage>
             </FormControl>
             <FormControl pt={4}></FormControl>
           </Box>
@@ -969,14 +1468,14 @@ function CustomEntryForm({
               isPending={formBusy}
               anotherName="Re-Schedule"
               register={register}
-              error={(appointmentErrors as any)?.reschedule}
+              error={asFieldError((appointmentErrors as any)?.reschedule)}
             />
           </Box>
         </SimpleGrid>
       )}
 
       {/* Hidden id */}
-      <CustomInputN type="hidden" name="id" register={register} error={(appointmentErrors as any)?.id} />
+      <CustomInputN type="hidden" name="id" register={register} error={asFieldError((appointmentErrors as any)?.id)} />
 
       <FormControl pt={4}>{children}</FormControl>
 
@@ -1022,8 +1521,9 @@ function ProviderRow({
 
   return (
     <HStack
-      as="button"
-      type="button"
+      as="div"
+      role="button"
+      tabIndex={0}
       w="100%"
       justify="space-between"
       px={2}
@@ -1031,6 +1531,7 @@ function ProviderRow({
       borderRadius="md"
       _hover={{ bg: "blackAlpha.50" }}
       onClick={() => onAdd(p)}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onAdd(p)}
     >
       <HStack overflow="hidden">
         <Box w="8px" h="8px" borderRadius="full" bg={p.color || "gray.300"} />
@@ -1062,7 +1563,6 @@ function ProviderRowScheduleAvailability({
 }) {
   const toast = useToast();
 
-  // 0) sin ventana, mostramos “unknown”
   if (!windowIso) {
     return (
       <ProviderRow
@@ -1090,16 +1590,11 @@ function ProviderRowScheduleAvailability({
     );
   }
 
-  // 1) SCHEDULE (fuente de verdad)
   const { data: sched, isFetching: isFetchingSched } = useProviderSchedule(p._id);
-
-  // 2) Citas ocupadas del provider
   const { data: busyEvents = [], isFetching: isFetchingApps } = useProviderAppointments(
     p._id,
     { from: windowIso.fromIso, to: windowIso.toIso }
   );
-
-  // 3) Time off
   const { data: timeOff = [], isFetching: isFetchingTO } = useProviderTimeOff(
     p._id,
     { from: windowIso.fromIso, to: windowIso.toIso }
@@ -1222,7 +1717,7 @@ function ProviderFinderInline({
         ) : (
           baseFiltered.map((p) => (
             <ProviderRowScheduleAvailability
-              key={p._id}
+              key={p._id as any}
               p={p}
               windowIso={windowIso}
               skillId={skillId}

@@ -24,6 +24,7 @@ import { appointmentsKeys, useAppointmentsPaginated } from "@/Hooks/Query/useApp
 import { useAppointmentSearch } from "@/Hooks/Query/useAppointmentSearch";
 import { LiaSmsSolid } from "react-icons/lia";
 import { CiPhone } from "react-icons/ci";
+import { RiParentFill } from "react-icons/ri";
 
 interface Props { pageSize?: number; }
 
@@ -55,6 +56,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
   } = useAppointmentsPaginated<Appointment>(currentPage, pageSize, {
     sort: { updatedAt: -1 },
   });
+  console.log("pageData", pageData)
 
   const {
     data: searchData,
@@ -308,7 +310,10 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                   {/* phone */}
                   <Td>
                     <HStack>
-                      <Text>{formatAusPhoneNumber(item.phoneInput)}</Text>
+                      {item.representative?.appointment ? <><Tooltip label={`Represented by 
+                        ${item.representative?.appointment.nameInput} 
+                        ${item.representative.appointment.lastNameInput} (${item.representative.relationship})`} fontSize="sm" hasArrow placement="top">
+                        <RiParentFill /></Tooltip><Text> {formatAusPhoneNumber(item.representative?.appointment.phoneInput || "")}</Text></> : <Text>{formatAusPhoneNumber(item.phoneInput || "")}</Text>}
                       {item.contactPreference && item.contactPreference === "sms" ? <Icon as={LiaSmsSolid} color="yellow.500" fontSize="20px" /> : item.contactPreference === "call" ? <Icon as={CiPhone} color="green.500" fontSize="20px" /> : null}
                     </HStack>
                   </Td>

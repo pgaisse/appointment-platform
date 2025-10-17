@@ -4,26 +4,30 @@ import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
 import { PhoneIcon, TimeIcon } from '@chakra-ui/icons';
 import {
+  Badge,
   Box,
   Card,
   CardBody,
   CardFooter,
   CardHeader,
+  Divider,
   Grid,
   GridItem,
   Heading,
   HStack,
   Icon,
+  IconButton,
+  Skeleton,
+  SkeletonCircle,
+  SkeletonText,
   Spinner,
+  Stack,
+  Tag,
+  TagLabel,
   Text,
   Tooltip,
-  useToast,
-  Skeleton,
-  SkeletonText,
-  SkeletonCircle,
   Fade,
-  Stack,
-  IconButton,
+  useToast,
 } from '@chakra-ui/react';
 import {
   closestCenter,
@@ -34,6 +38,8 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  defaultDropAnimationSideEffects,
+  type DropAnimation,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -41,7 +47,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Appointment, GroupedAppointment } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { iconMap } from '../CustomIcons';
@@ -51,55 +57,349 @@ import SearchBar, { SearchBarRef } from '../searchBar';
 import ArchiveItemButton from './ArchiveItemButton';
 import DeleteContactButton from './DeleteContactButton';
 import { LiaSmsSolid } from 'react-icons/lia';
-
-// ✅ Hook dedicado para Priority List
 import { useMovePriorityItems, type PriorityMove } from '@/Hooks/Query/useMovePriorityItems';
-
-// ✅ Nuevo componente de chat (lazy internal)
 import ChatLauncher from '@/Components/Chat/ChatLauncher';
 import { FaCommentSms } from 'react-icons/fa6';
 import { CiPhone } from 'react-icons/ci';
+import { RiParentFill } from 'react-icons/ri';
 
-type Props = {
-  onCardClick?: (item: Appointment) => void;
-  dataAP2: GroupedAppointment[] | undefined;
-  dataContacts: Appointment[];
-  isPlaceholderData: boolean;
-  dataPending: Appointment[];
+/* ───────────────────────────────────────────────────────────────
+   Helpers de estilo premium
+   ─────────────────────────────────────────────────────────────── */
+
+const statusColor = (s?: string) =>
+  s === 'Confirmed' ? 'green'
+    : s === 'Rejected' ? 'red'
+      : s === 'Pending' ? 'yellow'
+        : 'gray';
+
+const StatusPill: React.FC<{ status?: string }> = ({ status }) => {
+  const c = statusColor(status);
+  const label =
+    status === 'Confirmed' ? 'Confirmed'
+      : status === 'Rejected' ? 'Rejected'
+        : status === 'Pending' ? 'Pending'
+          : 'Uncontacted';
+  return (
+    <Tooltip label={`Status: ${label}`} placement="top" hasArrow>
+      <Tag size="sm" variant="subtle" colorScheme={c}>
+        <TagLabel>{label}</TagLabel>
+      </Tag>
+    </Tooltip>
+  );
 };
 
-// ---- Helper: ejecutar callback después del paint (no altera lógica) ----
-const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
-  React.useEffect(() => {
-    const id = requestAnimationFrame(() => on());
-    return () => cancelAnimationFrame(id);
-  }, [on]);
+const PrefBadge: React.FC<{ pref?: 'sms' | 'call' | string | null | undefined }> = ({ pref }) => {
+  if (!pref) return null;
+  if (pref === 'sms') {
+    return (
+      <Tooltip label="Prefers SMS" placement="top" hasArrow>
+        <Badge
+          colorScheme="yellow"
+          variant="subtle"
+          display="inline-flex"
+          alignItems="center"
+          gap={1}
+          px={2}
+          py={1}
+          borderRadius="lg"
+        >
+          <Icon as={LiaSmsSolid} /> SMS
+        </Badge>
+      </Tooltip>
+    );
+  }
+  if (pref === 'call') {
+    return (
+      <Tooltip label="Prefers calls" placement="top" hasArrow>
+        <Badge
+          colorScheme="green"
+          variant="subtle"
+          display="inline-flex"
+          alignItems="center"
+          gap={1}
+          px={2}
+          py={1}
+          borderRadius="lg"
+        >
+          <Icon as={CiPhone} /> Call
+        </Badge>
+      </Tooltip>
+    );
+  }
   return null;
 };
 
-// ---------- Loaders (solo UI) ----------
-const LoadingColumn: React.FC<{ title?: string; color?: string }> = ({ color = 'gray' }) => (
+/* ───────────────────────────────────────────────────────────────
+   Tipos y builder de contacto (paciente vs representante)
+   ─────────────────────────────────────────────────────────────── */
+
+type RepAppointmentLite = {
+  _id: string;
+  nameInput?: string;
+  lastNameInput?: string;
+  phoneInput?: string;
+  phoneE164?: string;
+  emailLower?: string;
+  sid?: string | null;
+  proxyAddress?: string | null;
+};
+
+type AppointmentForChat = Appointment & {
+  representative?: {
+    appointment?: string | RepAppointmentLite;
+    relationship?: string;
+    verified?: boolean;
+  };
+};
+
+function buildContactFromAppointment(i: AppointmentForChat) {
+  const hasDirect =
+    Boolean(i.sid && String(i.sid).trim()) ||
+    Boolean(i.phoneInput && i.phoneInput.trim()) ||
+    Boolean(i.emailInput && i.emailInput.trim());
+
+  const rep =
+    i.representative &&
+      i.representative.appointment &&
+      typeof i.representative.appointment === 'object'
+      ? (i.representative.appointment as RepAppointmentLite)
+      : null;
+
+  if (hasDirect || !rep) {
+    const conversationId = i.sid || '';
+    const author = (i.nameInput || '').trim();
+    return {
+      conversationId,
+      lastMessage: {
+        author,
+        body: '',
+        conversationId,
+        createdAt: new Date().toISOString(),
+        direction: 'outbound' as const,
+        media: [],
+        sid: 'temp-lastmessage',
+        status: 'delivered' as const,
+        updatedAt: new Date().toISOString(),
+      },
+      owner: {
+        email: i.emailInput || '',
+        lastName: i.lastNameInput || '',
+        name: i.nameInput || '',
+        org_id: i.org_id || '',
+        phone: i.phoneInput || '',
+        unknown: false,
+        _id: i._id,
+      },
+    };
+  }
+
+  const conversationId = rep.sid || '';
+  const phone = rep.phoneInput || rep.phoneE164 || '';
+  const email = rep.emailLower || '';
+  const author = `${rep.nameInput || ''}`.trim();
+
+  return {
+    conversationId,
+    lastMessage: {
+      author,
+      body: '',
+      conversationId,
+      createdAt: new Date().toISOString(),
+      direction: 'outbound' as const,
+      media: [],
+      sid: 'temp-lastmessage',
+      status: 'delivered' as const,
+      updatedAt: new Date().toISOString(),
+    },
+    owner: {
+      email,
+      lastName: rep.lastNameInput || '',
+      name: rep.nameInput || '',
+      org_id: i.org_id || '',
+      phone,
+      unknown: false,
+      _id: rep._id,
+    },
+  };
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Tarjeta reutilizable: MISMA UI para item y para DragOverlay
+   ─────────────────────────────────────────────────────────────── */
+const cap = (s?: string) =>
+  (s ?? '').toLocaleLowerCase().replace(/^\p{L}/u, c => c.toLocaleUpperCase());
+const AppointmentCard: React.FC<{
+  item: Appointment;
+  priorityColor?: string;
+  onCardClick?: (item: Appointment) => void;
+  asOverlay?: boolean;       // cuando es overlay: sin eventos, pero misma apariencia
+}> = ({ item, priorityColor = 'gray', onCardClick, asOverlay }) => {
+  const hasRep = Boolean((item as any).representative?.appointment);
+  const rep = hasRep && typeof (item as any).representative.appointment === 'object'
+    ? (item as any).representative.appointment as RepAppointmentLite
+    : null;
+
+  return (
+    <Box
+      position="relative"
+      userSelect="none"
+      sx={{
+        WebkitUserSelect: 'none',  // Safari/iOS
+        msUserSelect: 'none',      // IE/Edge viejo
+        WebkitTouchCallout: 'none' // evita menú de selección en iOS
+      }}
+      p={4}
+      my={2}
+      borderRadius="2xl"
+      border="1px solid"
+      borderColor="gray.100"
+      bg="white"
+      boxShadow="xs"
+      minW="260px"
+      maxW="100%"
+      w="100%"
+      onClick={(e) => {
+        if (asOverlay) return;
+        e.stopPropagation();
+        onCardClick?.(item);
+      }}
+      // para overlay: impedir interacción pero mantener el look
+      pointerEvents={asOverlay ? 'none' : 'auto'}
+    >
+      {!asOverlay && (
+        <Box
+          position="absolute"
+          bottom="0"
+          right="2"
+          zIndex={2}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <ArchiveItemButton id={item._id} modelName="Appointment" />
+        </Box>
+      )}
+
+      {/* Cabecera: Fecha + Estado + Preferencia */}
+      <HStack justify="space-between" align="center" mb={2}>
+        <HStack color="gray.600">
+          <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow>
+            <Box
+              as={iconMap[item.treatment?.minIcon]}
+              color={item.treatment?.color}
+              fontSize="22px"
+            />
+          </Tooltip>
+        </HStack>
+
+        <HStack gap={2}>
+          <Tooltip label={`Appointment Date: ${formatDateWS(item.selectedAppDates?.[0])}`} placement="top" hasArrow>
+            <Icon as={TimeIcon} />
+          </Tooltip>
+          <StatusPill status={item.selectedAppDates?.[0]?.status} />
+          <PrefBadge pref={item.contactPreference as any} />
+          {!asOverlay && (
+            <ChatLauncher
+              item={item}
+              tooltip="Open chat"
+              stopPropagation
+              buildContact={buildContactFromAppointment}
+              trigger={
+                <IconButton
+                  aria-label="Open chat"
+                  icon={<FaCommentSms size={18} color="var(--chakra-colors-green-500)" />}
+                  size="sm"
+                  variant="ghost"
+                  _hover={{ bg: 'green.50' }}
+                />
+              }
+            />
+          )}
+        </HStack>
+      </HStack>
+
+      {/* Nombre + Tratamiento + Chat */}
+      <HStack align="center" justify="space-between" mb={2}>
+        <HStack gap={2} minW={0}>
+          <Text fontWeight="semibold" noOfLines={1}>
+            {cap(item.nameInput)} {cap(item.lastNameInput)}
+          </Text>
+
+        </HStack>
+
+
+      </HStack>
+
+      <Divider my={2} />
+
+      {/* Teléfono (paciente o representante) */}
+      <HStack color="gray.600" spacing={3}>
+        <Icon as={PhoneIcon} color="green.500" />
+        {hasRep && rep ? (
+          <HStack spacing={2} wrap="wrap">
+            <Tooltip
+              label={`Represented by ${rep.nameInput ?? ''} ${rep.lastNameInput ?? ''} (${(item as any).representative.relationship})`}
+              fontSize="sm"
+              hasArrow
+              placement="top"
+            >
+              <Box as={RiParentFill} color="purple.500" />
+            </Tooltip>
+            <Text fontWeight="medium">
+              {formatAusPhoneNumber(rep.phoneInput || '')}
+            </Text>
+          </HStack>
+        ) : (
+          <Text fontWeight="medium">{formatAusPhoneNumber(item.phoneInput || '')}</Text>
+        )}
+      </HStack>
+    </Box>
+  );
+};
+
+/* ───────────────────────────────────────────────────────────────
+   Loader skeletons
+   ─────────────────────────────────────────────────────────────── */
+
+const LoadingColumn: React.FC<{ color?: string }> = ({ color = 'gray' }) => (
   <Card
-    minW="250px"
+    minW="280px"
     flex="0 0 auto"
     minHeight="300px"
     maxHeight="600px"
-    border="1px solid #E2E8F0"
-    borderRadius="md"
+    borderRadius="2xl"
     position="relative"
-    bg="gray.50"
     mr={4}
+    bg="white"
+    boxShadow="sm"
+    border="1px solid"
+    borderColor="gray.200"
+    _before={{
+      content: '""',
+      position: 'absolute',
+      inset: 0,
+      borderRadius: '2xl',
+      p: '1px',
+      bgGradient: `linear(to-br, ${color}.300, transparent)`,
+      WebkitMask:
+        'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      WebkitMaskComposite: 'xor',
+      pointerEvents: 'none',
+    }}
   >
-    <CardHeader>
-      <Heading size="sm" mb={2} bg={`${color}.100`} p={3} borderRadius="md" width="fit-content">
-        <Skeleton height="16px" width="120px" />
+    <CardHeader pb={0}>
+      <Heading size="sm" mb={3} bg={`${color}.50`} p={3} borderRadius="lg" width="fit-content">
+        <Skeleton height="16px" width="140px" />
       </Heading>
     </CardHeader>
-    <CardBody p={3} bg="white">
+    <CardBody p={3}>
       <Stack spacing={3}>
         {Array.from({ length: 5 }).map((_, i) => (
-          <Box key={i} p={4} borderRadius={10} border="1px" borderColor="gray.50" boxShadow="md" bg="white">
-            <Skeleton height="14px" mb={2} />
+          <Box key={i} p={4} borderRadius="xl" border="1px" borderColor="gray.100" boxShadow="xs" bg="white">
+            <HStack mb={2}>
+              <SkeletonCircle size="4" />
+              <Skeleton height="14px" width="40%" />
+            </HStack>
             <Skeleton height="18px" mb={2} />
             <Skeleton height="14px" />
           </Box>
@@ -118,26 +418,28 @@ const LoadingColumn: React.FC<{ title?: string; color?: string }> = ({ color = '
 
 const LoadingContactsPanel: React.FC = () => (
   <Card
-    minW="250px"
+    minW="280px"
     flex="0 0 auto"
     minHeight="300px"
     maxHeight="600px"
-    border="1px solid #E2E8F0"
-    borderRadius="md"
+    borderRadius="2xl"
     position="relative"
-    bg="gray.50"
     mr={4}
+    bg="white"
+    boxShadow="sm"
+    border="1px solid"
+    borderColor="gray.200"
   >
-    <CardHeader>
-      <Heading size="sm" mb={2} bg="red.100" p={3} borderRadius="md" width="fit-content">
+    <CardHeader pb={0}>
+      <Heading size="sm" mb={3} bg="red.50" p={3} borderRadius="lg" width="fit-content">
         <Skeleton height="16px" width="100px" />
       </Heading>
     </CardHeader>
-    <CardBody p={3} bg="white">
+    <CardBody p={3}>
       <Skeleton height="38px" borderRadius="md" mb={3} />
       <Stack spacing={3}>
         {Array.from({ length: 5 }).map((_, i) => (
-          <Box key={i} p={4} borderRadius={10} border="1px" borderColor="gray.50" boxShadow="md" bg="white">
+          <Box key={i} p={4} borderRadius="xl" border="1px" borderColor="gray.100" boxShadow="xs" bg="white">
             <HStack spacing={3} mb={2}>
               <SkeletonCircle size="6" />
               <Skeleton height="18px" width="60%" />
@@ -157,19 +459,16 @@ const LoadingContactsPanel: React.FC = () => (
   </Card>
 );
 
-// ---------- Sortable ----------
+/* ───────────────────────────────────────────────────────────────
+   Sortable wrapper (no toca UI interna de la card)
+   ─────────────────────────────────────────────────────────────── */
+
 function SortableItem({
   id,
   children,
-  color,
-  onClick,
-  item,
 }: {
   id: string;
   children: React.ReactNode;
-  color?: string;
-  onClick?: (item: Appointment) => void;
-  item?: Appointment;
 }) {
   const {
     attributes,
@@ -185,37 +484,20 @@ function SortableItem({
     transition,
     zIndex: isDragging ? 999 : 'auto',
     position: isDragging ? 'relative' : 'static',
-    opacity: isDragging ? 0 : 1,
+    opacity: isDragging ? 0 : 1, // la card original desaparece mientras el overlay la clona
   };
 
   return (
-    <Box
-      ref={setNodeRef}
-      userSelect="none"
-      p={4}
-      borderRadius={10}
-      border="1px"
-      borderColor="gray.50"
-      w="full"
-      my={2}
-      cursor="default"
-      boxShadow="md"
-      bg="white"
-      _hover={{ borderColor: color }}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (item) onClick?.(item);
-      }}
-      style={style}
-      {...attributes}
-      {...listeners}
-    >
+    <Box ref={setNodeRef} style={style} {...attributes} {...listeners}>
       {children}
     </Box>
   );
 }
 
-// ---------- Util: mover items (con ajuste de índice intra-columna) ----------
+/* ───────────────────────────────────────────────────────────────
+   Util mover item
+   ─────────────────────────────────────────────────────────────── */
+
 function moveItem(
   data: GroupedAppointment[],
   itemId: string,
@@ -226,27 +508,16 @@ function moveItem(
   const newData = [...data];
   const sourceCol = newData.find(col => col._id === fromColumnId);
   const destCol = newData.find(col => col._id === toColumnId);
-  if (!sourceCol || !destCol) {
-    console.warn('⚠️ moveItem: columna origen o destino no encontrada');
-    return data;
-  }
+  if (!sourceCol || !destCol) return data;
+
   const item = sourceCol.patients.find(p => p._id === itemId);
-  if (!item) {
-    console.warn('⚠️ moveItem: item no encontrado en columna origen');
-    return data;
-  }
+  if (!item) return data;
 
   if (fromColumnId === toColumnId) {
     const newPatients = [...sourceCol.patients];
     const currentIndex = newPatients.findIndex(p => p._id === itemId);
-    if (currentIndex === -1) {
-      console.warn('⚠️ moveItem: item no encontrado en lista de pacientes de la columna');
-      return data;
-    }
-    // 👇 ajuste cuando arrastras hacia abajo: después de remover, el índice objetivo baja 1
-    const insertIndex =
-      currentIndex < toIndex ? Math.max(0, toIndex - 1) : toIndex;
-
+    if (currentIndex === -1) return data;
+    const insertIndex = currentIndex < toIndex ? Math.max(0, toIndex - 1) : toIndex;
     newPatients.splice(currentIndex, 1);
     newPatients.splice(insertIndex, 0, item);
     sourceCol.patients = newPatients.map((p, idx) => ({ ...p, position: idx }));
@@ -259,47 +530,59 @@ function moveItem(
   return newData;
 }
 
+/* ───────────────────────────────────────────────────────────────
+   Componente principal
+   ─────────────────────────────────────────────────────────────── */
+
+type Props = {
+  onCardClick?: (item: Appointment) => void;
+  dataAP2: GroupedAppointment[] | undefined;
+  dataContacts: Appointment[];
+  isPlaceholderData: boolean;
+  dataPending: Appointment[];
+};
+
+const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
+  React.useEffect(() => {
+    const id = requestAnimationFrame(() => on());
+    return () => cancelAnimationFrame(id);
+  }, [on]);
+  return null;
+};
+
 export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending }: Props) {
   const toast = useToast();
   const searchRef = useRef<SearchBarRef>(null);
-  const { mutate: moveMutate } = useMovePriorityItems(); // ✅ hook dedicado
+  const { mutate: moveMutate } = useMovePriorityItems();
   const [activeItem, setActiveItem] = useState<Appointment | null>(null);
+  const [overlayColor, setOverlayColor] = useState<string>('gray'); // color de la columna origen
   const [optimisticData, setOptimisticData] = useState<GroupedAppointment[] | null>(null);
   const [sourceCol, setSourceCol] = useState<GroupedAppointment | undefined>();
   const [columnPages, setColumnPages] = useState<Record<string, number>>({});
   const queryClient = useQueryClient();
 
-  // 👉 bandera de “último col pintado”
   const [lastColPainted, setLastColPainted] = useState(false);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  // Inicializar optimisticData con data de la query
   useEffect(() => {
     setOptimisticData(dataAP2 ?? null);
   }, [dataAP2]);
 
-  // Reset bandera cuando cambie la cantidad de columnas o el estado de carga
   const cols = optimisticData ?? [];
   const lastIndex = cols.length - 1;
   useEffect(() => {
     setLastColPainted(false);
   }, [cols.length, isPlaceholderData]);
 
-  // ---------- Handlers memoizados ----------
   const handleDragStart = useCallback((event: DragStartEvent) => {
-    const { active } = event;
-    const id = active.id as string;
+    const id = event.active.id as string;
     if (!dataAP2) return;
-
     const item = dataAP2.flatMap(col => col.patients).find(p => p._id === id) ?? null;
     setActiveItem(item);
-
     const originCol = dataAP2.find(col => col.patients.some(p => p._id === id));
     setSourceCol(originCol);
-
+    setOverlayColor(originCol?.priorityColor || 'gray');
     if (!optimisticData) setOptimisticData(dataAP2);
   }, [dataAP2, optimisticData]);
 
@@ -313,22 +596,11 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
     const activeId = active.id as string;
     const overId = over.id as string;
-
     const destinationCol =
       optimisticData.find(col => col.patients.some(p => p._id === overId)) ||
       optimisticData.find(col => `placeholder-${col._id}` === overId);
 
     if (!destinationCol) {
-      console.warn('⚠️ Drag end: no se encontró columna destino');
-      setActiveItem(null);
-      setSourceCol(undefined);
-      return;
-    }
-
-    const fromId = sourceCol._id;
-    const toId = destinationCol._id;
-    if (!fromId || !toId) {
-      console.warn('⚠️ Drag end: fromId o toId inválidos');
       setActiveItem(null);
       setSourceCol(undefined);
       return;
@@ -337,14 +609,14 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     const overIndex = destinationCol.patients.findIndex(p => p._id === overId);
     const index = overIndex === -1 ? destinationCol.patients.length : overIndex;
 
-    // ✨ update optimista en memoria (con moveItem que ajusta índice intra-columna)
-    const updatedData = moveItem(optimisticData, activeId, fromId, toId, index);
+    const fromColumnId = sourceCol._id ?? '';
+    const toColumnId = destinationCol._id ?? '';
+    const updatedData = moveItem(optimisticData, activeId, fromColumnId, toColumnId, index);
     setOptimisticData(updatedData);
     queryClient.setQueryData(['DraggableCards'], updatedData);
 
-    // 🔁 construir MOVES (reenviamos columnas afectadas)
-    const updatedSource = updatedData.find(col => col._id === fromId);
-    const updatedDest = updatedData.find(col => col._id === toId);
+    const updatedSource = updatedData.find(col => col._id === fromColumnId);
+    const updatedDest = updatedData.find(col => col._id === toColumnId);
 
     const moves: PriorityMove[] = [];
     if (updatedSource) {
@@ -352,38 +624,22 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         moves.push({ id: p._id, position: i, priority: updatedSource._id ?? undefined });
       });
     }
-    if (updatedDest && updatedDest._id !== fromId) {
+    if (updatedDest && updatedDest._id !== fromColumnId) {
       updatedDest.patients.forEach((p, i) => {
         moves.push({ id: p._id, position: i, priority: updatedDest._id ?? undefined });
       });
     }
 
-    if (moves.length === 0) {
-      setSourceCol(undefined);
-      setActiveItem(null);
-      return;
-    }
-
     moveMutate(moves, {
       onSuccess: (response: any) => {
         const failed = response?.results?.filter((r: { status: string }) => r.status === 'failed');
-        if (failed?.length > 0) {
-          toast({
-            title: 'Some updates failed',
-            description: `${failed.length} updates could not be applied.`,
-            status: 'warning',
-            duration: 5000,
-            isClosable: true,
-          });
-        } else {
-          toast({
-            title: 'Update successful',
-            description: 'All changes have been saved.',
-            status: 'success',
-            duration: 3000,
-            isClosable: true,
-          });
-        }
+        toast({
+          title: failed?.length ? 'Some updates failed' : 'Update successful',
+          description: failed?.length ? `${failed.length} updates could not be applied.` : 'All changes have been saved.',
+          status: failed?.length ? 'warning' : 'success',
+          duration: 4000,
+          isClosable: true,
+        });
       },
       onSettled: () => {
         setSourceCol(undefined);
@@ -395,7 +651,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           title: 'Error al mover cita',
           description: error?.message || 'No se pudo guardar el reordenamiento.',
           status: 'error',
-          duration: 2000,
+          duration: 2500,
           isClosable: true,
         });
         queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
@@ -424,21 +680,27 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
   const [filteredPending, setFilteredPending] = useState<Appointment[] | null>(null);
   const [currentPagePending, setCurrentPagePending] = useState(1);
-
   const startPending = (currentPagePending - 1) * (pageSize ? pageSize : 0);
   const endPending = startPending + (pageSize ? pageSize : 0);
-
   const paginatedPending = filteredPending ?? dataPending;
   const currentPending = paginatedPending ? paginatedPending.slice(startPending, endPending) : [];
-
   const totalPagesPending = paginatedPending ? Math.ceil(paginatedPending.length / (pageSize || 1)) : 0;
 
-  // --------- Estados de carga visual (sin tocar lógica de datos) ----------
   const isLoadingColumns = !optimisticData || isPlaceholderData;
   const isLoadingContacts = isPlaceholderData && (!dataContacts || dataContacts.length === 0);
   const isLoadingPending = isPlaceholderData && (!dataPending || dataPending.length === 0);
 
-  // FIX: siempre pasar handlers al DndContext, incluso en loading
+  // animación fluida de soltar
+  const dropAnimation: DropAnimation = {
+    duration: 250,
+    easing: 'cubic-bezier(0.2, 0, 0, 1)',
+    sideEffects: defaultDropAnimationSideEffects({
+      styles: {
+        active: { opacity: '0' }, // ya ocultamos la card fuente
+      },
+    }),
+  };
+
   if (!optimisticData) {
     return (
       <DndContext
@@ -468,75 +730,83 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         const patients = Array.isArray(col.patients) ? col.patients : [];
         const sorted = [...patients].sort((a, b) => Number(a.position) - Number(b.position));
 
-        const pageSize = 5;
-        const colCurrentPage = columnPages[col._id || ""] || 1;
-        const colTotalPages = Math.ceil(sorted.length / pageSize);
-        const startIndex = (colCurrentPage - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
+        const perPage = 5;
+        const colCurrentPage = columnPages[col._id || ''] || 1;
+        const colTotalPages = Math.ceil(sorted.length / perPage);
+        const startIndex = (colCurrentPage - 1) * perPage;
+        const endIndex = startIndex + perPage;
         const paginatedPatients = sorted.slice(startIndex, endIndex);
 
-        // 🔧 Muy importante: items debe coincidir con lo que se renderiza
         const items = paginatedPatients.length > 0 ? paginatedPatients.map(d => d._id) : [`placeholder-${col._id}`];
 
-        const isLast = idx === lastIndex;
+        const isLast = idx === (optimisticData?.length ?? 1) - 1;
         return (
           <Fade in key={col._id}>
             <Card
-              minW="250px"
+              minW="280px"
               flex="0 0 auto"
               minHeight="300px"
-              height="500px"
-              maxHeight="600px"
-              border="1px solid #E2E8F0"
-              borderRadius="md"
+              height="520px"
+              maxHeight="620px"
+              borderRadius="2xl"
               position="relative"
-              bg="gray.50"
               mr={4}
+              bg="white"
+              boxShadow="md"
+              border="1px solid"
+              borderColor="gray.200"
+              _before={{
+                content: '""',
+                position: 'absolute',
+                inset: 0,
+                borderRadius: '2xl',
+                p: '1px',
+                bgGradient: `linear(to-br, ${col.priorityColor}.300, transparent)`,
+                WebkitMask:
+                  'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                WebkitMaskComposite: 'xor',
+                pointerEvents: 'none',
+              }}
             >
               {isPlaceholderData && (
                 <Box
                   position="absolute"
                   inset={0}
-                  bg="whiteAlpha.700"
+                  bg="whiteAlpha.60"
                   display="flex"
                   alignItems="center"
                   justifyContent="center"
                   zIndex={2}
                   pointerEvents="none"
+                  borderRadius="2xl"
                 >
                   <Spinner thickness="3px" size="md" />
                 </Box>
               )}
 
-              <CardHeader>
-                <Heading
-                  size="sm"
+              <CardHeader pb={0}>
+                <HStack
                   mb={2}
-                  bg={`${col.priorityColor}.100`}
-                  p={3}
-                  borderRadius="md"
+                  bg={`${col.priorityColor}.50`}
+                  border="1px solid"
+                  borderColor={`${col.priorityColor}.100`}
+                  px={3}
+                  py={2}
+                  borderRadius="full"
                   width="fit-content"
-                  display="flex"
-                  alignItems="center"
+                  boxShadow="xs"
                   gap={2}
                 >
-                  {col.priorityName}
-                </Heading>
+                  <Box w="10px" h="10px" borderRadius="full" bg={`${col.priorityColor}.400`} />
+                  <Heading size="sm">{col.priorityName}</Heading>
+                </HStack>
               </CardHeader>
 
-              <CardBody
-                p={3}
-                w="100%"
-                maxW="100vw"
-                overflowY="auto"
-                bg="white"
-                h="100%"
-                position="relative"
-              >
+              <CardBody p={3} overflowY="auto">
                 {isLoadingColumns ? (
                   <Stack spacing={3}>
                     {Array.from({ length: 5 }).map((_, i) => (
-                      <Box key={i} p={4} borderRadius={10} border="1px" borderColor="gray.50" boxShadow="md" bg="white">
+                      <Box key={i} p={4} borderRadius="xl" border="1px" borderColor="gray.100" boxShadow="xs" bg="white">
                         <HStack mb={2}>
                           <SkeletonCircle size="4" />
                           <Skeleton height="14px" width="40%" />
@@ -550,135 +820,27 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   <SortableContext items={items} strategy={verticalListSortingStrategy}>
                     {paginatedPatients.length > 0 ? (
                       paginatedPatients.map((item) => (
-                        <SortableItem
-                          key={item._id}
-                          id={item._id}
-                          color={col.priorityColor}
-                          onClick={onCardClick}
-                          item={item}
-                        >
-                          <Box position="relative">
-                            <Box
-                              position="absolute"
-                              top="2"
-                              right="2"
-                              zIndex={2}
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => e.stopPropagation()}
-                            >
-                              <ArchiveItemButton id={item._id} modelName="Appointment" />
-                            </Box>
-
-                            <Grid templateColumns="1fr" templateRows="auto" w="100%">
-                              <GridItem>
-                                <HStack>
-                                  <Icon as={TimeIcon} color="green" />
-                                  <Text color="gray.500">
-                                    {formatDateWS(item.selectedAppDates?.[0])}
-                                  </Text>
-                                </HStack>
-                              </GridItem>
-                              <GridItem>
-                                <HStack>
-                                  <Text fontWeight="bold">
-                                    {item.nameInput} {item.lastNameInput}
-                                  </Text>
-                                  <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow >
-                                    <Icon as={iconMap[item.treatment?.minIcon]} color={item.treatment?.color} fontSize="24px" />
-                                  </Tooltip>
-                                  {item.contactPreference && item.contactPreference === "sms"
-                                    ?
-                                    <Tooltip label="Prefers SMS" placement="top" fontSize="sm">
-                                      <Icon as={LiaSmsSolid} color="yellow.500" fontSize="20px" />
-                                    </Tooltip>
-                                    : item.contactPreference === "call"
-                                      ?
-                                      <Tooltip label="Prefers calls" placement="top" fontSize="sm">
-                                        <Icon as={CiPhone} color="green.500" fontSize="20px" /> </Tooltip>
-                                      : null}
-
-                                </HStack>
-                              </GridItem>
-                              <GridItem>
-                                <HStack>
-                                  <Tooltip
-                                    label={
-                                      item.selectedAppDates[0]?.status === "Pending"
-                                        ? "Pending"
-                                        : item.selectedAppDates[0]?.status === "Confirmed"
-                                          ? "Confirmed"
-                                          : item.selectedAppDates[0].status === 'Rejected'
-                                            ? "Rejected"
-                                            : "NoContacted"
-                                    }
-                                    fontSize="sm"
-                                    hasArrow
-                                  >
-                                    <Icon
-                                      as={LiaSmsSolid}
-                                      color={
-                                        item.selectedAppDates[0].status === "Pending"
-                                          ? "yellow.500"
-                                          : item.selectedAppDates[0].status === "Confirmed"
-                                            ? "green.500"
-                                            : item.selectedAppDates[0].status === 'Rejected'
-                                              ? "red.500"
-                                              : "blackAlpha.400"
-                                      }
-                                    />
-                                  </Tooltip>
-                                  <Icon as={PhoneIcon} color="green" />
-                                  <Text color="gray.500">
-                                    {formatAusPhoneNumber(item.phoneInput)}
-                                  </Text>
-
-                                  {/* Botón para abrir Chat Modal (Refactor: usa componente reutilizable con lazy) */}
-                                  <ChatLauncher
-                                    item={item}
-                                    tooltip="Open chat"
-                                    stopPropagation
-                                    buildContact={(i: Appointment) => ({
-                                      conversationId: i.sid,
-                                      lastMessage: {
-                                        author: i.nameInput || "",
-                                        body: "",
-                                        conversationId: i.sid || "",
-                                        createdAt: new Date().toISOString(),
-                                        direction: "outbound",
-                                        media: [],
-                                        sid: "temp-lastmessage",
-                                        status: "delivered",
-                                        updatedAt: new Date().toISOString(),
-                                      },
-                                      owner: {
-                                        email: i.emailInput,
-                                        lastName: i.lastNameInput,
-                                        name: i.nameInput,
-                                        org_id: i.org_id,
-                                        phone: i.phoneInput,
-                                        unknown: false,
-                                        _id: i._id,
-                                      },
-                                    })}
-                                    trigger={
-                                      <IconButton
-                                        aria-label="Open chat"
-                                        icon={<FaCommentSms size={20} color="green" />}
-                                        size="sm"
-                                        variant="ghost"
-                                      />
-                                    }
-                                  />
-                                </HStack>
-                              </GridItem>
-                            </Grid>
-                          </Box>
+                        <SortableItem key={item._id} id={item._id}>
+                          <AppointmentCard
+                            item={item}
+                            priorityColor={col.priorityColor}
+                            onCardClick={onCardClick}
+                          />
                         </SortableItem>
                       ))
                     ) : (
                       <SortableItem id={`placeholder-${col._id}`}>
-                        <Box textAlign="center" color="gray.400" fontStyle="italic">
-                          (Drop items here)
+                        <Box
+                          textAlign="center"
+                          color="gray.400"
+                          fontStyle="italic"
+                          border="2px dashed"
+                          borderColor="gray.200"
+                          borderRadius="xl"
+                          py={6}
+                          bg="gray.50"
+                        >
+                          Drop items here
                         </Box>
                       </SortableItem>
                     )}
@@ -688,13 +850,13 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
               <Box pr={4} pt={1} bg="transparent" zIndex={1}>
                 {isPlaceholderData ? (
-                  <Skeleton height="36px" width="140px" borderRadius="md" />
+                  <Skeleton height="36px" width="160px" borderRadius="md" />
                 ) : (
                   <AddPatientButton key={col._id} priority={col.priority} formProps={{ typeButonVisible: false }} />
                 )}
               </Box>
 
-              <CardFooter minH="50px" maxH="50px" p={3} >
+              <CardFooter minH="50px" maxH="56px" p={3}>
                 {isPlaceholderData ? (
                   <HStack w="full" justify="center">
                     <Skeleton height="32px" width="80px" />
@@ -703,90 +865,95 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   </HStack>
                 ) : (
                   <Pagination
-
                     isPlaceholderData={isPlaceholderData}
                     totalPages={colTotalPages}
                     currentPage={colCurrentPage}
-                    onPageChange={(page) => handlePageChange(col._id || "", page)}
+                    onPageChange={(page) => handlePageChange(col._id || '', page)}
                   />
                 )}
               </CardFooter>
             </Card>
 
-            {/* Marca tras el paint SOLO en el último col y cuando no hay skeleton */}
-            {!isLoadingColumns && isLast && (
-              <AfterPaint on={() => setLastColPainted(true)} />
-            )}
+            {!isLoadingColumns && isLast && <AfterPaint on={() => setLastColPainted(true)} />}
           </Fade>
         );
       })}
 
-      {/* Panel de Contacts */}
+      {/* Contacts */}
       {lastColPainted && (
         <Fade in>
           <Card
             pb={2}
-            minW="250px"
+            minW="280px"
             flex="0 0 auto"
             minHeight="300px"
-            height="500px"
-            maxHeight="600px"
-            border="1px solid #E2E8F0"
-            borderRadius="md"
+            height="520px"
+            maxHeight="620px"
+            borderRadius="2xl"
             position="relative"
-            bg="gray.50"
             mr={4}
+            bg="white"
+            boxShadow="md"
+            border="1px solid"
+            borderColor="gray.200"
+            _before={{
+              content: '""',
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '2xl',
+              p: '1px',
+              bgGradient: 'linear(to-br, red.300, transparent)',
+              WebkitMask:
+                'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+              WebkitMaskComposite: 'xor',
+              pointerEvents: 'none',
+            }}
           >
             {isLoadingContacts && (
               <Box
                 position="absolute"
                 inset={0}
-                bg="whiteAlpha.700"
+                bg="whiteAlpha.60"
                 display="flex"
                 alignItems="center"
                 justifyContent="center"
                 zIndex={2}
                 pointerEvents="none"
+                borderRadius="2xl"
               >
                 <Spinner thickness="3px" size="md" />
               </Box>
             )}
 
-            <CardHeader>
-              <Heading
-                size="sm"
+            <CardHeader pb={0}>
+              <HStack
                 mb={2}
-                bg={`red.100`}
-                p={3}
-                borderRadius="md"
+                bg="red.50"
+                border="1px solid"
+                borderColor="red.100"
+                px={3}
+                py={2}
+                borderRadius="full"
                 width="fit-content"
-                display="flex"
-                alignItems="center"
+                boxShadow="xs"
                 gap={2}
               >
-                {'Contacts'}
-              </Heading>
+                <Box w="10px" h="10px" borderRadius="full" bg="red.400" />
+                <Heading size="sm">Contacts</Heading>
+              </HStack>
             </CardHeader>
 
-            <CardBody
-              p={3}
-              w="100%"
-              maxW="100vw"
-              overflowY="auto"
-              bg="white"
-              h="100%"
-              position="relative"
-            >
+            <CardBody p={3} overflowY="auto">
               {isPlaceholderData ? (
                 <Skeleton height="38px" borderRadius="md" mb={3} />
               ) : (
                 <SearchBar ref={searchRef} data={dataContacts || []} onFilter={setFilteredItems} who="contact" />
               )}
 
-              {isPlaceholderData && currentItems.length === 0 ? (
+              {isPlaceholderData ? (
                 <Stack spacing={3}>
                   {Array.from({ length: 5 }).map((_, i) => (
-                    <Box key={i} p={4} borderRadius={10} border="1px" borderColor="gray.50" boxShadow="md" bg="white">
+                    <Box key={i} p={4} borderRadius="xl" border="1px" borderColor="gray.100" boxShadow="xs" bg="white">
                       <HStack spacing={3} mb={2}>
                         <SkeletonCircle size="6" />
                         <Skeleton height="18px" width="60%" />
@@ -796,38 +963,35 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   ))}
                 </Stack>
               ) : (
-                currentItems.length > 0 &&
-                currentItems.map((item) => (
+                (filteredItems ?? dataContacts).map((item) => (
                   <Box
                     key={`${item._id}-box`}
                     userSelect="none"
                     p={4}
-                    borderRadius={10}
+                    borderRadius="2xl"
                     border="1px"
-                    borderColor="gray.50"
+                    borderColor="gray.100"
                     w="full"
                     my={2}
                     cursor="default"
-                    boxShadow="md"
+                    boxShadow="xs"
                     bg="white"
-                    _hover={{ borderColor: 'black', cursor: 'pointer' }}
+                    _hover={{ borderColor: 'blackAlpha.300', transform: 'translateY(-1px)', boxShadow: 'md' }}
                   >
                     <Grid templateColumns="1fr" templateRows="auto" w="100%">
                       <GridItem />
                       <GridItem>
-                        <HStack>
-                          <Text fontWeight="bold">
-                            {item.nameInput} {item.lastNameInput}
-                          </Text>
+                        <HStack justify="space-between" align="center">
+                          <HStack>
+                            <Text fontWeight="semibold">{item.nameInput} {item.lastNameInput}</Text>
+                          </HStack>
                           <DeleteContactButton item={item} modelName="Appointment" />
                         </HStack>
                       </GridItem>
-                      <GridItem>
-                        <HStack>
-                          <Icon as={PhoneIcon} color="green" />
-                          <Text color="gray.500">
-                            {formatAusPhoneNumber(item.phoneInput)}
-                          </Text>
+                      <GridItem mt={2}>
+                        <HStack color="gray.600">
+                          <Icon as={PhoneIcon} color="green.500" />
+                          <Text>{formatAusPhoneNumber(item.phoneInput)}</Text>
                         </HStack>
                       </GridItem>
                     </Grid>
@@ -838,203 +1002,134 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
             <Box pr={4} pt={1} bg="transparent" zIndex={1}>
               {isPlaceholderData ? (
-                <Skeleton height="36px" width="140px" borderRadius="md" />
+                <Skeleton height="36px" width="160px" borderRadius="md" />
               ) : (
                 <AddPatientButton onlyPatient={true} label="New Contact" formProps={{ typeButonVisible: false }} />
               )}
             </Box>
 
-            <CardFooter minH="50px" maxH="50px">
-              {isPlaceholderData ? (
-                <HStack w="full" justify="center">
-                  <Skeleton height="32px" width="80px" />
-                  <Skeleton height="32px" width="80px" />
-                  <Skeleton height="32px" width="80px" />
-                </HStack>
-              ) : (
-                <Pagination
-                  isPlaceholderData={isPlaceholderData}
-                  totalPages={totalPages}
-                  currentPage={currentPage}
-                  onPageChange={setCurrentPage}
-                />
-              )}
-            </CardFooter>
+            <CardFooter minH="50px" maxH="56px" />
           </Card>
         </Fade>
       )}
 
-      {/* Panel de Pending Approvals */}
+      {/* Pending Approvals */}
       {lastColPainted && (
-        <Fade in >
+        <Fade in>
           <Card
             pb={2}
-            minW="250px"
+            minW="280px"
             flex="0 0 auto"
             minHeight="300px"
-            height="500px"
-            maxHeight="600px"
-            border="1px solid #E2E8F0"
-            borderRadius="md"
+            height="520px"
+            maxHeight="620px"
+            borderRadius="2xl"
             position="relative"
-            bg="gray.50"
             mr={4}
+            bg="white"
+            boxShadow="md"
+            border="1px solid"
+            borderColor="gray.200"
+            _before={{
+              content: '""',
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '2xl',
+              p: '1px',
+              bgGradient: 'linear(to-br, green.300, transparent)',
+              WebkitMask:
+                'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+              WebkitMaskComposite: 'xor',
+              pointerEvents: 'none',
+            }}
           >
             {isLoadingPending && (
               <Box
                 position="absolute"
                 inset={0}
-                bg="whiteAlpha.700"
+                bg="whiteAlpha.60"
                 display="flex"
                 alignItems="center"
                 justifyContent="center"
                 zIndex={2}
                 pointerEvents="none"
+                borderRadius="2xl"
               >
                 <Spinner thickness="3px" size="md" />
               </Box>
             )}
 
-            <CardHeader>
-              <Heading
-                size="sm"
+            <CardHeader pb={0}>
+              <HStack
                 mb={2}
-                bg={`green.100`}
-                p={3}
-                borderRadius="md"
+                bg="green.50"
+                border="1px solid"
+                borderColor="green.100"
+                px={3}
+                py={2}
+                borderRadius="full"
                 width="fit-content"
-                display="flex"
-                alignItems="center"
+                boxShadow="xs"
                 gap={2}
               >
-                {'Pending Approvals'}
-              </Heading>
+                <Box w="10px" h="10px" borderRadius="full" bg="green.400" />
+                <Heading size="sm">Pending Approvals</Heading>
+              </HStack>
             </CardHeader>
 
-            <CardBody
-              p={3}
-              w="100%"
-              maxW="100vw"
-              overflowY="auto"
-              bg="white"
-              h="100%"
-              position="relative"
-            >
+            <CardBody p={3} overflowY="auto">
               {isPlaceholderData ? (
                 <Skeleton height="38px" borderRadius="md" mb={3} />
               ) : (
                 <SearchBar ref={searchRef} data={dataPending || []} onFilter={setFilteredPending} who="contact" />
               )}
 
-              {isPlaceholderData && currentPending.length === 0 ? (
-                <Stack spacing={3}>
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Box key={i} p={4} borderRadius={10} border="1px" borderColor="gray.50" boxShadow="md" bg="white" >
-                      <HStack spacing={3} mb={2}>
-                        <SkeletonCircle size="6" />
-                        <Skeleton height="18px" width="60%" />
+              {(filteredPending ?? dataPending).map((item) => (
+                <Box
+                  onClick={() => onCardClick?.(item)}
+                  key={`${item._id}-box`}
+                  userSelect="none"
+                  p={4}
+                  borderRadius="2xl"
+                  border="1px"
+                  borderColor="gray.100"
+                  w="full"
+                  my={2}
+                  cursor="pointer"
+                  boxShadow="xs"
+                  bg="white"
+                  _hover={{ borderColor: 'blackAlpha.300', transform: 'translateY(-1px)', boxShadow: 'md' }}
+                >
+                  <Grid templateColumns="1fr" templateRows="auto" w="100%">
+                    <GridItem />
+                    <GridItem>
+                      <HStack justify="space-between">
+                        <Text fontWeight="semibold">{item.nameInput} {item.lastNameInput}</Text>
+                        <StatusPill status={item.selectedAppDates?.[0]?.status} />
                       </HStack>
-                      <SkeletonText noOfLines={2} spacing="2" />
-                    </Box>
-                  ))}
-                </Stack>
-              ) : (
-                currentPending.length > 0 &&
-                currentPending.map((item) => (
-                  <Box
-                    onClick={() => onCardClick?.(item)}
-                    key={`${item._id}-box`}
-                    userSelect="none"
-                    p={4}
-                    borderRadius={10}
-                    border="1px"
-                    borderColor="gray.50"
-                    w="full"
-                    my={2}
-                    cursor="default"
-                    boxShadow="md"
-                    bg="white"
-                    _hover={{ borderColor: 'black', cursor: 'pointer' }}
-                  >
-                    <Grid templateColumns="1fr" templateRows="auto" w="100%">
-                      <GridItem />
-                      <GridItem>
-                        <HStack>
-                          <Text fontWeight="bold">
-                            {item.nameInput} {item.lastNameInput}
-                          </Text>
-                        </HStack>
-                      </GridItem>
-                      <GridItem>
-                        <HStack>
-                          <Icon as={PhoneIcon} color="green" />
-                          <Text color="gray.500">
-                            {formatAusPhoneNumber(item.phoneInput)}
-                          </Text>
-                        </HStack>
-                      </GridItem>
-                    </Grid>
-                  </Box>
-                ))
-              )}
+                    </GridItem>
+                    <GridItem mt={2}>
+                      <HStack color="gray.600">
+                        <Icon as={PhoneIcon} color="green.500" />
+                        <Text>{formatAusPhoneNumber(item.phoneInput || '')}</Text>
+                        <PrefBadge pref={item.contactPreference as any} />
+                      </HStack>
+                    </GridItem>
+                  </Grid>
+                </Box>
+              ))}
             </CardBody>
 
-            <CardFooter minH="50px" maxH="50px">
-              {isPlaceholderData ? (
-                <HStack w="full" justify="center">
-                  <Skeleton height="32px" width="80px" />
-                  <Skeleton height="32px" width="80px" />
-                  <Skeleton height="32px" width="80px" />
-                </HStack>
-              ) : (
-                <Pagination
-                  isPlaceholderData={isPlaceholderData}
-                  totalPages={totalPagesPending}
-                  currentPage={currentPagePending}
-                  onPageChange={setCurrentPagePending}
-                />
-              )}
-            </CardFooter>
+            <CardFooter minH="50px" maxH="56px" />
           </Card>
         </Fade>
       )}
 
-      <DragOverlay>
-        {activeItem && (
-          <Box
-            p={4}
-            borderRadius={10}
-            border="1px"
-            borderColor="gray.200"
-            w="250px"
-            boxShadow="lg"
-            bg="white"
-          >
-            <Grid templateColumns="1fr" templateRows="auto" w="100%">
-              <GridItem>
-                <HStack>
-                  <Icon as={TimeIcon} color="green" />
-                  <Text color="gray.500">
-                    {formatDateWS(activeItem.selectedAppDates?.[0])}
-                  </Text>
-                </HStack>
-              </GridItem>
-              <GridItem>
-                <Text fontWeight="bold">
-                  {activeItem.nameInput} {activeItem.lastNameInput}
-                </Text>
-              </GridItem>
-              <GridItem>
-                <HStack>
-                  <Icon as={PhoneIcon} color="green" />
-                  <Text color="gray.500">
-                    {formatAusPhoneNumber(activeItem.phoneInput)}
-                  </Text>
-                </HStack>
-              </GridItem>
-            </Grid>
-          </Box>
-        )}
+      {/* Overlay: AHORA ES LA MISMA CARD */}
+      <DragOverlay dropAnimation={dropAnimation} adjustScale={false}>
+        {activeItem ? (
+          <AppointmentCard item={activeItem} priorityColor={overlayColor} asOverlay />
+        ) : null}
       </DragOverlay>
     </DndContext>
   );

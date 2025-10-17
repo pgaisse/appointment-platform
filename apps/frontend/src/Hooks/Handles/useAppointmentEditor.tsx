@@ -116,6 +116,7 @@ const EditorView = React.memo(function EditorView({
               datesAppSelected={current.selectedAppDates}
               treatmentBack={current.treatment}
               providers={current.providers}
+              representative={current.representative}
             />
           )}
         </DrawerBody>

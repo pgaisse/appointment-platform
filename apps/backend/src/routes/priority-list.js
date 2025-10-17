@@ -97,7 +97,10 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
   }
 });
 
-router.get('/DraggableCards', jwtCheck, requireAnyPermissionExplain('appointment_cards:read', 'dev-admin'),
+router.get(
+  '/DraggableCards',
+  jwtCheck,
+  requireAnyPermissionExplain('appointment_cards:read', 'dev-admin'),
   async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
@@ -173,16 +176,21 @@ router.get('/DraggableCards', jwtCheck, requireAnyPermissionExplain('appointment
                   as: 'contactMessages',
                 },
               },
+
+              // 👇 AGRUPAMOS y CONSERVAMOS representative
               {
                 $group: {
                   _id: "$_id",
                   contactPreference: { $first: "$contactPreference" },
-                  sid: { $first: "$sid" },             // ← agregado
+                  sid: { $first: "$sid" },
                   nameInput: { $first: "$nameInput" },
                   emailInput: { $first: "$emailInput" },
+                  emailLower: { $first: "$emailLower" },   // opcional por si lo necesitas
                   phoneInput: { $first: "$phoneInput" },
+                  phoneE164: { $first: "$phoneE164" },     // opcional por si lo necesitas
                   lastNameInput: { $first: "$lastNameInput" },
                   textAreaInput: { $first: "$textAreaInput" },
+                  representative: { $first: "$representative" }, // ⬅️ mantener subdoc
                   priority: { $first: "$priority" },
                   note: { $first: "$note" },
                   color: { $first: "$color" },
@@ -198,6 +206,39 @@ router.get('/DraggableCards', jwtCheck, requireAnyPermissionExplain('appointment
                   selectedAppDates: { $first: "$selectedAppDates" },
                 },
               },
+
+              // 👇 POPULATE manual del representative.appointment
+              {
+                $lookup: {
+                  from: 'appointments',
+                  let: { repId: '$representative.appointment' },
+                  pipeline: [
+                    { $match: { $expr: { $eq: ['$_id', '$$repId'] } } },
+                    {
+                      $project: {
+                        _id: 1,
+                        phoneInput: 1,
+                        phoneE164: 1,
+                        emailLower: 1,
+                        nameInput: 1,
+                        lastNameInput: 1,
+                        sid: 1,
+                        proxyAddress: 1
+                      }
+                    }
+                  ],
+                  as: 'repDoc'
+                }
+              },
+              { $unwind: { path: '$repDoc', preserveNullAndEmptyArrays: true } },
+              {
+                $addFields: {
+                  'representative.appointment': '$repDoc'
+                }
+              },
+              { $project: { repDoc: 0 } },
+
+              // Tratamiento
               {
                 $lookup: {
                   from: 'treatments',
@@ -212,6 +253,8 @@ router.get('/DraggableCards', jwtCheck, requireAnyPermissionExplain('appointment
                   preserveNullAndEmptyArrays: true,
                 },
               },
+
+              // Campos calculados
               {
                 $addFields: {
                   selectedDates: {
@@ -270,7 +313,9 @@ router.get('/DraggableCards', jwtCheck, requireAnyPermissionExplain('appointment
       console.error('[GET /DraggableCards] Error:', err);
       return res.status(500).json({ error: 'Internal server error' });
     }
-  });
+  }
+);
+
 
 
 module.exports = router;
