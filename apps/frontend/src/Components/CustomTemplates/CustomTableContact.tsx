@@ -204,8 +204,8 @@ function CustomTableContact({ pageSize = 20 }: Props) {
                         {`${item.nameInput?.[0] || ""}${item.lastNameInput?.[0] || ""}`.toUpperCase()}
                       </Tag>
                       <Box>
-                        <Text fontWeight="semibold">{item.nameInput}</Text>
-                        <Text fontSize="sm" color="gray.500">{item.lastNameInput}</Text>
+                        <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput}</Text>
+                        <Text fontSize="sm" color="gray.500" textTransform="capitalize">{item.lastNameInput}</Text>
                       </Box>
                     </HStack>
                   </Td>

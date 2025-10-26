@@ -196,7 +196,7 @@ const CustomEventContent: React.FC<EventProps<MarkedEvent>> = ({ event }) => {
                                 </Box>
                               </GridItem>
 
-                              <GridItem>
+                              <GridItem style={{ textTransform: 'capitalize' }}>
                                 {`${item.nameInput} ${item.lastNameInput}`}
                               </GridItem>
 
@@ -267,7 +267,7 @@ const CustomEventContent: React.FC<EventProps<MarkedEvent>> = ({ event }) => {
       <Modal isOpen={isOpenModal} onClose={onCloseModal} size={"lg"}>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader> {selectedItem && `Dates selected by ${selectedItem.nameInput} ${selectedItem.lastNameInput}`}</ModalHeader>
+          <ModalHeader style={{ textTransform: 'capitalize' }}> {selectedItem && `Dates selected by ${selectedItem.nameInput} ${selectedItem.lastNameInput}`}</ModalHeader>
           <ModalCloseButton />
           <ModalBody >
 

@@ -90,5 +90,6 @@ function InputTextBase(
   );
 }
 
-const InputText = React.forwardRef<HTMLInputElement, Props>(InputTextBase);
+const InputText = React.memo(React.forwardRef<HTMLInputElement, Props>(InputTextBase));
+InputText.displayName = "CustomInputN";
 export default InputText;

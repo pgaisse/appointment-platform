@@ -5,6 +5,7 @@ import {
   Spinner,
   Text,
 } from "@chakra-ui/react";
+import React from "react";
 import * as RiIcons from "react-icons/ri";
 import * as MdIcons from "react-icons/md";
 import * as GiIcons from "react-icons/gi";
@@ -59,7 +60,7 @@ interface Props {
   onChange?: (id: string, value: string, color?: string, duration?: number | null) => void;
 }
 
-export const TreatmentSelector = ({
+export const TreatmentSelector = React.memo(({
   onChange,
   onSelect,
   selectedId,
@@ -67,6 +68,12 @@ export const TreatmentSelector = ({
   limit = 20,
 }: Props) => {
   const { data, isSuccess, isFetching } = useGetCollection<Treatment>("Treatment", { query, limit });
+
+  // ⚡ OPTIMIZACIÓN: Memoizar handler de click
+  const handleClick = React.useCallback((t: Treatment) => {
+    onChange?.(t._id ?? "", t.name, t.color, t.duration);
+    onSelect(t);
+  }, [onChange, onSelect]);
 
   if (isFetching) {
     return (
@@ -101,10 +108,7 @@ export const TreatmentSelector = ({
               boxShadow={selectedId === t._id ? "lg" : "sm"}
               border={selectedId === t._id ? "2px solid #3182CE" : "none"}
               cursor="pointer"
-              onClick={() => {
-                onChange?.(t._id ?? "", t.name, t.color, t.duration);
-                onSelect(t);
-              }}
+              onClick={() => handleClick(t)}
               transition="all 0.2s ease"
               _hover={{ transform: "scale(1.03)" }}
             >
@@ -123,4 +127,4 @@ export const TreatmentSelector = ({
       </Flex>
     </Box>
   );
-};
+});

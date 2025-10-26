@@ -531,7 +531,7 @@ export default function ProviderSummaryModal({
   /* ================= Appointments + TimeOff ======================== */
   const {
     data: appts,
-    isFetching: apptsLoading,
+    isFetching: _apptsLoading,
     error: apptsError,
   } = useProviderAppointments(provider?._id, weekParams);
 
@@ -922,7 +922,7 @@ export default function ProviderSummaryModal({
                                 ),
                               });
                             }}
-                            onEventMouseMove={(ev, e) => {
+                            onEventMouseMove={(_ev, e) => {
                               setHover((h) =>
                                 h.show
                                   ? {

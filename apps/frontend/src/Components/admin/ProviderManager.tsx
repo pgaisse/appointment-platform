@@ -286,7 +286,7 @@ export default function ProviderManager() {
                     <HStack>
                       <Badge borderRadius="md" px={2} py={1} bg={p.color || "gray.200"} />
                       <VStack align="start" spacing={0}>
-                        <Box fontWeight="semibold">
+                        <Box fontWeight="semibold" textTransform="capitalize">
                           {p.firstName} {p.lastName}
                         </Box>
                         <Box fontSize="xs" color="gray.500">

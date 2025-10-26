@@ -9,7 +9,7 @@ import {
   TagRightIcon,
 } from "@chakra-ui/react";
 import { QueryObserverResult, RefetchOptions } from "@tanstack/react-query";
-import React, { useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { FieldError } from "react-hook-form";
 import { Priority } from "@/types";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
@@ -277,4 +277,4 @@ function CustomButtonGroup({
   );
 }
 
-export default CustomButtonGroup;
+export default React.memo(CustomButtonGroup);

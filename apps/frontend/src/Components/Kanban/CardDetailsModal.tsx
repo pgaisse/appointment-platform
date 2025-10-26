@@ -6,12 +6,13 @@ import {
   IconButton, Checkbox, Avatar, Divider,
   useToast, useDisclosure, Tooltip, Center, Spinner,
   Popover, PopoverTrigger, PopoverContent, PopoverArrow, PopoverCloseButton, PopoverBody,
-  InputGroup, InputLeftElement, useOutsideClick,
+  InputGroup, InputLeftElement, useOutsideClick, Wrap, WrapItem,
 } from '@chakra-ui/react';
 import { SmallCloseIcon, AddIcon, SearchIcon } from '@chakra-ui/icons';
 import type { Card, LabelDef } from '@/types/kanban';
 import { useCardComments } from '@/Hooks/useCardComments';
 import LabelAssigner from './LabelAssigner';
+import TopicLabelManager from './TopicLabelManager';
 import { useTopicLabels } from '@/Hooks/useTopicLabels';
 import { useSystemUsers, type SystemUser } from '@/Hooks/useSystemUsers';
 
@@ -159,7 +160,7 @@ function UserPickerContent({
 
 const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, topicId }) => {
   const toast = useToast();
-  const { onOpen: openMgr } = useDisclosure();
+  const { isOpen: isLabelsOpen, onOpen: openMgr, onClose: closeMgr } = useDisclosure();
   const { labels: topicLabelsQ } = useTopicLabels(topicId);
   const topicLabels: LabelDef[] = topicLabelsQ.data ?? [];
 
@@ -205,7 +206,7 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
       setLocal(card ? JSON.parse(JSON.stringify(card)) : null);
     }
   }, [card, isOpen]);
-  console.log("card",card)
+  // removed noisy log
 
   // ---- Cola de guardado (debounced + coalesced) ----
   const saveQueueRef = useRef<Partial<Card>>({});
@@ -333,23 +334,47 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
               {/* Labels */}
               <Box>
                 <Text fontWeight="semibold" mb={2}>Labels</Text>
-                <HStack spacing={3} flexWrap="wrap">
-                  <LabelAssigner
-                    topicLabels={topicLabels}
-                    value={(local.labels ?? []) as LabelDef[]}
-                    onChange={(next) => setLocal({ ...local, labels: next as any })}
-                    onCreateRequested={openMgr}
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => queueChanged({ labels: (local.labels ?? []) as any }, 'Labels saved')}
-                  >
-                    Save labels
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={openMgr}>
-                    Manage labels
-                  </Button>
-                </HStack>
+                <Wrap spacing={3}>
+                  <WrapItem>
+                    <LabelAssigner
+                      topicLabels={topicLabels}
+                      value={(local.labels ?? []) as LabelDef[]}
+                      onChange={(next) => setLocal({ ...local, labels: next as any })}
+                      onCreateRequested={openMgr}
+                    />
+                  </WrapItem>
+                  <WrapItem>
+                    {(() => {
+                      const snapIds = labelsToIds((serverSnapshotRef.current as any)?.labels);
+                      const localIds = labelsToIds((local as any)?.labels);
+                      const snapSet = new Set(snapIds);
+                      const localSet = new Set(localIds);
+                      const same = snapSet.size === localSet.size && [...snapSet].every(id => localSet.has(id));
+                      const labelsDirty = !same;
+                      return (
+                        <Button
+                          size="sm"
+                          minW="110px"
+                          whiteSpace="nowrap"
+                          onClick={() =>
+                            queueChanged(
+                              { labels: labelsToIds((local as any).labels) as any },
+                              'Labels saved'
+                            )
+                          }
+                          isDisabled={!labelsDirty}
+                        >
+                          Save labels
+                        </Button>
+                      );
+                    })()}
+                  </WrapItem>
+                  <WrapItem>
+                    <Button size="sm" variant="outline" onClick={openMgr} minW="120px" whiteSpace="nowrap">
+                      Manage labels
+                    </Button>
+                  </WrapItem>
+                </Wrap>
               </Box>
 
               {/* Members (usuarios del sistema) */}
@@ -625,6 +650,8 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
           </HStack>
         </ModalFooter>
       </ModalContent>
+      {/* Label manager drawer */}
+      <TopicLabelManager isOpen={isLabelsOpen} onClose={closeMgr} topicId={topicId} />
     </Modal>
   );
 };

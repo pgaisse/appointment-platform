@@ -17,7 +17,6 @@ import AvailabilityDates2 from "./AvailabilityDates2";
 import Pagination from "../Pagination";
 import { iconMap } from "../CustomIcons";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTriggerEndpoint } from "@/Hooks/Query/useTriggerEndpoint";
 import { useAppointmentEditor } from "@/Hooks/Handles/useAppointmentEditor";
 import { useInfoModal } from "@/Hooks/Handles/useInfoModal";
 import { appointmentsKeys, useAppointmentsPaginated } from "@/Hooks/Query/useAppointmentsPaginated";
@@ -52,7 +51,6 @@ function CustomTableApp({ pageSize = 20 }: Props) {
     isLoading: loadingPage,
     isPlaceholderData,
     refetch: refetchPage,
-    invalidate
   } = useAppointmentsPaginated<Appointment>(currentPage, pageSize, {
     sort: { updatedAt: -1 },
   });
@@ -144,11 +142,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
     );
   }
 
-  const cancelAllAppointmentQueries = async () => {
-    invalidate()
-    await queryClient.cancelQueries({ queryKey: ["appointments"], exact: false });
-    await queryClient.cancelQueries({ queryKey: ["appointments-search"], exact: false });
-  };
+  
 
   return (
     <>
@@ -225,8 +219,8 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                         {`${item.nameInput?.[0] || ""}${item.lastNameInput?.[0] || ""}`.toUpperCase()}
                       </Tag>
                       <Box>
-                        <Text fontWeight="semibold">{item.nameInput}</Text>
-                        <Text fontSize="sm" color="gray.500">{item.lastNameInput}</Text>
+                        <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput}</Text>
+                        <Text fontSize="sm" color="gray.500" textTransform="capitalize">{item.lastNameInput}</Text>
                       </Box>
                     </HStack>
                   </Td>
@@ -286,6 +280,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                         borderRadius="md"
                         mr={2}
                         mb={2}
+                        textTransform="capitalize"
                       >
                         {prov.firstName} {prov.lastName}
                       </Tag>

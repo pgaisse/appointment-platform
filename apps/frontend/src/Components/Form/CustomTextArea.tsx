@@ -1,3 +1,4 @@
+import React from "react";
 import { Textarea, FormControl, FormErrorMessage } from "@chakra-ui/react";
 import type { FieldError, UseFormRegister } from "react-hook-form";
 
@@ -9,11 +10,11 @@ type Props = {
   isPending?: boolean;
 } & Omit<React.ComponentProps<typeof Textarea>, "name">;
 
-export default function CustomTextArea({
+const CustomTextArea = React.memo(function CustomTextArea({
   name,
   register,
   error,
-  isPending,        // ⬅️ la “consumimos” aquí
+  isPending,        // ⬅️ la "consumimos" aquí
   isDisabled,       // por si te pasan isDisabled directamente
   ...rest           // ⬅️ lo que quede sí se propaga
 }: Props) {
@@ -30,4 +31,6 @@ export default function CustomTextArea({
       {error && <FormErrorMessage>{error.message}</FormErrorMessage>}
     </FormControl>
   );
-}
+});
+
+export default CustomTextArea;

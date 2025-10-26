@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, HStack, Tag, TagLabel, Text } from "@chakra-ui/react";
-import type { Provider } from "@/Hooks/Query/useProviders";
+import type { Provider } from "@/types";
 
 export function ProviderRow({
   p,
@@ -50,7 +50,7 @@ export function ProviderRow({
     >
       <HStack overflow="hidden">
         <Box w="8px" h="8px" borderRadius="full" bg={p.color || "gray.300"} />
-        <Text noOfLines={1}>{renderHighlighted(label, highlight)}</Text>
+  <Text noOfLines={1} textTransform="capitalize">{renderHighlighted(label, highlight)}</Text>
       </HStack>
       {rightAdornment}
     </HStack>
@@ -95,7 +95,7 @@ export function SelectedProviderChips({
         chips.map((p, i) => (
           <Tag key={String(p._id)} size="sm" variant="subtle" borderRadius="md" mr={2}>
             <Box w="8px" h="8px" borderRadius="full" bg={p.color || "gray.300"} mr={2} />
-            <TagLabel maxW="160px" isTruncated>
+            <TagLabel maxW="160px" isTruncated textTransform="capitalize">
               {p.firstName} {p.lastName}
             </TagLabel>
             <Box

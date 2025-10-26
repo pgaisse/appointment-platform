@@ -9,7 +9,7 @@ const uri = process.env.MONGO_URI ||
 
 async function run() {
   await mongoose.connect(uri);
-  console.log('[seed] connected');
+  //console.log('[seed] connected');
 
   await Topic.deleteMany({});
   await Column.deleteMany({});
@@ -23,7 +23,7 @@ async function run() {
   await Card.create({ topicId: topic._id, columnId: col1._id, title: 'Primera tarea', description: 'Descripción', sortKey: '10' });
   await Card.create({ topicId: topic._id, columnId: col2._id, title: 'En progreso', description: 'Detalle', sortKey: '10' });
 
-  console.log('[seed] done');
+  //console.log('[seed] done');
   await mongoose.disconnect();
 }
 run().catch(e => { console.error(e); process.exit(1); });

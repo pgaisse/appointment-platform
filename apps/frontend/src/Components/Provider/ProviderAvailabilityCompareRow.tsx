@@ -1,6 +1,7 @@
-import React, { useMemo } from "react";
+import { useMemo } from "react";
 import { Badge, Box, HStack, Skeleton, Tag, Text } from "@chakra-ui/react";
-import { useProviderAvailability, type Provider } from "@/Hooks/Query/useProviders";
+import { useProviderAvailability } from "@/Hooks/Query/useProviders";
+import type { Provider } from "@/types";
 
 const SYD_TZ = "Australia/Sydney";
 
@@ -65,7 +66,6 @@ export function ProviderAvailabilityCompareRow({
   treatmentId?: string;
   onRemove?: (id: string) => void;
 }) {
-  const enabled = Boolean(windowIso && provider?._id);
   const params = useMemo(
     () =>
       windowIso
@@ -74,14 +74,14 @@ export function ProviderAvailabilityCompareRow({
     [windowIso, treatmentId]
   );
 
-  const { data, isFetching } = useProviderAvailability(provider._id, params, { enabled });
+  const { data, isFetching } = useProviderAvailability(provider._id, params);
 
   if (!windowIso) {
     return (
       <HStack justify="space-between">
         <HStack>
           <Box w="8px" h="8px" borderRadius="full" bg={provider.color || "gray.300"} />
-          <Text>{provider.firstName} {provider.lastName}</Text>
+          <Text textTransform="capitalize">{provider.firstName} {provider.lastName}</Text>
         </HStack>
         <Tag>Pick an appointment date</Tag>
       </HStack>
@@ -99,7 +99,7 @@ export function ProviderAvailabilityCompareRow({
     <HStack justify="space-between" align="center" px={2} py={1} borderRadius="md" _hover={{ bg: "blackAlpha.50" }}>
       <HStack overflow="hidden">
         <Box w="8px" h="8px" borderRadius="full" bg={provider.color || "gray.300"} />
-        <Text noOfLines={1}>{provider.firstName} {provider.lastName}</Text>
+        <Text noOfLines={1} textTransform="capitalize">{provider.firstName} {provider.lastName}</Text>
         <Badge>{provider.initials || ""}</Badge>
       </HStack>
 

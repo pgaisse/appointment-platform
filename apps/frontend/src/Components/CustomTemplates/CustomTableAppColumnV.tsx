@@ -101,7 +101,7 @@ const CustomTableAppColumnV = () => {
         >
           {dataAP2 && <DateRangeSelector onFilterRange={handleRangeChange} />}
         </Box>
-        <Box px={4} py={6}>
+        <Box px={4} >
           {isOpen && selectedItem && (
             <AppointmentModal id={selectedItem._id?? ""} isOpen={isOpen} onClose={onClose} />
           )}

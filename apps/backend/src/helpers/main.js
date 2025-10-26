@@ -22,7 +22,7 @@ async function main() {
         const result = await findMatchingAppointments();
 
         console.log("🟢 Resultado:");
-        console.dir(result, { depth: null });
+        //console.dir(result, { depth: null });
 
     } catch (err) {
         console.error("❌ Error al ejecutar la función:", err);

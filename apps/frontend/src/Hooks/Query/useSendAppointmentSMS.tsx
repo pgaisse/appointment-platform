@@ -1,28 +1,42 @@
 import { useMutation } from "@tanstack/react-query";
-import axios from "axios";
+import axios, { AxiosResponse } from "axios";
 import { useAuth0 } from "@auth0/auth0-react";
-import { env } from "@/types";
 
+// =========================
+// Tipos (compatibles con tu versión)
+// =========================
 type SendAppointmentSMSPayload = {
   appointmentId: string;
-  msg:string
+  msg: string;
+  // opcionales para programado
+  scheduleWithTwilio?: boolean;
+  whenISO?: string;           // e.g. "2025-10-21T10:00:00"
+  tz?: string;                // default "Australia/Sydney"
 };
 
 type SendAppointmentSMSResponse = {
   success: boolean;
-  message: string;
-  conversationSid?: string;
-  messageSid?: string;
+  scheduled: boolean;
+  docs?: any;                 // instantáneo (Conversations)
+  messagingSid?: string;      // programado (SM...)
+  to?: string;                // programado
+  runAt?: string;             // programado
+  tz?: string;                // programado
 };
 
+// =========================
+// Hook
+// =========================
 export const useSendAppointmentSMS = () => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
-  const mutation = useMutation<SendAppointmentSMSResponse, Error, SendAppointmentSMSPayload>({
-    mutationFn: async (payload: SendAppointmentSMSPayload) => {
+  return useMutation<SendAppointmentSMSResponse, Error, SendAppointmentSMSPayload>({
+    mutationFn: async (payload) => {
       if (!isAuthenticated) {
         throw new Error("Usuario no autenticado");
       }
+
+
 
       const token = await getAccessTokenSilently({
         authorizationParams: {
@@ -30,15 +44,9 @@ export const useSendAppointmentSMS = () => {
         },
       });
 
-      // Agrega la propiedad "source"
-      const bodyWithSource = {
-        ...payload,
-        source: "frontend",
-      };
-
-      const res = await axios.post(
+      const res: AxiosResponse<SendAppointmentSMSResponse> = await axios.post(
         `${import.meta.env.VITE_BASE_URL}/sendMessageAsk`,
-        bodyWithSource,
+        { ...payload, source: "frontend" }, // conservas tu "source"
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -48,10 +56,9 @@ export const useSendAppointmentSMS = () => {
 
       return res.data;
     },
+    retry: 0, // evita reintentos automáticos en errores 4xx de validación
     onError: (error) => {
       console.error("❌ Error enviando SMS:", error.message);
     },
   });
-
-  return mutation;
 };

@@ -33,7 +33,7 @@ router.get('/check-unique', async (req, res) => {
     const exists = await Appointment.exists(filter);
 
     // Helpful server log (optional)
-    console.log('[check-unique]', { org_id, e164, excludeId: filter._id ? excludeId : undefined, exists: !!exists });
+    //console.log('[check-unique]', { org_id, e164, excludeId: filter._id ? excludeId : undefined, exists: !!exists });
 
     return res.json({ exists: !!exists });
   } catch (err) {

@@ -25,7 +25,7 @@ type Props = Omit<InputProps, "value" | "onChange"> & {
 const isAUCompleteMobile = (digits?: string) =>
   !!digits && /^04\d{8}$/.test(digits); // 10 digits, starts with 04
 
-const PhoneInput: React.FC<Props> = ({
+const PhoneInput: React.FC<Props> = React.memo(({
   name,
   value,
   onChange,
@@ -105,6 +105,8 @@ const PhoneInput: React.FC<Props> = ({
       <FormErrorMessage>{error?.message}</FormErrorMessage>
     </FormControl>
   );
-};
+});
+
+PhoneInput.displayName = "PhoneInput";
 
 export default PhoneInput;

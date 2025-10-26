@@ -26,9 +26,9 @@ async function createProvider(req, res, next) {
   try {
     const body = req.body || {};
     body.org_id = req.dbUser?.org_id || body?.org_id || null;
-    console.log('[createProvider] req.dbUser:', req.dbUser);
+    //console.log('[createProvider] req.dbUser:', req.dbUser);
     body.user = req.dbUser?._id || null;
-    console.log('[createProvider] body:', body);
+    //console.log('[createProvider] body:', body);
     if (!body.firstName || !body.lastName) throw badRequest('firstName and lastName are required');
     const created = await Provider.create(body);
     res.status(201).json(created);
@@ -55,13 +55,10 @@ async function getProvider(req, res, next) {
 
 async function getProviderAppointments(req, res, next) {
   try {
-    console.log('[getProviderAppointments] start', {
-      params: req.params,
-      query: req.query,
-    });
+   
 
     const providerOid = validateObjectId(req.params.id, 'provider');
-    console.log('[getProviderAppointments] providerOid', String(providerOid));
+    //console.log('[getProviderAppointments] providerOid', String(providerOid));
 
     // Filtro simple: trae TODOS los appointments donde el provider esté en el array `providers`
     const filter = { providers: providerOid };
@@ -114,8 +111,8 @@ async function getProviderAppointments(req, res, next) {
       priorityDurationHours: a.priority?.durationHours ?? null,
     }));
 
-    console.log('[getProviderAppointments] items count', mapped.length);
-    if (mapped.length) console.log('[getProviderAppointments] sample[0]', mapped[0]);
+    //console.log('[getProviderAppointments] items count', mapped.length);
+    //if (mapped.length) console.log('[getProviderAppointments] sample[0]', mapped[0]);
 
     res.json({ data: mapped, total: mapped.length });
   } catch (err) {
@@ -206,9 +203,9 @@ async function providerAvailability(req, res, next) {
 async function listTimeOff(req, res, next) {
   try {
     const id = validateObjectId(req.params.id, 'provider');
-    console.log('[listTimeOff] providerId:', id);
+    //console.log('[listTimeOff] providerId:', id);
     const { from, to } = req.query;
-    console.log('[listTimeOff] providerId:', id, { from, to });
+    //console.log('[listTimeOff] providerId:', id, { from, to });
     const filter = { provider: id };
     if (from && to) {
       const fromD = new Date(from);
@@ -220,12 +217,12 @@ async function listTimeOff(req, res, next) {
     } else if (to) {
       filter.start = { $lt: new Date(to) };
     }
-    console.log("filter", JSON.stringify(filter))
+    //console.log("filter", JSON.stringify(filter))
     const items = await ProviderTimeOff.find(
       filter,
       { _id: 1, kind: 1, start: 1, end: 1, reason: 1, location: 1, chair: 1 }
     ).sort({ start: 1 }).lean();
-    console.log("items", items)
+    //console.log("items", items)
     res.json({ data: items, total: items.length });
   } catch (err) {
     next(err);

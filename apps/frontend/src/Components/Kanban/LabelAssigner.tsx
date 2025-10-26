@@ -26,14 +26,22 @@ export default function LabelAssigner({ topicLabels, value, onChange, onCreateRe
   return (
     <Popover placement="bottom-start">
       <PopoverTrigger>
-        <Button size="sm" variant="outline">Assign labels</Button>
+        <Button size="sm" variant="outline" minW="120px" whiteSpace="nowrap">Assign labels</Button>
       </PopoverTrigger>
-      <PopoverContent w="360px">
+      <PopoverContent w="420px">
         <PopoverArrow />
         <PopoverHeader>
           <Flex align="center" justify="space-between" gap={2}>
             <Input size="sm" placeholder="Search labels..." value={q} onChange={e => setQ(e.target.value)} />
-            <Button size="sm" leftIcon={<AddIcon />} onClick={onCreateRequested}>
+            <Button
+              size="sm"
+              leftIcon={<AddIcon />}
+              onClick={onCreateRequested}
+              whiteSpace="nowrap"
+              px={3}
+              minW="110px"
+              flexShrink={0}
+            >
               New label
             </Button>
           </Flex>

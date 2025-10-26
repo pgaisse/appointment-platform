@@ -88,7 +88,7 @@ app.use((err, _req, res, next) => {
   }
   next(err);
 });
-
+app.get("/healthz", (_, res) => res.send("ok"));
 // ARRANQUE: **espera** Mongo antes de escuchar
 (async () => {
   await connectDB(); // 👈 evita "buffering timed out"

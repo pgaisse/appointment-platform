@@ -978,12 +978,13 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     bg="white"
                     _hover={{ borderColor: 'blackAlpha.300', transform: 'translateY(-1px)', boxShadow: 'md' }}
                   >
+
                     <Grid templateColumns="1fr" templateRows="auto" w="100%">
                       <GridItem />
                       <GridItem>
                         <HStack justify="space-between" align="center">
                           <HStack>
-                            <Text fontWeight="semibold">{item.nameInput} {item.lastNameInput}</Text>
+                            <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
                           </HStack>
                           <DeleteContactButton item={item} modelName="Appointment" />
                         </HStack>
@@ -991,6 +992,21 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                       <GridItem mt={2}>
                         <HStack color="gray.600">
                           <Icon as={PhoneIcon} color="green.500" />
+                          <ChatLauncher
+                            item={item}
+                            tooltip="Open chat"
+                            stopPropagation
+                            buildContact={buildContactFromAppointment}
+                            trigger={
+                              <IconButton
+                                aria-label="Open chat"
+                                icon={<FaCommentSms size={18} color="var(--chakra-colors-green-500)" />}
+                                size="sm"
+                                variant="ghost"
+                                _hover={{ bg: 'green.50' }}
+                              />
+                            }
+                          />
                           <Text>{formatAusPhoneNumber(item.phoneInput)}</Text>
                         </HStack>
                       </GridItem>
@@ -1104,7 +1120,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     <GridItem />
                     <GridItem>
                       <HStack justify="space-between">
-                        <Text fontWeight="semibold">{item.nameInput} {item.lastNameInput}</Text>
+                        <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
                         <StatusPill status={item.selectedAppDates?.[0]?.status} />
                       </HStack>
                     </GridItem>

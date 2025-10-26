@@ -189,7 +189,7 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
                   >
                     <Avatar size="sm" name={`${contact.nameInput} ${contact.lastNameInput}`} />
                     <Box>
-                      <Text fontWeight="medium">
+                      <Text fontWeight="medium" textTransform="capitalize">
                         {contact.nameInput} {contact.lastNameInput}
                       </Text>
                       <Text fontSize="sm" color="gray.500">

@@ -295,7 +295,7 @@ router.get(
 // routes/query.js (handler drop-in)
 router.get('/query/:collection', jwtCheck, async (req, res) => {
   try {
-    console.log(req.user)
+    //console.log(req.user)
     const { collection } = req.params;
     const Model = models[collection];
     if (!Model) return res.status(400).json({ error: 'Invalid collection name' });
