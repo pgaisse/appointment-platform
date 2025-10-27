@@ -115,7 +115,7 @@ const RbcEvent: React.FC<RbcEventProps> = ({ event, step }) => {
           <TagLabel flex="1" minW={0} p={0} m={0}>
             {showTwoLines ? (
               <Box display="flex" flexDir="column" gap={0.5} minW={0}>
-                <Text noOfLines={1} isTruncated fontWeight="semibold" minW={0}>
+                <Text noOfLines={1} isTruncated fontWeight="semibold" minW={0} textTransform="capitalize">
                   {primary}
                 </Text>
                 <Text noOfLines={1} isTruncated opacity={0.9} fontSize="sm" minW={0}>
@@ -123,7 +123,7 @@ const RbcEvent: React.FC<RbcEventProps> = ({ event, step }) => {
                 </Text>
               </Box>
             ) : (
-              <Text noOfLines={1} isTruncated minW={0}>
+              <Text noOfLines={1} isTruncated minW={0} textTransform="capitalize">
                 {primary} — {timeText}
               </Text>
             )}

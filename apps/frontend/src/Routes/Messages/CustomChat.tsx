@@ -99,22 +99,7 @@ function insertAtTopWithLastMessage(
   };
 }
 
-function flipArchivedInCache(
-  data: ConvInfinite | undefined,
-  conversationId: string,
-  archived: boolean
-): ConvInfinite | undefined {
-  if (!data) return data;
-  return {
-    pageParams: data.pageParams,
-    pages: data.pages.map((p) => ({
-      ...p,
-      items: p.items.map((c) =>
-        c.conversationId === conversationId ? { ...c, archived } : c
-      ),
-    })),
-  };
-}
+// removed unused flipArchivedInCache helper
 
 function findConversationInAnyCache(
   caches: Array<[unknown, ConvInfinite | undefined]>,
@@ -227,7 +212,7 @@ function optimisticUpsertInboundAndMoveActive(opts: {
 export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
   const [view, setView] = useState<"active" | "only">("active");
-  const PAGE_SIZE = 10;
+  const PAGE_SIZE = 50; // fetch larger pages to avoid long-running incremental loads
 
   const chatIdRef = useRef<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -395,8 +380,7 @@ export default function CustomChat() {
   );
   const panelBg = useColorModeValue("rgba(255,255,255,0.85)", "rgba(26,32,44,0.65)");
   const panelBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
-  const sidebarHeaderBg = useColorModeValue("rgba(255,255,255,0.76)", "rgba(26,32,44,0.6)");
-  const sidebarHeaderBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
+  // removed unused sidebar header tokens (inlined where used)
   const scrollbarThumb = useColorModeValue("#CBD5E0", "#4A5568");
   const scrollbarTrack = useColorModeValue("#EDF2F7", "#2D3748");
 

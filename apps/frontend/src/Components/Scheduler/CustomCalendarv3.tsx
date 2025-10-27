@@ -221,7 +221,7 @@ export default function CustomCalendarv3({
               position="sticky"
               top={0}
               zIndex={2}
-              bg={sameDay(d, highlightDate) ? "teal.50" : "chakra-body-bg"}
+              bg={highlightDate && sameDay(d, highlightDate) ? "teal.50" : "chakra-body-bg"}
               borderBottom="1px solid"
               borderLeft={i === 0 ? "1px solid" : undefined}
               borderColor="gray.200"
@@ -255,14 +255,14 @@ export default function CustomCalendarv3({
               borderLeft="1px solid"
               borderColor="gray.200"
               position="relative"
-              bg={sameDay(d, highlightDate) ? "teal.25" : undefined}
+              bg={highlightDate && sameDay(d, highlightDate) ? "teal.25" : undefined}
               onClick={(e) => handleColumnClick(dayIdx, e)}
             >
               {Array.from({ length: totalSlots }).map((_, idx) => (
                 <Box key={idx} h={`${slotHeightPx}px`} borderBottom="1px solid" borderColor="gray.50" />
               ))}
 
-              <Box ref={(el) => registerColumnRef(el, dayIdx)} position="absolute" inset={0} px={1}>
+              <Box ref={(el) => { registerColumnRef(el, dayIdx); }} position="absolute" inset={0} px={1}>
                 {positioned[dayIdx]?.map((ev) => {
                   const startMin = minutesSinceStartOfDay(ev.start);
                   const endMin = minutesSinceStartOfDay(ev.end);
@@ -300,7 +300,7 @@ export default function CustomCalendarv3({
                         onSelectEvent?.(ev);
                       }}
                     >
-                      <Text noOfLines={2}>{ev.title}</Text>
+                      <Text noOfLines={2} textTransform="capitalize">{ev.title}</Text>
                     </Box>
                   );
                 })}

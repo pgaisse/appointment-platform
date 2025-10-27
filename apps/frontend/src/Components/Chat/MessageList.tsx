@@ -17,7 +17,7 @@ import {
   InputLeftElement,
   CloseButton,
 } from "@chakra-ui/react";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { FaUserAlt } from "react-icons/fa";
 import { FiArchive, FiInbox, FiSearch } from "react-icons/fi";
 
@@ -58,8 +58,23 @@ export default function MessageList({
     debounced,
     archivedMode,
     1,
-    20
+    50 // request larger pages to match conversations list and reduce extra fetches
   );
+
+  // Compute lists before any early return to keep hook order stable
+  const list = searchEnabled ? (searchData?.items ?? []) : (dataConversation ?? []);
+  const uniqueList = useMemo(() => {
+    const seen = new Set<string>();
+    const out: ConversationChat[] = [];
+    for (const c of list) {
+      const id = String(c.conversationId);
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push(c);
+      }
+    }
+    return out;
+  }, [list]);
 
   if (!searchEnabled && isLoadingConversation) {
     return (
@@ -72,8 +87,6 @@ export default function MessageList({
     );
   }
 
-  const list = searchEnabled ? (searchData?.items ?? []) : (dataConversation ?? []);
-
   return (
     <VStack align="stretch" spacing={4}>
       <SearchBox term={term} setTerm={setTerm} isSearching={isSearching} />
@@ -85,11 +98,11 @@ export default function MessageList({
       {searchEnabled ? (
         <>
           {isSearching && <Text color="gray.500">Searching…</Text>}
-          {!isSearching && list.length === 0 && (
+          {!isSearching && uniqueList.length === 0 && (
             <Text color="gray.500">No matches</Text>
           )}
           {!isSearching &&
-            list.map((contact) => (
+            uniqueList.map((contact) => (
               <PlainChatRow
                 key={`s-${contact.conversationId}`}
                 contact={contact}
@@ -100,7 +113,7 @@ export default function MessageList({
             ))}
         </>
       ) : (
-        list.map((contact) => (
+        uniqueList.map((contact) => (
           <SortableChatRow
             key={contact.conversationId}
             contact={contact}
