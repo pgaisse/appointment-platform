@@ -17,7 +17,7 @@ import type { IconType } from "react-icons";
 
 interface StatCardProps {
   title: string;
-  value: number | string;
+  value: number | string | React.ReactNode;
   icon: IconType;
   trend?: {
     value: number;
@@ -26,6 +26,8 @@ interface StatCardProps {
   subtitle?: string;
   color?: string;
   isLoading?: boolean;
+  onClick?: () => void;
+  isClickable?: boolean;
 }
 
 export const StatCard: React.FC<StatCardProps> = ({
@@ -36,6 +38,8 @@ export const StatCard: React.FC<StatCardProps> = ({
   subtitle,
   color = "blue",
   isLoading = false,
+  onClick,
+  isClickable = false,
 }) => {
   const bgColor = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.700");
@@ -67,8 +71,16 @@ export const StatCard: React.FC<StatCardProps> = ({
       border="1px"
       borderColor={borderColor}
       shadow="sm"
-      _hover={{ shadow: "md" }}
+      _hover={{ 
+        shadow: "md",
+        transform: isClickable ? "translateY(-2px)" : undefined,
+        cursor: isClickable ? "pointer" : undefined,
+        borderColor: isClickable ? iconColor : borderColor,
+      }}
       transition="all 0.3s"
+      onClick={onClick}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
     >
       <Flex justify="space-between" align="start">
         <Stat>

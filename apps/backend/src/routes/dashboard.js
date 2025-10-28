@@ -249,4 +249,185 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
   }
 });
 
+// GET /api/dashboard/appointments/today - Get detailed today's appointments
+router.get('/appointments/today', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) {
+      return res.status(403).json({ error: "Missing organization scope." });
+    }
+
+    const now = dayjs().tz(TZ);
+    const todayStart = now.startOf('day').toDate();
+    const todayEnd = now.endOf('day').toDate();
+
+    const appointments = await Appointment.find({
+      org_id,
+      'selectedAppDates.startDate': { $gte: todayStart, $lte: todayEnd }
+    })
+      .populate('representative', 'nameInput lastNameInput phoneInput')
+      .sort({ 'selectedAppDates.startDate': 1 })
+      .limit(100);
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Dashboard today appointments error:', error);
+    res.status(500).json({ error: 'Failed to fetch today appointments', message: error.message });
+  }
+});
+
+// GET /api/dashboard/appointments/week - Get detailed this week's appointments
+router.get('/appointments/week', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) {
+      return res.status(403).json({ error: "Missing organization scope." });
+    }
+
+    const now = dayjs().tz(TZ);
+    const weekStart = now.startOf('week').toDate();
+    const weekEnd = now.endOf('week').toDate();
+
+    const appointments = await Appointment.find({
+      org_id,
+      'selectedAppDates.startDate': { $gte: weekStart, $lte: weekEnd }
+    })
+      .populate('representative', 'nameInput lastNameInput phoneInput')
+      .sort({ 'selectedAppDates.startDate': 1 })
+      .limit(200);
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Dashboard week appointments error:', error);
+    res.status(500).json({ error: 'Failed to fetch week appointments', message: error.message });
+  }
+});
+
+// GET /api/dashboard/appointments/pending - Get detailed pending appointments
+router.get('/appointments/pending', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) {
+      return res.status(403).json({ error: "Missing organization scope." });
+    }
+
+    const appointments = await Appointment.find({
+      org_id,
+      selectedAppDates: {
+        $elemMatch: {
+          status: { $regex: /^pending$/i },
+        }
+      }
+    })
+      .populate('representative', 'nameInput lastNameInput phoneInput')
+      .sort({ 'selectedAppDates.startDate': 1 })
+      .limit(200);
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Dashboard pending appointments error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending appointments', message: error.message });
+  }
+});
+
+// GET /api/dashboard/messages/today - Get detailed today's messages
+router.get('/messages/today', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) {
+      return res.status(403).json({ error: "Missing organization scope." });
+    }
+
+    const now = dayjs().tz(TZ);
+    const todayStart = now.startOf('day').toDate();
+    const todayEnd = now.endOf('day').toDate();
+
+    const messages = await Message.find({
+      author: org_id,
+      direction: 'outbound',
+      createdAt: { $gte: todayStart, $lte: todayEnd }
+    })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    // Get recipient names from appointments by phone number
+    const phones = messages.map(m => m.proxyAddress).filter(Boolean);
+    const appointments = await Appointment.find({
+      org_id,
+      phoneE164: { $in: phones }
+    }).select('phoneE164 nameInput lastNameInput').lean();
+
+    // Create a map of phone -> name
+    const phoneToName = {};
+    appointments.forEach(apt => {
+      if (apt.phoneE164) {
+        phoneToName[apt.phoneE164] = `${apt.nameInput || ''} ${apt.lastNameInput || ''}`.trim();
+      }
+    });
+
+    // Enrich messages with recipient names
+    const enrichedMessages = messages.map(msg => ({
+      ...msg,
+      recipientName: phoneToName[msg.proxyAddress] || null,
+      time: msg.createdAt // Ensure time field is set
+    }));
+
+    res.json(enrichedMessages);
+  } catch (error) {
+    console.error('Dashboard today messages error:', error);
+    res.status(500).json({ error: 'Failed to fetch today messages', message: error.message });
+  }
+});
+
+// GET /api/dashboard/messages/month - Get detailed this month's messages
+router.get('/messages/month', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) {
+      return res.status(403).json({ error: "Missing organization scope." });
+    }
+
+    const now = dayjs().tz(TZ);
+    const monthStart = now.startOf('month').toDate();
+    const monthEnd = now.endOf('month').toDate();
+
+    const messages = await Message.find({
+      author: org_id,
+      direction: 'outbound',
+      createdAt: { $gte: monthStart, $lte: monthEnd }
+    })
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean();
+
+    // Get recipient names from appointments by phone number
+    const phones = messages.map(m => m.proxyAddress).filter(Boolean);
+    const appointments = await Appointment.find({
+      org_id,
+      phoneE164: { $in: phones }
+    }).select('phoneE164 nameInput lastNameInput').lean();
+
+    // Create a map of phone -> name
+    const phoneToName = {};
+    appointments.forEach(apt => {
+      if (apt.phoneE164) {
+        phoneToName[apt.phoneE164] = `${apt.nameInput || ''} ${apt.lastNameInput || ''}`.trim();
+      }
+    });
+
+    // Enrich messages with recipient names
+    const enrichedMessages = messages.map(msg => ({
+      ...msg,
+      recipientName: phoneToName[msg.proxyAddress] || null,
+      time: msg.createdAt // Ensure time field is set
+    }));
+
+    res.json(enrichedMessages);
+  } catch (error) {
+    console.error('Dashboard month messages error:', error);
+    res.status(500).json({ error: 'Failed to fetch month messages', message: error.message });
+  }
+});
+
 module.exports = router;
