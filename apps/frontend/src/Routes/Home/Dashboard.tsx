@@ -19,7 +19,6 @@ import {
   FiUsers,
   FiClock,
   FiCheckCircle,
-  FiXCircle,
   FiAlertCircle,
   FiActivity,
   FiSend,
@@ -134,10 +133,10 @@ const Dashboard: React.FC = () => {
             />
             <StatCard
               title="Pending"
-              value={stats?.appointments.pending || 0}
+              value={stats?.pending.total || 0}
               icon={FiClock}
               color="yellow"
-              subtitle="Pending appointments"
+              subtitle="Awaiting confirmation"
               isLoading={isLoading}
             />
             <StatCard
@@ -176,14 +175,14 @@ const Dashboard: React.FC = () => {
                 description="View and manage appointments"
                 icon={FiCalendar}
                 color="blue"
-                to="/calendar"
+                to="/appointments/assigned-appointments"
               />
               <QuickAction
                 title="Messages"
                 description="Review conversations"
                 icon={FiMessageSquare}
                 color="green"
-                to="/chat"
+                to="/messages"
               />
               <QuickAction
                 title="Contacts"

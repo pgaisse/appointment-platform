@@ -31,7 +31,7 @@ export const Composer = memo(function Composer({
   const [text, setText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<PreviewItem[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Cargar borrador guardado al montar/cambiar de conversación
   React.useEffect(() => {
@@ -141,7 +141,7 @@ export const Composer = memo(function Composer({
         </HStack>
 
         <Input
-          ref={inputRef}
+          ref={inputRef as any}
           placeholder="Say something..."
           variant="unstyled"
           value={text}

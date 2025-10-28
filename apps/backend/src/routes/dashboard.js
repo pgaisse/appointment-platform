@@ -51,18 +51,18 @@ router.get('/stats', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
       org_id,
       selectedAppDates: {
         $elemMatch: {
-          status: 'pending',
-          startDate: { $gte: todayStart }
+          status: { $regex: /^pending$/i },
         }
       }
     });
+    console.log("pendingAppointments", pendingAppointments);
 
     // Count appointments with completed slots this month
     const completedAppointments = await Appointment.countDocuments({
       org_id,
       selectedAppDates: {
         $elemMatch: {
-          status: 'completed',
+          status: { $regex: /^completed$/i },
           startDate: { $gte: monthStart, $lte: monthEnd }
         }
       }
@@ -73,7 +73,7 @@ router.get('/stats', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
       org_id,
       selectedAppDates: {
         $elemMatch: {
-          status: 'cancelled',
+          status: { $regex: /^cancelled$/i },
           startDate: { $gte: monthStart, $lte: monthEnd }
         }
       }
@@ -125,12 +125,12 @@ router.get('/stats', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
       org_id,
       selectedAppDates: {
         $elemMatch: {
-          status: 'pending',
+          status: { $regex: /^pending$/i },
           startDate: { $gte: todayStart, $lte: urgentDeadline }
         }
       }
     });
-
+   
     const stats = {
       appointments: {
         today: appointmentsToday,

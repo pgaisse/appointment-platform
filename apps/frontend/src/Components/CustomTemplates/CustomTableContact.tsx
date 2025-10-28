@@ -2,7 +2,7 @@
 import {
   Box, Table, Thead, Tbody, Tr, Th, Td, Text, Tag, IconButton, HStack, TableContainer,
   Button, Spinner, AlertDialog, AlertDialogBody, AlertDialogContent, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogOverlay, Icon, Tooltip, useDisclosure, Input, InputGroup,
+  AlertDialogHeader, AlertDialogOverlay, Icon, useDisclosure, Input, InputGroup,
   InputLeftElement, InputRightElement, Flex
 } from "@chakra-ui/react";
 import { EditIcon, SearchIcon, CloseIcon } from "@chakra-ui/icons";
@@ -43,15 +43,14 @@ function CustomTableContact({ pageSize = 20 }: Props) {
   // búsqueda
   const [query, setQuery] = useState("");
   const q = useDebouncedValue(query, 350);
-  const isSearching = q.trim().length >= 2;
+  const isSearching = q.trim().length >= 3;
 
   // data
   const {
     data: pageData,
     isLoading: loadingPage,
     isPlaceholderData,
-    refetch: refetchPage,
-    invalidate
+  refetch: refetchPage,
   } = useAppointmentsPaginated<Appointment>(currentPage, pageSize, {
     sort: { updatedAt: -1 },
   });
@@ -73,7 +72,9 @@ function CustomTableContact({ pageSize = 20 }: Props) {
   const queryClient = useQueryClient();
   const hardRefresh = async () => {
     if (isSearching) {
-      await queryClient.invalidateQueries({ queryKey: ["appointments-search"] });
+      await queryClient.invalidateQueries({
+        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "appointments-search",
+      });
       await refetchSearch();
     } else {
       await queryClient.invalidateQueries({ queryKey: ["appointments"] });
@@ -84,6 +85,9 @@ function CustomTableContact({ pageSize = 20 }: Props) {
   const { openEditor, AppointmentEditor } = useAppointmentEditor({
     refetchPage,
     titlePrefix: "Edit Contact",
+    refetcher: async () => {
+      return isSearching ? await refetchSearch() : await refetchPage();
+    },
     onSaved: async () => {
       await queryClient.invalidateQueries({
         queryKey: appointmentsKeys.root,
@@ -145,7 +149,7 @@ function CustomTableContact({ pageSize = 20 }: Props) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, last name, phone or note…"
+            placeholder="Search by name, last name or phone (type 3+ chars)…"
             aria-label="Search appointments"
           />
           {query && (

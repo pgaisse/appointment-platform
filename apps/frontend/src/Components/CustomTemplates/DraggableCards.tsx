@@ -55,6 +55,7 @@ import Pagination from '../Pagination';
 import AddPatientButton from '../DraggableCards/AddPatientButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
 import ArchiveItemButton from './ArchiveItemButton';
+import UnarchiveItemButton from './UnarchiveItemButton';
 import DeleteContactButton from './DeleteContactButton';
 import { LiaSmsSolid } from 'react-icons/lia';
 import { useMovePriorityItems, type PriorityMove } from '@/Hooks/Query/useMovePriorityItems';
@@ -540,6 +541,7 @@ type Props = {
   dataContacts: Appointment[];
   isPlaceholderData: boolean;
   dataPending: Appointment[];
+  dataArchived: Appointment[];
 };
 
 const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
@@ -550,7 +552,7 @@ const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
   return null;
 };
 
-export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending }: Props) {
+export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending, dataArchived }: Props) {
   const toast = useToast();
   const searchRef = useRef<SearchBarRef>(null);
   const { mutate: moveMutate } = useMovePriorityItems();
@@ -686,9 +688,18 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const currentPending = paginatedPending ? paginatedPending.slice(startPending, endPending) : [];
   const totalPagesPending = paginatedPending ? Math.ceil(paginatedPending.length / (pageSize || 1)) : 0;
 
+  const [filteredArchived, setFilteredArchived] = useState<Appointment[] | null>(null);
+  const [currentPageArchived, setCurrentPageArchived] = useState(1);
+  const startArchived = (currentPageArchived - 1) * (pageSize ? pageSize : 0);
+  const endArchived = startArchived + (pageSize ? pageSize : 0);
+  const paginatedArchived = filteredArchived ?? dataArchived;
+  const currentArchived = paginatedArchived ? paginatedArchived.slice(startArchived, endArchived) : [];
+  const totalPagesArchived = paginatedArchived ? Math.ceil(paginatedArchived.length / (pageSize || 1)) : 0;
+
   const isLoadingColumns = !optimisticData || isPlaceholderData;
   const isLoadingContacts = isPlaceholderData && (!dataContacts || dataContacts.length === 0);
   const isLoadingPending = isPlaceholderData && (!dataPending || dataPending.length === 0);
+  const isLoadingArchived = isPlaceholderData && (!dataArchived || dataArchived.length === 0);
 
   // animación fluida de soltar
   const dropAnimation: DropAnimation = {
@@ -1122,6 +1133,118 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                       <HStack justify="space-between">
                         <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
                         <StatusPill status={item.selectedAppDates?.[0]?.status} />
+                      </HStack>
+                    </GridItem>
+                    <GridItem mt={2}>
+                      <HStack color="gray.600">
+                        <Icon as={PhoneIcon} color="green.500" />
+                        <Text>{formatAusPhoneNumber(item.phoneInput || '')}</Text>
+                        <PrefBadge pref={item.contactPreference as any} />
+                      </HStack>
+                    </GridItem>
+                  </Grid>
+                </Box>
+              ))}
+            </CardBody>
+
+            <CardFooter minH="50px" maxH="56px" />
+          </Card>
+        </Fade>
+      )}
+
+      {/* Archived Appointments */}
+      {lastColPainted && (
+        <Fade in>
+          <Card
+            pb={2}
+            minW="280px"
+            flex="0 0 auto"
+            minHeight="300px"
+            height="520px"
+            maxHeight="620px"
+            borderRadius="2xl"
+            position="relative"
+            mr={4}
+            bg="white"
+            boxShadow="md"
+            border="1px solid"
+            borderColor="gray.200"
+            _before={{
+              content: '""',
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '2xl',
+              p: '1px',
+              bgGradient: 'linear(to-br, gray.300, transparent)',
+              WebkitMask:
+                'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+              WebkitMaskComposite: 'xor',
+              pointerEvents: 'none',
+            }}
+          >
+            {isLoadingArchived && (
+              <Box
+                position="absolute"
+                inset={0}
+                bg="whiteAlpha.60"
+                display="flex"
+                alignItems="center"
+                justifyContent="center"
+                zIndex={2}
+                pointerEvents="none"
+                borderRadius="2xl"
+              >
+                <Spinner thickness="3px" size="md" />
+              </Box>
+            )}
+
+            <CardHeader pb={0}>
+              <HStack
+                mb={2}
+                bg="gray.50"
+                border="1px solid"
+                borderColor="gray.100"
+                px={3}
+                py={2}
+                borderRadius="full"
+                width="fit-content"
+                boxShadow="xs"
+                gap={2}
+              >
+                <Box w="10px" h="10px" borderRadius="full" bg="gray.400" />
+                <Heading size="sm">Archived</Heading>
+              </HStack>
+            </CardHeader>
+
+            <CardBody p={3} overflowY="auto">
+              {isPlaceholderData ? (
+                <Skeleton height="38px" borderRadius="md" mb={3} />
+              ) : (
+                <SearchBar ref={searchRef} data={dataArchived || []} onFilter={setFilteredArchived} who="contact" />
+              )}
+
+              {(filteredArchived ?? dataArchived).map((item) => (
+                <Box
+                  onClick={() => onCardClick?.(item)}
+                  key={`${item._id}-box`}
+                  userSelect="none"
+                  p={4}
+                  borderRadius="2xl"
+                  border="1px"
+                  borderColor="gray.100"
+                  w="full"
+                  my={2}
+                  cursor="pointer"
+                  boxShadow="xs"
+                  bg="white"
+                  _hover={{ borderColor: 'blackAlpha.300', transform: 'translateY(-1px)', boxShadow: 'md' }}
+                >
+                  <Grid templateColumns="1fr" templateRows="auto" w="100%">
+                    <GridItem />
+                    <GridItem>
+                      <HStack justify="space-between" align="center">
+                        <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
+                        <UnarchiveItemButton id={item._id ?? ""} modelName="Appointment" />
                       </HStack>
                     </GridItem>
                     <GridItem mt={2}>

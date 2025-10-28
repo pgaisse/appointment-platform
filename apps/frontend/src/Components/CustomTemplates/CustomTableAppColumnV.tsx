@@ -44,6 +44,10 @@ const CustomTableAppColumnV = () => {
     $and: [{ unknown: false },      {"selectedAppDates.status": "Pending" }    ],
   };
 
+  const query3 = {
+    $and: [{ unknown: false }, { position: -1 }],
+  };
+
   const limit = 100;
   const { data: dataContacts } = useGetCollection<Appointment>("Appointment", {
     mongoQuery: query,
@@ -52,6 +56,11 @@ const CustomTableAppColumnV = () => {
 
   const { data: dataPending } = useGetCollection<Appointment>("Appointment", {
     mongoQuery: query2,
+    limit,
+  });
+
+  const { data: dataArchived } = useGetCollection<Appointment>("Appointment", {
+    mongoQuery: query3,
     limit,
   });
   console.log("dataPending",dataPending)
@@ -113,6 +122,7 @@ const CustomTableAppColumnV = () => {
             dataAP2={filteredData ? filteredData : []}
             dataContacts={dataContacts ? dataContacts : []}
             dataPending={dataPending ? dataPending : []}
+            dataArchived={dataArchived ? dataArchived : []}
             onCardClick={handleCardClick}
           />
         </SimpleGrid>

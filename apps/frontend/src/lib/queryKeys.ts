@@ -9,6 +9,7 @@ export type PageParams = {
 export type SearchParams = {
   q: string;
   limit?: number;
+  exact?: boolean;
 };
 
 // limpia undefined para no “mover” la key accidentalmente

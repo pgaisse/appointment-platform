@@ -96,21 +96,100 @@ router.get('/search', async (req, res, next) => {
     if (!q) return res.json({ items: [], total: 0 });
 
     const limit = Math.min(Math.max(parseInt(req.query.limit || '100', 10), 1), 500);
-    const filter = { org_id };
+  const filter = { org_id };
+
+  const exact = String(req.query.exact || 'false') === 'true';
+  const suggest = String(req.query.suggest || 'false') === 'true';
 
     let items = [];
-    try {
-      items = await Appointment.find({ ...filter, $text: { $search: q } })
+  if (exact) {
+      // Exact match mode: phone/email/name/id equality (case-insensitive where applies)
+      const { toE164AU } = require('../models/Appointments');
+
+      const $or = [];
+
+      // 1) Phone exact (normalize to E.164 AU)
+      try {
+        const e164 = toE164AU(q);
+        if (e164) $or.push({ phoneE164: e164 });
+      } catch { /* not a valid AU phone */ }
+
+      // 2) Email exact (lowercased)
+      if (q.includes('@')) {
+        $or.push({ emailLower: q.toLowerCase() });
+      }
+
+      // 3) ObjectId by id
+      if (/^[a-f\d]{24}$/i.test(q)) {
+        try { $or.push({ _id: new mongoose.Types.ObjectId(q) }); } catch { /* ignore */ }
+      }
+
+      // 4) Name exact (case-insensitive equality)
+      const words = q.split(/\s+/).filter(Boolean);
+      if (words.length >= 2) {
+        const first = words[0];
+        const last = words.slice(1).join(' ');
+        $or.push({
+          $and: [
+            { nameInput: { $regex: `^${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } },
+            { lastNameInput: { $regex: `^${last.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } },
+          ],
+        });
+      } else if (words.length === 1) {
+        const token = words[0];
+        const anchored = `^${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+        $or.push({ nameInput: { $regex: anchored, $options: 'i' } });
+        $or.push({ lastNameInput: { $regex: anchored, $options: 'i' } });
+      }
+
+      // Fallback: if nothing matched a category, don't return fuzzy results
+      if ($or.length === 0) {
+        return res.json({ items: [], total: 0 });
+      }
+
+      items = await Appointment.find({ ...filter, $or })
         .populate(populateFields)
-        .limit(limit);
-    } catch {
-      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      items = await Appointment.find({
-        ...filter,
-        $or: [{ nameInput: rx }, { lastNameInput: rx }, { phoneInput: rx }, { note: rx }],
-      })
+        .limit(limit)
+        .collation({ locale: 'en', strength: 2 });
+    } else if (suggest) {
+      // Suggestion mode: prefix-anchored, case-insensitive on name/lastName/phone
+      const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const anchored = `^${esc(q)}`;
+
+      // phoneE164 prefix candidate from partial input
+      const phoneOrNull = (() => {
+        const raw = q.replace(/\s+/g, '');
+        if (/^\+61\d{0,9}$/.test(raw)) return raw; // already e164 prefix
+        if (/^0\d{1,9}$/.test(raw)) return `+61${raw.slice(1)}`; // convert 0xxxx -> +61xxxx
+        return null;
+      })();
+
+      const $or = [
+        { nameInput: { $regex: anchored, $options: 'i' } },
+        { lastNameInput: { $regex: anchored, $options: 'i' } },
+        { phoneInput: { $regex: anchored } }, // phoneInput often starts with 0
+      ];
+      if (phoneOrNull) $or.push({ phoneE164: { $regex: `^${esc(phoneOrNull)}` } });
+
+      items = await Appointment.find({ ...filter, $or })
         .populate(populateFields)
-        .limit(limit);
+        .limit(limit)
+        .collation({ locale: 'en', strength: 2 });
+    } else {
+      // Original fuzzy search: text index then regex fallback
+      try {
+        items = await Appointment.find({ ...filter, $text: { $search: q } })
+          .populate(populateFields)
+          .limit(limit);
+      } catch {
+        const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        items = await Appointment.find({
+          ...filter,
+          $or: [{ nameInput: rx }, { lastNameInput: rx }, { phoneInput: rx }, { note: rx }],
+        })
+          .populate(populateFields)
+          .limit(limit);
+      }
     }
 
     res.json({ items, total: items.length });

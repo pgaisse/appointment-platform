@@ -43,7 +43,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
   // ─────────── estado búsqueda
   const [query, setQuery] = useState("");
   const q = useDebouncedValue(query, 350);
-  const isSearching = q.trim().length >= 2;
+  const isSearching = q.trim().length >= 3;
 
   // ─────────── data: paginado o búsqueda
   const {
@@ -73,7 +73,10 @@ function CustomTableApp({ pageSize = 20 }: Props) {
   const queryClient = useQueryClient();
   const hardRefresh = async () => {
     if (isSearching) {
-      await queryClient.invalidateQueries({ queryKey: ["appointments-search"] });
+      await queryClient.invalidateQueries({
+        // ensure all search variants are invalidated (q, limit, exact)
+        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "appointments-search",
+      });
       await refetchSearch();
     } else {
       await queryClient.invalidateQueries({ queryKey: ["appointments"] });
@@ -84,6 +87,10 @@ function CustomTableApp({ pageSize = 20 }: Props) {
   const { openEditor, AppointmentEditor } = useAppointmentEditor({
     refetchPage,
     titlePrefix: "Edit Patient",
+    // Let the editor trigger a refetch based on current mode
+    refetcher: async () => {
+      return isSearching ? await refetchSearch() : await refetchPage();
+    },
     onSaved: async () => {
       // Invalida TODO lo relacionado a appointments (listas/paginación)
       await queryClient.invalidateQueries({
@@ -155,7 +162,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, last name, phone or note…"
+            placeholder="Search by name, last name or phone (type 3+ chars)…"
             aria-label="Search appointments"
           />
           {query && (
