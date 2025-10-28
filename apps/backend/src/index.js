@@ -80,6 +80,7 @@ app.use('/api',  require('./routes/appointments-range'));
 app.use('/api/priorities/meta',  require('./routes/categories-priorities-manager'));
 app.use('/api/providers', require('./routes/providers'));
 app.use('/api/validate', require('./routes/validate'));
+app.use('/api/dashboard', require('./routes/dashboard'));
 
 // manejador de errores (después de rutas)
 app.use((err, _req, res, next) => {
