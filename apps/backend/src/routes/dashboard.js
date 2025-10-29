@@ -342,38 +342,80 @@ router.get('/messages/today', jwtCheck, ensureUser, attachUserInfo, async (req, 
     const todayStart = now.startOf('day').toDate();
     const todayEnd = now.endOf('day').toDate();
 
-    const messages = await Message.find({
-      author: org_id,
-      direction: 'outbound',
-      createdAt: { $gte: todayStart, $lte: todayEnd }
-    })
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean();
+    const enriched = await Message.aggregate([
+      {
+        $match: {
+          author: org_id,
+          direction: 'outbound',
+          createdAt: { $gte: todayStart, $lte: todayEnd },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $limit: 100 },
+      {
+        $lookup: {
+          from: 'appointments',
+          let: { conv: '$conversationId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$org_id', org_id] },
+                    { $eq: ['$sid', '$$conv'] },
+                  ],
+                },
+              },
+            },
+            { $project: { nameInput: 1, lastNameInput: 1, phoneInput: 1, phoneE164: 1 } },
+            { $limit: 1 },
+          ],
+          as: 'appointment',
+        },
+      },
+      { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: true } },
+      // If the appointment is a dependent (has representative.appointment), fetch representative record
+      {
+        $lookup: {
+          from: 'appointments',
+          let: { repId: '$appointment.representative.appointment' },
+          pipeline: [
+            { $match: { $expr: { $and: [ { $eq: ['$_id', '$$repId'] }, { $eq: ['$org_id', org_id] } ] } } },
+            { $project: { nameInput: 1, lastNameInput: 1, phoneInput: 1, phoneE164: 1, sid: 1 } },
+            { $limit: 1 },
+          ],
+          as: 'representative',
+        },
+      },
+      { $unwind: { path: '$representative', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          // Prefer representative details when present; otherwise use appointment
+          recipientName: {
+            $let: {
+              vars: {
+                nameRep: {
+                  $trim: { input: { $concat: [ { $ifNull: ['$representative.nameInput',''] }, ' ', { $ifNull: ['$representative.lastNameInput',''] } ] } }
+                },
+                nameApt: {
+                  $trim: { input: { $concat: [ { $ifNull: ['$appointment.nameInput',''] }, ' ', { $ifNull: ['$appointment.lastNameInput',''] } ] } }
+                }
+              },
+              in: { $cond: [ { $gt: [ { $strLenCP: '$$nameRep' }, 0 ] }, '$$nameRep', { $cond: [ { $gt: [ { $strLenCP: '$$nameApt' }, 0 ] }, '$$nameApt', null ] } ] }
+            }
+          },
+          recipientPhone: {
+            $ifNull: [
+              '$representative.phoneInput',
+              { $ifNull: [ '$representative.phoneE164', { $ifNull: [ '$appointment.phoneInput', { $ifNull: [ '$appointment.phoneE164', { $ifNull: ['$proxyAddress', '$to'] } ] } ] } ] }
+            ]
+          },
+          time: '$createdAt',
+        },
+      },
+    ]);
 
-    // Get recipient names from appointments by phone number
-    const phones = messages.map(m => m.proxyAddress).filter(Boolean);
-    const appointments = await Appointment.find({
-      org_id,
-      phoneE164: { $in: phones }
-    }).select('phoneE164 nameInput lastNameInput').lean();
-
-    // Create a map of phone -> name
-    const phoneToName = {};
-    appointments.forEach(apt => {
-      if (apt.phoneE164) {
-        phoneToName[apt.phoneE164] = `${apt.nameInput || ''} ${apt.lastNameInput || ''}`.trim();
-      }
-    });
-
-    // Enrich messages with recipient names
-    const enrichedMessages = messages.map(msg => ({
-      ...msg,
-      recipientName: phoneToName[msg.proxyAddress] || null,
-      time: msg.createdAt // Ensure time field is set
-    }));
-
-    res.json(enrichedMessages);
+    res.json(enriched);
   } catch (error) {
     console.error('Dashboard today messages error:', error);
     res.status(500).json({ error: 'Failed to fetch today messages', message: error.message });
@@ -392,38 +434,80 @@ router.get('/messages/month', jwtCheck, ensureUser, attachUserInfo, async (req, 
     const monthStart = now.startOf('month').toDate();
     const monthEnd = now.endOf('month').toDate();
 
-    const messages = await Message.find({
-      author: org_id,
-      direction: 'outbound',
-      createdAt: { $gte: monthStart, $lte: monthEnd }
-    })
-      .sort({ createdAt: -1 })
-      .limit(500)
-      .lean();
+    const enriched = await Message.aggregate([
+      {
+        $match: {
+          author: org_id,
+          direction: 'outbound',
+          createdAt: { $gte: monthStart, $lte: monthEnd },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $limit: 500 },
+      {
+        $lookup: {
+          from: 'appointments',
+          let: { conv: '$conversationId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$org_id', org_id] },
+                    { $eq: ['$sid', '$$conv'] },
+                  ],
+                },
+              },
+            },
+            { $project: { nameInput: 1, lastNameInput: 1, phoneInput: 1, phoneE164: 1, sid: 1 } },
+            { $limit: 1 },
+          ],
+          as: 'appointment',
+        },
+      },
+      { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: true } },
+      // If the appointment is a dependent (has representative.appointment), fetch representative record
+      {
+        $lookup: {
+          from: 'appointments',
+          let: { repId: '$appointment.representative.appointment' },
+          pipeline: [
+            { $match: { $expr: { $and: [ { $eq: ['$_id', '$$repId'] }, { $eq: ['$org_id', org_id] } ] } } },
+            { $project: { nameInput: 1, lastNameInput: 1, phoneInput: 1, phoneE164: 1, sid: 1 } },
+            { $limit: 1 },
+          ],
+          as: 'representative',
+        },
+      },
+      { $unwind: { path: '$representative', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          // Prefer representative details when present; otherwise use appointment
+          recipientName: {
+            $let: {
+              vars: {
+                nameRep: {
+                  $trim: { input: { $concat: [ { $ifNull: ['$representative.nameInput',''] }, ' ', { $ifNull: ['$representative.lastNameInput',''] } ] } }
+                },
+                nameApt: {
+                  $trim: { input: { $concat: [ { $ifNull: ['$appointment.nameInput',''] }, ' ', { $ifNull: ['$appointment.lastNameInput',''] } ] } }
+                }
+              },
+              in: { $cond: [ { $gt: [ { $strLenCP: '$$nameRep' }, 0 ] }, '$$nameRep', { $cond: [ { $gt: [ { $strLenCP: '$$nameApt' }, 0 ] }, '$$nameApt', null ] } ] }
+            }
+          },
+          recipientPhone: {
+            $ifNull: [
+              '$representative.phoneInput',
+              { $ifNull: [ '$representative.phoneE164', { $ifNull: [ '$appointment.phoneInput', { $ifNull: [ '$appointment.phoneE164', { $ifNull: ['$proxyAddress', '$to'] } ] } ] } ] }
+            ]
+          },
+          time: '$createdAt',
+        },
+      },
+    ]);
 
-    // Get recipient names from appointments by phone number
-    const phones = messages.map(m => m.proxyAddress).filter(Boolean);
-    const appointments = await Appointment.find({
-      org_id,
-      phoneE164: { $in: phones }
-    }).select('phoneE164 nameInput lastNameInput').lean();
-
-    // Create a map of phone -> name
-    const phoneToName = {};
-    appointments.forEach(apt => {
-      if (apt.phoneE164) {
-        phoneToName[apt.phoneE164] = `${apt.nameInput || ''} ${apt.lastNameInput || ''}`.trim();
-      }
-    });
-
-    // Enrich messages with recipient names
-    const enrichedMessages = messages.map(msg => ({
-      ...msg,
-      recipientName: phoneToName[msg.proxyAddress] || null,
-      time: msg.createdAt // Ensure time field is set
-    }));
-
-    res.json(enrichedMessages);
+    res.json(enriched);
   } catch (error) {
     console.error('Dashboard month messages error:', error);
     res.status(500).json({ error: 'Failed to fetch month messages', message: error.message });

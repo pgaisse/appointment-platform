@@ -329,9 +329,9 @@ const getDateRange = () => {
   start.setDate(today.getDate() - diffToMonday);
   start.setHours(0, 0, 0, 0); // inicio del día
 
-  // Calcular el domingo de la segunda semana (13 días después)
+  // Extender a 60 días (aproximadamente 2 meses) para cubrir "this month" y rangos custom
   const end = new Date(start);
-  end.setDate(start.getDate() + 13);
+  end.setDate(start.getDate() + 60); // 60 días en lugar de 13
   end.setHours(23, 59, 59, 999); // fin del día
   return { start, end }
 };

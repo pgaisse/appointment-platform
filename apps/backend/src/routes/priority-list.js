@@ -141,8 +141,9 @@ router.get(
                   org_id: org_id,
                   selectedAppDates: {
                     $elemMatch: {
-                      startDate: { $gte: start },
-                      endDate: { $lte: end },
+                      // Solapamiento: la cita debe empezar antes del fin del rango Y terminar después del inicio
+                      startDate: { $lte: end },
+                      endDate: { $gte: start },
                     },
                   },
                 },

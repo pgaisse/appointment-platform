@@ -1,7 +1,11 @@
 import {
   Box,
   SimpleGrid,
-  useDisclosure
+  useDisclosure,
+  Skeleton,
+  VStack,
+  HStack,
+  SkeletonText,
 } from "@chakra-ui/react";
 import { useEffect, useState } from "react";
 import { WeekDay } from "./AvailabilityDates";
@@ -20,8 +24,19 @@ const CustomTableAppColumnV = () => {
   const [selectedItem, setSelectedItem] = useState<Appointment>();
   const [] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
 
-  const { data: dataAP2, isPlaceholderData } = useDraggableCards();
-  console.log("dataAP2",dataAP2)
+  const { data: dataAP2, isPlaceholderData, isLoading } = useDraggableCards();
+  console.log("📦 dataAP2 from backend:", {
+    totalGroups: dataAP2?.length,
+    totalPatients: dataAP2?.reduce((sum, g) => sum + (g.patients?.length || 0), 0),
+    groups: dataAP2?.map(g => ({
+      priority: g.priorityName || 'Unknown',
+      count: g.patients?.length || 0,
+      sampleDates: g.patients?.[0]?.selectedAppDates?.map(d => ({
+        start: d.startDate,
+        end: d.endDate
+      }))
+    }))
+  });
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
   const query = {
@@ -97,35 +112,100 @@ const CustomTableAppColumnV = () => {
     onOpen();
   };
 
+  // Skeleton component for loading state
+  const DateRangeSkeleton = () => (
+    <Box px={4} mb={4}>
+      <Box
+        w="full"
+        bg="white"
+        p={4}
+        borderRadius="xl"
+        border="2px"
+        borderColor="gray.200"
+        boxShadow="sm"
+      >
+        <VStack spacing={3} align="stretch">
+          <HStack justify="space-between">
+            <HStack spacing={2}>
+              <Skeleton width="20px" height="20px" borderRadius="md" />
+              <SkeletonText noOfLines={1} width="150px" skeletonHeight="4" />
+              <Skeleton width="100px" height="24px" borderRadius="full" />
+            </HStack>
+            <Skeleton width="32px" height="32px" borderRadius="md" />
+          </HStack>
+          <Skeleton height="60px" borderRadius="lg" />
+        </VStack>
+      </Box>
+    </Box>
+  );
+
+  const CardsSkeleton = () => (
+    <SimpleGrid spacing={6} templateColumns={templateCoumns}>
+      {[1, 2, 3, 4].map((i) => (
+        <Box key={i} w="full">
+          <VStack spacing={4} align="stretch">
+            <HStack justify="space-between" mb={2}>
+              <SkeletonText noOfLines={1} width="120px" skeletonHeight="4" />
+              <Skeleton width="40px" height="24px" borderRadius="full" />
+            </HStack>
+            {[1, 2, 3].map((j) => (
+              <Box
+                key={j}
+                p={4}
+                borderRadius="lg"
+                border="2px solid"
+                borderColor="gray.200"
+                bg="white"
+              >
+                <VStack spacing={3} align="stretch">
+                  <HStack justify="space-between">
+                    <SkeletonText noOfLines={1} width="60%" skeletonHeight="3" />
+                    <Skeleton width="60px" height="20px" borderRadius="md" />
+                  </HStack>
+                  <SkeletonText noOfLines={2} spacing="2" skeletonHeight="2" />
+                  <HStack spacing={2} mt={2}>
+                    <Skeleton width="80px" height="28px" borderRadius="md" />
+                    <Skeleton width="80px" height="28px" borderRadius="md" />
+                  </HStack>
+                </VStack>
+              </Box>
+            ))}
+          </VStack>
+        </Box>
+      ))}
+    </SimpleGrid>
+  );
+
   return (
     <ModalStackProvider>
       <>
-        <Box
-          px={4}
-          fontWeight="normal"
-          display="flex"
-          width="100%"           // Ocupa todo el ancho del padre para que funcione el alineado
-          justifyContent="flex-end"  // Empuja contenido a la derecha
-          color="gray.300"
-        >
-          {dataAP2 && <DateRangeSelector onFilterRange={handleRangeChange} />}
+        <Box px={4} mb={4}>
+          {isLoading || !dataAP2 ? (
+            <DateRangeSkeleton />
+          ) : (
+            <DateRangeSelector onFilterRange={handleRangeChange} />
+          )}
         </Box>
-        <Box px={4} >
+        <Box px={4}>
           {isOpen && selectedItem && (
-            <AppointmentModal id={selectedItem._id?? ""} isOpen={isOpen} onClose={onClose} />
+            <AppointmentModal id={selectedItem._id ?? ""} isOpen={isOpen} onClose={onClose} />
           )}
         </Box>
 
-        <SimpleGrid spacing={6} templateColumns={templateCoumns}>
-          <DraggableCards
-            isPlaceholderData={isPlaceholderData}
-            dataAP2={filteredData ? filteredData : []}
-            dataContacts={dataContacts ? dataContacts : []}
-            dataPending={dataPending ? dataPending : []}
-            dataArchived={dataArchived ? dataArchived : []}
-            onCardClick={handleCardClick}
-          />
-        </SimpleGrid>
+        {isLoading || !dataAP2 ? (
+          <CardsSkeleton />
+        ) : (
+          <SimpleGrid spacing={6} templateColumns={templateCoumns}>
+            <DraggableCards
+              isPlaceholderData={isPlaceholderData}
+              dataAP2={filteredData ? filteredData : []}
+              dataContacts={dataContacts ? dataContacts : []}
+              dataPending={dataPending ? dataPending : []}
+              dataArchived={dataArchived ? dataArchived : []}
+              onCardClick={handleCardClick}
+            />
+          </SimpleGrid>
+        )}
       </>
     </ModalStackProvider>
   );

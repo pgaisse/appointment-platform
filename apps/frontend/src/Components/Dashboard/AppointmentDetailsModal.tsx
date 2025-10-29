@@ -29,6 +29,7 @@ interface AppointmentDetailsModalProps {
   appointments: Appointment[];
   title: string;
   isLoading?: boolean;
+  onAppointmentClick?: (appointmentId: string) => void;
 }
 
 export const AppointmentDetailsModal: React.FC<AppointmentDetailsModalProps> = ({
@@ -37,6 +38,7 @@ export const AppointmentDetailsModal: React.FC<AppointmentDetailsModalProps> = (
   appointments,
   title,
   isLoading,
+  onAppointmentClick,
 }) => {
   const bgCard = useColorModeValue("white", "gray.700");
   const borderColor = useColorModeValue("gray.200", "gray.600");
@@ -128,10 +130,17 @@ export const AppointmentDetailsModal: React.FC<AppointmentDetailsModalProps> = (
                     border="1px"
                     borderColor={borderColor}
                     transition="all 0.2s"
+                    cursor="pointer"
+                    onClick={() => {
+                      if (apt._id && onAppointmentClick) {
+                        onAppointmentClick(apt._id);
+                      }
+                    }}
                     _hover={{
                       transform: "translateY(-2px)",
                       boxShadow: "lg",
                       bg: hoverBg,
+                      borderColor: "blue.400",
                     }}
                   >
                     <VStack align="stretch" spacing={3}>

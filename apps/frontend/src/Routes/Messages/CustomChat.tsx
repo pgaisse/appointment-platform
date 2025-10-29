@@ -216,10 +216,15 @@ export default function CustomChat() {
 
   const chatIdRef = useRef<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const autoSelectedRef = useRef<boolean>(false);
 
   const { user } = useAuth0();
   const org_id = (user as any)?.org_id?.toLowerCase?.() ?? "";
   const queryClient = useQueryClient();
+
+  // Get conversationId from URL query params
+  const urlParams = new URLSearchParams(window.location.search);
+  const conversationIdFromUrl = urlParams.get("conversationId");
 
   // While mark-read is in flight, force unread=0 locally
   const [readOverrides, setReadOverrides] = useState<Set<string>>(new Set());
@@ -237,6 +242,22 @@ export default function CustomChat() {
     () => data?.pages.flatMap((p) => p.items) ?? [],
     [data]
   );
+
+  // Auto-select conversation from URL parameter
+  useEffect(() => {
+    if (conversationIdFromUrl && dataConversation.length > 0 && !autoSelectedRef.current) {
+      const conversation = dataConversation.find((c) => c.conversationId === conversationIdFromUrl);
+      if (conversation) {
+        setChat(conversation);
+        autoSelectedRef.current = true;
+        // Clean up URL params
+        window.history.replaceState({}, '', '/messages');
+      } else if (view === "active") {
+        // Not found in active view, try switching to archived view
+        setView("only");
+      }
+    }
+  }, [conversationIdFromUrl, dataConversation, view]);
 
   // keep selected chat fresh
   useEffect(() => {

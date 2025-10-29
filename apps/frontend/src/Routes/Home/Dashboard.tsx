@@ -1,5 +1,6 @@
 // apps/frontend/src/Routes/Home/Dashboard.tsx
-import React from "react";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Container,
@@ -27,6 +28,8 @@ import { StatCard } from "@/Components/Dashboard/StatCard";
 import { QuickAction } from "@/Components/Dashboard/QuickAction";
 import { AppointmentDetailsModal } from "@/Components/Dashboard/AppointmentDetailsModal";
 import { MessagesDetailsModal } from "@/Components/Dashboard/MessagesDetailsModal";
+import AppointmentModal from "@/Components/Modal/AppointmentModal";
+import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext";
 import { useDashboardStats } from "@/Hooks/Query/useDashboardStats";
 import {
   useTodayAppointments,
@@ -40,12 +43,17 @@ import { useProfile } from "@/Hooks/Query/useProfile";
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError, error } = useDashboardStats();
   const { data: profile } = useProfile();
+  const navigate = useNavigate();
 
   // Modals state
   const { isOpen: isTodayOpen, onOpen: onTodayOpen, onClose: onTodayClose } = useDisclosure();
   const { isOpen: isWeekOpen, onOpen: onWeekOpen, onClose: onWeekClose } = useDisclosure();
   const { isOpen: isPendingOpen, onOpen: onPendingOpen, onClose: onPendingClose } = useDisclosure();
   const { isOpen: isMessagesOpen, onOpen: onMessagesOpen, onClose: onMessagesClose } = useDisclosure();
+  const { isOpen: isAppointmentModalOpen, onOpen: onAppointmentModalOpen, onClose: onAppointmentModalClose } = useDisclosure();
+
+  // Selected appointment for detail modal
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
 
   // Fetch detailed data
   const { data: todayAppointments = [], isLoading: isLoadingToday } = useTodayAppointments();
@@ -53,6 +61,17 @@ const Dashboard: React.FC = () => {
   const { data: pendingAppointments = [], isLoading: isLoadingPending } = usePendingAppointments();
   const { data: todayMessages = [], isLoading: isLoadingTodayMsg } = useTodayMessages();
   const { data: monthMessages = [], isLoading: isLoadingMonthMsg } = useMonthMessages();
+
+  // Handler to open appointment detail modal
+  const handleAppointmentClick = (appointmentId: string) => {
+    setSelectedAppointmentId(appointmentId);
+    onAppointmentModalOpen();
+  };
+
+  // Handler to navigate to chat with selected conversation
+  const handleMessageClick = (conversationId: string) => {
+    navigate(`/messages?conversationId=${conversationId}`);
+  };
   
   const bgGradient = useColorModeValue(
     "linear(to-br, blue.50, purple.50)",
@@ -253,6 +272,7 @@ const Dashboard: React.FC = () => {
           appointments={todayAppointments}
           title="Today's Appointments"
           isLoading={isLoadingToday}
+          onAppointmentClick={handleAppointmentClick}
         />
 
         <AppointmentDetailsModal
@@ -261,6 +281,7 @@ const Dashboard: React.FC = () => {
           appointments={weekAppointments}
           title="This Week's Appointments"
           isLoading={isLoadingWeek}
+          onAppointmentClick={handleAppointmentClick}
         />
 
         <AppointmentDetailsModal
@@ -269,6 +290,7 @@ const Dashboard: React.FC = () => {
           appointments={pendingAppointments}
           title="Pending Appointments"
           isLoading={isLoadingPending}
+          onAppointmentClick={handleAppointmentClick}
         />
 
         <MessagesDetailsModal
@@ -278,7 +300,19 @@ const Dashboard: React.FC = () => {
           monthMessages={monthMessages}
           isLoadingToday={isLoadingTodayMsg}
           isLoadingMonth={isLoadingMonthMsg}
+          onMessageClick={handleMessageClick}
         />
+
+        {/* Appointment Detail Modal */}
+        {selectedAppointmentId && (
+          <ModalStackProvider>
+            <AppointmentModal
+              id={selectedAppointmentId}
+              isOpen={isAppointmentModalOpen}
+              onClose={onAppointmentModalClose}
+            />
+          </ModalStackProvider>
+        )}
       </Container>
     </Box>
   );

@@ -27,6 +27,7 @@ import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 
 interface Message {
   _id: string;
+  conversationId?: string;
   to: string;
   body: string;
   time: Date;
@@ -35,6 +36,14 @@ interface Message {
   author?: string;
   recipientName?: string | null;
   proxyAddress?: string;
+  recipientPhone?: string;
+  appointment?: {
+    nameInput?: string;
+    lastNameInput?: string;
+    phoneInput?: string;
+    phoneE164?: string;
+    sid?: string;
+  };
 }
 
 interface MessagesDetailsModalProps {
@@ -44,6 +53,7 @@ interface MessagesDetailsModalProps {
   monthMessages: Message[];
   isLoadingToday?: boolean;
   isLoadingMonth?: boolean;
+  onMessageClick?: (conversationId: string) => void;
 }
 
 export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
@@ -53,6 +63,7 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
   monthMessages,
   isLoadingToday,
   isLoadingMonth,
+  onMessageClick,
 }) => {
   const bgCard = useColorModeValue("white", "gray.700");
   const borderColor = useColorModeValue("gray.200", "gray.600");
@@ -87,54 +98,48 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
     });
   };
 
-  const MessageCard = ({ msg }: { msg: Message }) => (
-    <Box
-      p={4}
-      bg={bgCard}
-      borderRadius="xl"
-      border="1px"
-      borderColor={borderColor}
-      transition="all 0.2s"
-      _hover={{
-        transform: "translateY(-2px)",
-        boxShadow: "lg",
-        bg: hoverBg,
-      }}
-    >
-      <VStack align="stretch" spacing={3}>
-        <HStack justify="space-between">
-          <VStack align="start" spacing={1} flex={1}>
-            {msg.recipientName ? (
-              <>
-                <Text fontWeight="bold" fontSize="md" textTransform="capitalize">
-                  {msg.recipientName}
-                </Text>
-                <HStack spacing={2}>
-                  <Icon as={FiSend} color="green.500" boxSize={3} />
-                  <Text fontSize="sm" color="gray.600">
-                    {formatAusPhoneNumber(msg.proxyAddress || msg.to)}
-                  </Text>
-                </HStack>
-              </>
-            ) : (
-              <HStack spacing={2}>
-                <Icon as={FiSend} color="green.500" />
-                <Text fontWeight="bold" fontSize="md">
-                  {formatAusPhoneNumber(msg.proxyAddress || msg.to)}
-                </Text>
-              </HStack>
-            )}
-          </VStack>
-          <Badge
-            colorScheme={getStatusColor(msg.status)}
-            px={2}
-            py={1}
-            borderRadius="full"
-            fontSize="xs"
-          >
-            {msg.status}
-          </Badge>
-        </HStack>
+  const MessageCard = ({ msg }: { msg: Message }) => {
+    const rawPhone = msg.recipientPhone || msg.proxyAddress || msg.to;
+    const phoneNumber = rawPhone ? formatAusPhoneNumber(rawPhone) : '';
+    const displayName = msg.recipientName 
+      ? `${msg.recipientName} (${phoneNumber})`
+      : phoneNumber;
+
+    return (
+      <Box
+        p={4}
+        bg={bgCard}
+        borderRadius="xl"
+        border="1px"
+        borderColor={borderColor}
+        transition="all 0.2s"
+        cursor={onMessageClick && msg.conversationId ? "pointer" : "default"}
+        _hover={{
+          transform: "translateY(-2px)",
+          boxShadow: "lg",
+          bg: hoverBg,
+          borderColor: onMessageClick && msg.conversationId ? "green.500" : borderColor,
+        }}
+        onClick={() => msg.conversationId && onMessageClick?.(msg.conversationId)}
+      >
+        <VStack align="stretch" spacing={3}>
+          <HStack justify="space-between">
+            <HStack spacing={2} flex={1}>
+              <Icon as={FiSend} color="green.500" />
+              <Text fontWeight="bold" fontSize="md" textTransform="capitalize">
+                {displayName}
+              </Text>
+            </HStack>
+            <Badge
+              colorScheme={getStatusColor(msg.status)}
+              px={2}
+              py={1}
+              borderRadius="full"
+              fontSize="xs"
+            >
+              {msg.status}
+            </Badge>
+          </HStack>
 
         <Text fontSize="sm" color="gray.600" noOfLines={3}>
           {msg.body}
@@ -156,6 +161,7 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
       </VStack>
     </Box>
   );
+};
 
   const MessageList = ({ messages, isLoading }: { messages: Message[]; isLoading?: boolean }) => {
     if (isLoading) {
