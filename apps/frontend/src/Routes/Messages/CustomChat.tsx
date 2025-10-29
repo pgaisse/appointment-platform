@@ -259,6 +259,17 @@ export default function CustomChat() {
     }
   }, [conversationIdFromUrl, dataConversation, view]);
 
+  // Default selection: pick the most recent conversation shown in MessageList
+  // If there's no chat selected and no URL param handled, select the first item
+  useEffect(() => {
+    if (autoSelectedRef.current) return; // URL-based selection already applied
+    if (!chat && dataConversation.length > 0) {
+      setChat(dataConversation[0]);
+      // Mark so we don't re-select on further list changes
+      autoSelectedRef.current = true;
+    }
+  }, [chat, dataConversation]);
+
   // keep selected chat fresh
   useEffect(() => {
     if (!chat?.conversationId || !dataConversation) return;
