@@ -766,71 +766,74 @@ function CustomEntryForm({
     isAlreadyRepresentative,
   ]);
 
-  // Observador mínimo: sólo phoneInput para debounce de validación
-  const watchedPhoneInput = watch("phoneInput");
-
-  // Debounce + unique phone
+  // Debounce + unique phone validation with optimized subscription
   const phoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCheckedRef = useRef<string>("");
 
-  // Mejor suscripción: escuchar sólo el valor del campo phoneInput (watchedPhoneInput)
   useEffect(() => {
     if (!isCreation) return;
 
-    const raw = String(watchedPhoneInput ?? "").replace(/\s+/g, "");
-    if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
+    // Subscribe directly to the field changes instead of using watch
+    const subscription = watch((value, { name }) => {
+      // Only process phoneInput changes
+      if (name !== "phoneInput") return;
 
-    phoneTimerRef.current = setTimeout(async () => {
-      const repId = (getValues("representative") as any)?.appointment;
-      if ((isChild || !!repId) && !raw) {
-        const errType = getFieldState("phoneInput").error?.type;
-        if (errType === "duplicate") clearErrors("phoneInput" as any);
-        lastCheckedRef.current = "";
-        return;
-      }
+      const raw = String(value.phoneInput ?? "").replace(/\s+/g, "");
+      if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
 
-      const isCompleteAU =
-        /^04\d{8}$/.test(raw) ||
-        /^\+61\d{9}$/.test(raw) ||
-        /^61\d{9}$/.test(raw);
-      const errType = getFieldState("phoneInput").error?.type;
-      if (!isCompleteAU) {
-        if (errType === "duplicate") clearErrors("phoneInput" as any);
-        lastCheckedRef.current = "";
-        return;
-      }
-
-      if (lastCheckedRef.current === raw) return;
-      lastCheckedRef.current = raw;
-
-      try {
-        const e164 = toE164AU(raw);
-        const excludeIdVal = getValues("id");
-        const exists = await checkPhoneUnique(e164, {
-          excludeId:
-            typeof excludeIdVal === "string" && isObjectId(excludeIdVal)
-              ? excludeIdVal
-              : undefined,
-        });
-        if (exists) {
-          setError("phoneInput" as any, {
-            type: "duplicate",
-            message: "Phone number already exists",
-          });
-        } else if (errType === "duplicate") {
-          clearErrors("phoneInput" as any);
+      phoneTimerRef.current = setTimeout(async () => {
+        const repId = (getValues("representative") as any)?.appointment;
+        if ((isChild || !!repId) && !raw) {
+          const errType = getFieldState("phoneInput").error?.type;
+          if (errType === "duplicate") clearErrors("phoneInput" as any);
+          lastCheckedRef.current = "";
+          return;
         }
-      } catch {
-        // noop
-      }
-    }, 250);
+
+        const isCompleteAU =
+          /^04\d{8}$/.test(raw) ||
+          /^\+61\d{9}$/.test(raw) ||
+          /^61\d{9}$/.test(raw);
+        const errType = getFieldState("phoneInput").error?.type;
+        if (!isCompleteAU) {
+          if (errType === "duplicate") clearErrors("phoneInput" as any);
+          lastCheckedRef.current = "";
+          return;
+        }
+
+        if (lastCheckedRef.current === raw) return;
+        lastCheckedRef.current = raw;
+
+        try {
+          const e164 = toE164AU(raw);
+          const excludeIdVal = getValues("id");
+          const exists = await checkPhoneUnique(e164, {
+            excludeId:
+              typeof excludeIdVal === "string" && isObjectId(excludeIdVal)
+                ? excludeIdVal
+                : undefined,
+          });
+          if (exists) {
+            setError("phoneInput" as any, {
+              type: "duplicate",
+              message: "Phone number already exists",
+            });
+          } else if (errType === "duplicate") {
+            clearErrors("phoneInput" as any);
+          }
+        } catch {
+          // noop
+        }
+      }, 500); // Increased debounce to 500ms for better performance
+    });
 
     return () => {
+      subscription.unsubscribe();
       if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
     };
   }, [
     isCreation,
-    watchedPhoneInput,
+    watch,
     getFieldState,
     clearErrors,
     setError,

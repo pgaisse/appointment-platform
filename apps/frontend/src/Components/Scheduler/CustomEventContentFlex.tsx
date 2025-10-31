@@ -604,7 +604,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                                     />
                                   </PopoverTrigger>
                                   <Portal>
-                                    <PopoverContent zIndex={10000} w="sm">
+                                    <PopoverContent zIndex={10000} w="full" maxW="100vw">
                                       <PopoverArrow />
                                       <PopoverCloseButton />
                                       <PopoverHeader fontWeight="semibold">

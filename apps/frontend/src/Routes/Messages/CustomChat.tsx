@@ -237,7 +237,7 @@ export default function CustomChat() {
     hasNextPage,
     fetchNextPage,
   } = useConversationsInfinite(view, PAGE_SIZE);
-
+console.log("data", data)
   const dataConversation: ConversationChat[] = useMemo(
     () => data?.pages.flatMap((p) => p.items) ?? [],
     [data]
@@ -665,10 +665,28 @@ function DragPreviewChatRow({ conv }: { conv: ConversationChat }) {
     >
       <Avatar
         size="md"
-        name={name}
+        name={name?.[0] || name}
         src={conv.owner?.avatar}
         icon={conv.owner?.unknown ? <FaUserAlt fontSize="1.5rem" /> : undefined}
         pointerEvents="none"
+        {...(() => {
+          const color = conv.owner?.color;
+          if (!color) return { bg: "gray.500", color: "white" };
+          if (!color.startsWith('#') && !color.includes('.')) {
+            return { bg: `${color}.500`, color: "white" };
+          }
+          if (color.includes(".")) {
+            const [base] = color.split(".");
+            return { bg: `${base}.500`, color: "white" };
+          }
+          const hex = color.replace("#", "");
+          const int = parseInt(hex.length === 3 ? hex.split("").map((c: string) => c+c).join("") : hex, 16);
+          const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
+          const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+          const text = yiq >= 128 ? "black" : "white";
+          return { bg: color, color: text };
+        })()}
+        boxShadow="0 1px 4px rgba(0,0,0,0.1)"
       />
       <Box flex="1" minW={0}>
         <Text fontWeight="semibold" noOfLines={1}>

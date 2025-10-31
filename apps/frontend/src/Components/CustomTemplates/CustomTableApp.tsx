@@ -3,7 +3,7 @@ import {
   Box, Table, Thead, Tbody, Tr, Th, Td, Text, Tag, IconButton, HStack, TableContainer,
   Button, Spinner, AlertDialog, AlertDialogBody, AlertDialogContent, AlertDialogFooter,
   AlertDialogHeader, AlertDialogOverlay, Icon, Tooltip, useDisclosure, Input, InputGroup,
-  InputLeftElement, InputRightElement, Flex
+  InputLeftElement, InputRightElement, Flex, Avatar
 } from "@chakra-ui/react";
 import { EditIcon, SearchIcon, CloseIcon } from "@chakra-ui/icons";
 import { ImBin } from "react-icons/im";
@@ -35,6 +35,40 @@ function useDebouncedValue(v: string, ms = 350) {
   }, [v, ms]);
   return val;
 }
+
+  const getAvatarColors = (color: string) => {
+    // Si es un color de Chakra UI (ej: "red", "blue")
+    if (color && !color.startsWith('#')) {
+      return {
+        bg: `${color}.500`,
+        color: 'white',
+        borderColor: `${color}.700`,
+      };
+    }
+
+    // Si es un color hexadecimal
+    if (color && color.startsWith('#')) {
+      const hex = color.replace('#', '');
+      const r = parseInt(hex.substr(0, 2), 16);
+      const g = parseInt(hex.substr(2, 2), 16);
+      const b = parseInt(hex.substr(4, 2), 16);
+      const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+      const textColor = yiq >= 128 ? 'black' : 'white';
+
+      return {
+        bg: color,
+        color: textColor,
+        borderColor: yiq >= 128 ? 'gray.300' : 'whiteAlpha.300',
+      };
+    }
+
+    // Fallback
+    return {
+      bg: 'gray.500',
+      color: 'white',
+      borderColor: 'gray.700',
+    };
+  };
 
 function CustomTableApp({ pageSize = 20 }: Props) {
   // ─────────── estado paginación
@@ -211,20 +245,14 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                   {/* name */}
                   <Td>
                     <HStack spacing={3}>
-                      <Tag
-                        size="lg"
-                        borderRadius="full"
-                        colorScheme={item.priority?.color || "gray"}
-                        variant="solid"
-                        w="36px"
-                        h="36px"
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="center"
+                      <Avatar
+                        name={item.nameInput?.[0] || ""}
+                        {...getAvatarColors(item.color)}
+                        width="36px"
+                        height="36px"
                         fontWeight="bold"
-                      >
-                        {`${item.nameInput?.[0] || ""}${item.lastNameInput?.[0] || ""}`.toUpperCase()}
-                      </Tag>
+                        boxShadow="0 1px 4px rgba(0,0,0,0.1)"
+                      />
                       <Box>
                         <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput}</Text>
                         <Text fontSize="sm" color="gray.500" textTransform="capitalize">{item.lastNameInput}</Text>

@@ -6,7 +6,7 @@ import { SlotInfo } from "react-big-calendar";
 
 import { usePriorityTreatments } from "@/Hooks/Query/usePriorityTreatments";
 import CustomEventContentFlex from "@/Components/Scheduler/CustomEventContentFlex";
-import { AppointmentGroup, Patients } from "@/types";
+import { AppointmentGroup } from "@/types";
 import CustomModal from "@/Components/Modal/CustomModal";
 import CustomCalendarv2 from "@/Components/Scheduler/CustomCalendarv2";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
@@ -34,7 +34,7 @@ function PriorityList() {
 
 
   };
-  const [catSelected, setCatSelected] = useState<string>("")
+  const [catSelected, _setCatSelected] = useState<string>("")
   //console.log(catSelected)
   const start = range?.startDate
   const end = range?.endDate
@@ -42,7 +42,7 @@ function PriorityList() {
   const query = {};
   const limit = 20;
   const params = { start, end } // solo frontend
-  const { data: options } = useGetCollection<AppointmentGroup[]>("PriorityList", { query, limit, params });
+  const { data: _options } = useGetCollection<AppointmentGroup[]>("PriorityList", { query, limit, params });
 
 
   useEffect(() => {
@@ -127,7 +127,7 @@ function PriorityList() {
         </Box>
 
         <Box p={4}>
-          {data2 && <CustomModal isOpen_={isOpen} onClose_={handleClose} size={"6xl"}>
+          {data2 && <CustomModal isOpen_={isOpen} onClose_={handleClose} size={"full"} contentW="90vw" contentMaxW="90vw" contentH="80vh" contentMaxH="80vh">
             <CustomEventContentFlex event={data2} />
           </CustomModal>}
         </Box>

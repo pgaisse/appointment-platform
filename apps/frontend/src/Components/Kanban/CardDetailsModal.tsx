@@ -1,5 +1,5 @@
 // apps/frontend/src/Components/Kanban/CardDetailsModal.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
   ModalCloseButton, Box, HStack, VStack, Text, Input, Textarea, Button,
@@ -15,6 +15,12 @@ import LabelAssigner from './LabelAssigner';
 import TopicLabelManager from './TopicLabelManager';
 import { useTopicLabels } from '@/Hooks/useTopicLabels';
 import { useSystemUsers, type SystemUser } from '@/Hooks/useSystemUsers';
+import MentionTextarea from '@/Components/Mentions/MentionTexTarea';
+import LabelChip from './LabelChip';
+import AppointmentModal from '@/Components/Modal/AppointmentModal';
+import { ModalStackProvider } from '@/Components/ModalStack/ModalStackContext';
+import { extractMentions } from '@/utils/mentionToken';
+import { useAuth0 } from '@auth0/auth0-react';
 
 type Props = {
   isOpen: boolean;
@@ -166,6 +172,16 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
 
   // ---------- HOOKS ARRIBA ----------
   const [local, setLocal] = useState<Card | null>(null);
+  const { getAccessTokenSilently } = useAuth0();
+  const mentionGetToken = useCallback(async () => {
+    try {
+      return await getAccessTokenSilently({
+        authorizationParams: { audience: 'https://api.dev.iconicsmiles' },
+      });
+    } catch {
+      return null;
+    }
+  }, [getAccessTokenSilently]);
 
   // UI states
   const [attachUrl, setAttachUrl] = useState('');
@@ -174,6 +190,14 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
   const [checkDraft, setCheckDraft] = useState(''); // ✅ NUEVO: texto del input para checklist
   const [isPickerOpen, setPickerOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Token-driven appointment modal state
+  const [tokenAppId, setTokenAppId] = useState<string | null>(null);
+  const {
+    isOpen: isTokenModalOpen,
+    onOpen: onOpenTokenModal,
+    onClose: onCloseTokenModal,
+  } = useDisclosure();
 
   // Comments (protegido por cardId)
   const cardId = card?.id ?? null;
@@ -312,18 +336,67 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
     <Modal isOpen={isOpen} onClose={onClose} size="6xl">
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader>
-          <Input
-            variant="unstyled"
-            fontSize="2xl"
-            fontWeight="bold"
-            value={local.title}
-            onChange={(e) => setLocal({ ...local, title: e.target.value })}
-            onBlur={() => {
-              const t = (local.title || '').trim();
-              if (t) queueChanged({ title: t }, 'Title saved');
-            }}
-          />
+        <ModalHeader pr={12}>
+          <Box w="100%" px={2} py={2} bg="gray.50" borderRadius="lg" boxShadow="sm">
+            <VStack align="stretch" spacing={2} w="100%">
+              <Text fontSize="lg" fontWeight="bold" color="teal.700" mb={1} textAlign="left">
+                Card title
+              </Text>
+              <MentionTextarea
+                value={local.title || ''}
+                onChange={(v) => setLocal({ ...local, title: v })}
+                placeholder="Type the card title and use # to search and link patients or appointments"
+                rows={2}
+                compact
+                insertMode="token"
+                apiBase="/api"
+                endpointPath="/appointments/mentions"
+                getToken={mentionGetToken}
+                maxSuggestions={6}
+                minQueryLength={1}
+                debounceMs={150}
+                triggerChar="#"
+                usePortal
+                matchParentBg
+                chipTextColor="teal.700"
+                textColor="gray.800"
+                dropdownBg="white"
+                autoFocus
+                onEnter={() => {
+                  const t = (local.title || '').trim();
+                  if (t) queueChanged({ title: t }, 'Title saved');
+                }}
+              />
+              {(() => {
+                const mentions = extractMentions(local.title || '');
+                if (!mentions.length) return null;
+                return (
+                  <HStack flexWrap="wrap" spacing={2} pt={1}>
+                    <Text fontSize="xs" color="gray.500">Tokens:</Text>
+                    {mentions.map((m, idx) => (
+                      <Button
+                        key={`${m.type}:${m.id}:${idx}`}
+                        size="xs"
+                        variant="outline"
+                        colorScheme="teal"
+                        onClick={() => {
+                          if (m.type === 'appointment') {
+                            setTokenAppId(m.id);
+                            onOpenTokenModal();
+                          }
+                        }}
+                      >
+                        {m.display}
+                      </Button>
+                    ))}
+                  </HStack>
+                );
+              })()}
+              <Text fontSize="sm" color="gray.500" mt={1}>
+                You can type freely and use <b>#</b> to search and add patients or appointments as tokens.
+              </Text>
+            </VStack>
+          </Box>
         </ModalHeader>
         <ModalCloseButton />
 
@@ -344,37 +417,27 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
                     />
                   </WrapItem>
                   <WrapItem>
-                    {(() => {
-                      const snapIds = labelsToIds((serverSnapshotRef.current as any)?.labels);
-                      const localIds = labelsToIds((local as any)?.labels);
-                      const snapSet = new Set(snapIds);
-                      const localSet = new Set(localIds);
-                      const same = snapSet.size === localSet.size && [...snapSet].every(id => localSet.has(id));
-                      const labelsDirty = !same;
-                      return (
-                        <Button
-                          size="sm"
-                          minW="110px"
-                          whiteSpace="nowrap"
-                          onClick={() =>
-                            queueChanged(
-                              { labels: labelsToIds((local as any).labels) as any },
-                              'Labels saved'
-                            )
-                          }
-                          isDisabled={!labelsDirty}
-                        >
-                          Save labels
-                        </Button>
-                      );
-                    })()}
-                  </WrapItem>
-                  <WrapItem>
                     <Button size="sm" variant="outline" onClick={openMgr} minW="120px" whiteSpace="nowrap">
                       Manage labels
                     </Button>
                   </WrapItem>
                 </Wrap>
+
+                {/* Assigned labels preview */}
+                <Box mt={3}>
+                  <Text fontSize="sm" color="gray.500" mb={1}>Assigned</Text>
+                  <Box maxH="88px" overflowY="auto" pr={1}>
+                    <Wrap spacing={2}>
+                      {((local.labels ?? []) as LabelDef[]).length === 0 ? (
+                        <Text fontSize="sm" color="gray.400">No labels assigned.</Text>
+                      ) : (
+                        ((local.labels ?? []) as LabelDef[]).map((l) => (
+                          <LabelChip key={(l as any).id ?? String(l)} label={l as any} withText />
+                        ))
+                      )}
+                    </Wrap>
+                  </Box>
+                </Box>
               </Box>
 
               {/* Members (usuarios del sistema) */}
@@ -620,21 +683,26 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
         </ModalBody>
 
         <ModalFooter>
-          <HStack w="100%" justify="flex-end">
+          <HStack w="100%" justify="center" spacing={8}>
             <Button
               variant="ghost"
+              size="lg"
+              px={8}
               onClick={() => {
                 if (debounceRef.current) { window.clearTimeout(debounceRef.current); debounceRef.current = null; }
                 saveQueueRef.current = {};
                 onClose();
               }}
             >
-              Close
+              Cancel
             </Button>
             <Button
-              colorScheme="blue"
+              colorScheme="teal"
+              size="lg"
+              px={8}
+              fontWeight="bold"
+              boxShadow="md"
               onClick={() => {
-                // Encola solo lo que realmente cambió (labels normalizadas a ids)
                 queueChanged({
                   title: (local.title || '').trim(),
                   description: (local.description || '').trim(),
@@ -643,13 +711,23 @@ const CardDetailsModal: React.FC<Props> = ({ isOpen, card, onClose, onUpdate, to
                   attachments: local.attachments,
                   labels: labelsToIds((local as any).labels) as any,
                 }, 'Saved');
+                // Close modal after save
+                if (debounceRef.current) { window.clearTimeout(debounceRef.current); debounceRef.current = null; }
+                saveQueueRef.current = {};
+                onClose();
               }}
             >
-              Save all
+              Save and close
             </Button>
           </HStack>
         </ModalFooter>
       </ModalContent>
+      {/* Token target modal (appointment) */}
+      <ModalStackProvider>
+        {tokenAppId && (
+          <AppointmentModal id={tokenAppId} isOpen={isTokenModalOpen} onClose={onCloseTokenModal} />
+        )}
+      </ModalStackProvider>
       {/* Label manager drawer */}
       <TopicLabelManager isOpen={isLabelsOpen} onClose={closeMgr} topicId={topicId} />
     </Modal>

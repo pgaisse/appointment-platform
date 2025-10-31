@@ -10,6 +10,7 @@ import {
   ModalOverlay,
   ResponsiveValue,
   useDisclosure,
+  useColorModeValue,
 } from "@chakra-ui/react";
 import React, { createContext, ReactNode, useCallback, useContext } from "react";
 
@@ -43,7 +44,6 @@ type Props = {
   closeButton?: boolean;
   colorScheme?: string;
   variant?: string;
-  bg?: string;
   onCloseModal?: () => void;
   selectedDays?: Partial<Record<WeekDay, TimeBlock[]>>
   setDates?: React.Dispatch<React.SetStateAction<Partial<Record<WeekDay, TimeBlock[]>>>>
@@ -53,6 +53,11 @@ type Props = {
   onOpen_?: () => void;
   onClose_?: () => void;
   isPending?: boolean;
+  // Optional sizing overrides for ModalContent
+  contentW?: ResponsiveValue<string | number>;
+  contentMaxW?: ResponsiveValue<string | number>;
+  contentH?: ResponsiveValue<string | number>;
+  contentMaxH?: ResponsiveValue<string | number>;
 };
 
 function CustomModal({
@@ -66,13 +71,19 @@ function CustomModal({
   nameButton="Open Modal",
   colorScheme = "teal",
   variant = "solid",
-  bg = "teal.600",
   closeButton = true,
   onCloseModal,
   setDates,
   setDatesApp,
+  contentW,
+  contentMaxW,
+  contentH,
+  contentMaxH,
 }: Props) {
   const fallback = useDisclosure();
+  const contentBg = useColorModeValue("rgba(255,255,255,0.65)", "rgba(26,32,44,0.55)");
+  const overlayBg = useColorModeValue("rgba(255,255,255,0.25)", "rgba(0,0,0,0.25)");
+  const borderCol = useColorModeValue("rgba(0,0,0,0.12)", "rgba(255,255,255,0.16)");
 
   // Uso de props externas o fallback interno
   const isOpen = isOpen_ !== undefined ? isOpen_ : fallback.isOpen;
@@ -98,19 +109,26 @@ function CustomModal({
       </Button>}
       <Modal isOpen={isOpen} onClose={handleClose} size={size} >
         <ModalOverlay
-          bg="rgba(255, 255, 255, 0.6)"
-          backdropFilter="blur(12px)"
-          boxShadow="xl"
+          bg={overlayBg}
+          backdropFilter="saturate(140%) blur(12px)"
         />
         <ModalContent
-          bg="rgba(255, 255, 255, 0.6)"
-          backdropFilter="blur(12px)"
-          boxShadow="xl"
-
+          bg={contentBg}
+          backdropFilter="saturate(140%) blur(12px)"
+          borderWidth="1px"
+          borderColor={borderCol}
+          borderRadius="2xl"
+          boxShadow="0 12px 36px rgba(0,0,0,0.20)"
+          display="flex"
+          flexDirection="column"
+          w={contentW}
+          maxW={contentMaxW}
+          h={contentH}
+          maxH={contentMaxH}
         >
           <ModalHeader>{title}</ModalHeader>
           <ModalCloseButton onClick={handleClose} />
-          <ModalBody >
+          <ModalBody flex="1 1 auto" overflowY="auto">
             <ModalCloseContext.Provider value={handleClose}>
               {children}
             </ModalCloseContext.Provider>

@@ -615,10 +615,27 @@ export default function ProviderSummaryModal({
         <ModalHeader>
           <HStack align="center" spacing={4}>
             <Avatar
-              name={titleCase(fullName)}
+              name={provider?.firstName?.[0] || fullName}
               src={provider?.avatarUrl || undefined}
-              bg={provider?.color || undefined}
+              {...(() => {
+                const color = provider?.color;
+                if (!color) return { bg: "gray.500", color: "white" };
+                if (!color.startsWith('#') && !color.includes('.')) {
+                  return { bg: `${color}.500`, color: "white" };
+                }
+                if (color.includes(".")) {
+                  const [base] = color.split(".");
+                  return { bg: `${base}.500`, color: "white" };
+                }
+                const hex = color.replace("#", "");
+                const int = parseInt(hex.length === 3 ? hex.split("").map(c => c+c).join("") : hex, 16);
+                const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
+                const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+                const text = yiq >= 128 ? "black" : "white";
+                return { bg: color, color: text };
+              })()}
               size="lg"
+              boxShadow="0 2px 8px rgba(0,0,0,0.15)"
             />
             <VStack align="start" spacing={0} flex={1}>
               <Text fontWeight="bold" fontSize="xl">

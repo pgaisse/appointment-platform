@@ -149,6 +149,37 @@ function contrastText(hex?: string): string {
   return yiq >= 128 ? "black" : "white";
 }
 
+function enrichAvatarColor(color?: string): { bg: string; color: string; borderColor: string } {
+  if (!color) return { bg: "gray.500", color: "white", borderColor: "gray.700" };
+  
+  // Si es un color de Chakra (e.g., "blue", "red")
+  if (!color.startsWith('#') && !color.includes('.')) {
+    return {
+      bg: `${color}.500`,
+      color: "white",
+      borderColor: `${color}.700`,
+    };
+  }
+  
+  // Si ya viene con nivel (e.g., "blue.500"), lo mantenemos
+  if (color.includes(".")) {
+    const [base] = color.split(".");
+    return {
+      bg: `${base}.500`,
+      color: "white",
+      borderColor: `${base}.700`,
+    };
+  }
+  
+  // Si es hex, calculamos contraste y añadimos borde oscuro
+  const textColor = contrastText(color);
+  return {
+    bg: color,
+    color: textColor,
+    borderColor: textColor === "white" ? "blackAlpha.400" : "blackAlpha.600",
+  };
+}
+
 const SectionCard: React.FC<{
   title: React.ReactNode;
   right?: React.ReactNode;
@@ -355,7 +386,12 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
           >
             <HStack spacing={4} align="center" justify="space-between">
               <HStack spacing={4} align="center">
-                <Avatar name={fullName} bg="whiteAlpha.900" color="black" size="lg" />
+                <Avatar 
+                  name={appointment?.nameInput?.[0] || fullName} 
+                  {...enrichAvatarColor(appointment?.color)} 
+                  size="lg"
+                  boxShadow="0 2px 8px rgba(0,0,0,0.15)"
+                />
                 <VStack align="start" spacing={0} flex={1}>
                   <HStack wrap="wrap" spacing={3} align="center">
                     <Text fontSize="xl" fontWeight="extrabold">

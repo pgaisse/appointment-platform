@@ -185,6 +185,7 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         avatar={chat.owner?.avatar}
         icon={chat.owner?.unknown ? <FaUserAlt fontSize="1.25rem" /> : undefined}
         name_={chat.owner?.name ? chat.owner?.name : undefined}
+        color={chat.owner?.color}
       />
       <Divider mb={4} borderColor={borderCol} />
 
@@ -215,25 +216,64 @@ const Header = memo(function Header({
   avatar,
   icon,
   name_,
+  color,
 }: {
   name: string | undefined;
   avatar?: string;
   icon?: React.ReactElement | undefined;
   name_: string | undefined;
+  color?: string;
 }) {
   const titleColor = useColorModeValue("gray.800", "gray.100");
   const subColor = useColorModeValue("gray.500", "gray.400");
 
+  const avatarColors = (() => {
+    if (!color) return { bg: "gray.500", color: "white" };
+    if (!color.startsWith('#') && !color.includes('.')) {
+      return { bg: `${color}.500`, color: "white" };
+    }
+    if (color.includes(".")) {
+      const [base] = color.split(".");
+      return { bg: `${base}.500`, color: "white" };
+    }
+    const hex = color.replace("#", "");
+    const int = parseInt(hex.length === 3 ? hex.split("").map((c: string) => c+c).join("") : hex, 16);
+    const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+    const text = yiq >= 128 ? "black" : "white";
+    return { bg: color, color: text };
+  })();
+
+  // Capitalizar primera letra de cada palabra
+  const capitalizeWords = (str: string | undefined) => {
+    if (!str) return str;
+    return str
+      .toLowerCase()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  const displayName = capitalizeWords(name_ || name || "No name");
+  const displaySubName = name && name_ && name_ !== name ? capitalizeWords(name) : undefined;
+
   return (
     <HStack spacing={4} mb={2} align="center">
-      <Avatar size="md" name={name} src={avatar} icon={icon} />
+      <Avatar 
+        size="md" 
+        name={name?.[0] || name} 
+        src={avatar} 
+        icon={icon}
+        {...avatarColors}
+        boxShadow="0 1px 4px rgba(0,0,0,0.1)"
+      />
       <Box minW={0}>
         <Text fontWeight="semibold" fontSize={{ base: "lg", md: "xl" }} color={titleColor} noOfLines={1}>
-          {name_ || name || "No name"}
+          {displayName}
         </Text>
-        {name && name_ && name_ !== name && (
+        {displaySubName && (
           <Text fontSize="sm" color={subColor} noOfLines={1}>
-            {name}
+            {displaySubName}
           </Text>
         )}
       </Box>

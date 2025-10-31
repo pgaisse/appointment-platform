@@ -1,5 +1,5 @@
 
-import { Box, Button, Circle, Drawer, DrawerBody, DrawerCloseButton, DrawerContent, DrawerFooter, DrawerHeader, DrawerOverlay, Flex, ResponsiveValue, Stack, Tooltip, useDisclosure } from "@chakra-ui/react";
+import { Box, Button, Avatar, Drawer, DrawerBody, DrawerCloseButton, DrawerContent, DrawerFooter, DrawerHeader, DrawerOverlay, Flex, ResponsiveValue, Stack, Tooltip, useDisclosure } from "@chakra-ui/react";
 
 
 import { createEvents, getStringDates } from "@/Functions/CreateEvents";
@@ -12,7 +12,6 @@ import {
   UseMutateFunction
 } from "@tanstack/react-query";
 import React, { useRef, useState } from "react";
-import { Views } from "react-big-calendar";
 import CustomModal from "../Modal/CustomModal";
 import Pagination from "../Pagination/";
 import CustomCalendar from "../Scheduler/CustomCalendar";
@@ -33,7 +32,15 @@ export type DataEvents = {
   R?: string;
   note?:string;
   reschedule?:boolean;
-
+  // Campos compatibles con Appointment para createEvents
+  sid?: string;
+  priority?: any;
+  treatment?: any;
+  matchedBlocks?: any;
+  totalOverlapMinutes?: number;
+  matchLevel?: string;
+  user_id?: string;
+  org_id?: string;
 };
 
 
@@ -123,9 +130,29 @@ function CustomCardPatients({
                     >
                       <Flex align="center" key={index}>
                         <Tooltip label={`${item.nameInput} ${item.lastNameInput}`} bg='gray.300' color='black' hasArrow>
-                          <Circle size="40px" bg={item.color || "#0078D4"} color="white" fontWeight="bold" marginRight={'5px'}>
-                            {`${item.nameInput} ${item.lastNameInput}`.split(" ").filter(Boolean).slice(0, 2).map(p => p[0]).join("").toUpperCase()}
-                          </Circle>
+                          <Avatar 
+                            size="sm"
+                            name={item.nameInput?.[0] || ""}
+                            {...(() => {
+                              const color = item.color;
+                              if (!color) return { bg: "gray.500", color: "white" };
+                              if (!color.startsWith('#') && !color.includes('.')) {
+                                return { bg: `${color}.500`, color: "white" };
+                              }
+                              if (color.includes(".")) {
+                                const [base] = color.split(".");
+                                return { bg: `${base}.500`, color: "white" };
+                              }
+                              const hex = color.replace("#", "");
+                              const int = parseInt(hex.length === 3 ? hex.split("").map(c => c+c).join("") : hex, 16);
+                              const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
+                              const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+                              const text = yiq >= 128 ? "black" : "white";
+                              return { bg: color, color: text };
+                            })()}
+                            marginRight={'5px'}
+                            boxShadow="0 1px 4px rgba(0,0,0,0.1)"
+                          />
                         </Tooltip>
                         <Box textAlign="left" >
                           {item.selectedDates.length > 0 && (() => {
@@ -166,7 +193,7 @@ function CustomCardPatients({
                                 <Flex >
                                   <Box flex="4" overflow="auto" marginBottom={'10px'} mx={2}>
                                     <CustomCalendar height="50vh"
-                                      events={createEvents([item])} 
+                                      events={createEvents([item as any])} 
                                       date={currentDate}//Cambi´esto item.selectedDates[0].startDate
 
                                     />
@@ -175,13 +202,9 @@ function CustomCardPatients({
                                     <CustomMinCalendar
                                       height="250px"
                                       width="200px"
-                                      step={15}
-                                      onSelectSlot={() => { }}
-                                      calView={Views.MONTH}
-                                      onNavigate={handleNavigate} // actualiza el estado
-                                      eventDates={getStringDates(createEvents([item]))}
-
-
+                                      monthDate={currentDate}
+                                      onNavigate={handleNavigate}
+                                      eventDates={getStringDates(createEvents([item as any]))}
                                     />
 
                                     {

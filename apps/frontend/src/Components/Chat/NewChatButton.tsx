@@ -18,6 +18,7 @@ type ContactDoc = {
   lastNameInput: string;
   phoneInput: string;
   sid: string;
+  color?: string;
 };
 
 type Props = {
@@ -80,7 +81,7 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
 
   const { data = [], isLoading } = useGetCollection<ContactDoc>("Appointment", {
     mongoQuery,
-    projection: { nameInput: 1, lastNameInput: 1, phoneInput: 1, sid: 1 },
+    projection: { nameInput: 1, lastNameInput: 1, phoneInput: 1, sid: 1, color: 1 },
     limit: 20,
   });
 
@@ -100,6 +101,7 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
     const name = `${c.nameInput} ${c.lastNameInput}`.trim();
     const _id = c._id
     const sid = c.sid
+    const color = c.color
     const localConversationId = `local-${phone}`;
 
     const lm = buildLocalMessage(localConversationId, "clinic");
@@ -110,6 +112,7 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
         phone,
         name,
         _id,
+        color,
       },
 
       lastMessage: lm,
@@ -187,7 +190,28 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
                     cursor="pointer"
                     onClick={() => handleSelectContact(contact)}
                   >
-                    <Avatar size="sm" name={`${contact.nameInput} ${contact.lastNameInput}`} />
+                    <Avatar 
+                      size="sm" 
+                      name={contact.nameInput?.[0] || ""} 
+                      {...(() => {
+                        const color = contact.color;
+                        if (!color) return { bg: "gray.500", color: "white" };
+                        if (!color.startsWith('#') && !color.includes('.')) {
+                          return { bg: `${color}.500`, color: "white" };
+                        }
+                        if (color.includes(".")) {
+                          const [base] = color.split(".");
+                          return { bg: `${base}.500`, color: "white" };
+                        }
+                        const hex = color.replace("#", "");
+                        const int = parseInt(hex.length === 3 ? hex.split("").map((c: string) => c+c).join("") : hex, 16);
+                        const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
+                        const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+                        const text = yiq >= 128 ? "black" : "white";
+                        return { bg: color, color: text };
+                      })()}
+                      boxShadow="0 1px 4px rgba(0,0,0,0.1)"
+                    />
                     <Box>
                       <Text fontWeight="medium" textTransform="capitalize">
                         {contact.nameInput} {contact.lastNameInput}

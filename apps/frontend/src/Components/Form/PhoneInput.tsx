@@ -37,13 +37,18 @@ const PhoneInput: React.FC<Props> = React.memo(({
   isPending = false,
   ...rest
 }) => {
-  const [displayValue, setDisplayValue] = useState("");
+  const [displayValue, setDisplayValue] = useState(() => formatAustralianMobile(value || ""));
   const lastEmittedRef = useRef<string>("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Update masked value
+  // Update masked value only when controlled value changes from outside
   useEffect(() => {
-    setDisplayValue(formatAustralianMobile(value || ""));
-  }, [value]);
+    const formatted = formatAustralianMobile(value || "");
+    // Only update if different to avoid cursor jumps
+    if (displayValue !== formatted && document.activeElement !== inputRef.current) {
+      setDisplayValue(formatted);
+    }
+  }, [value, displayValue]);
 
   // Emit completion once per completed value
   useEffect(() => {
@@ -59,8 +64,15 @@ const PhoneInput: React.FC<Props> = React.memo(({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target.value;
-    const digits = input.replace(/\D/g, "").slice(0, 10); // we store clean digits
-    onChange(digits);
+    const digits = input.replace(/\D/g, "").slice(0, 10);
+    
+    // Update display immediately for better UX
+    setDisplayValue(formatAustralianMobile(digits));
+    
+    // Only call onChange if value actually changed
+    if (digits !== value) {
+      onChange(digits);
+    }
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
@@ -89,6 +101,7 @@ const PhoneInput: React.FC<Props> = React.memo(({
       <InputGroup>
         <InputLeftElement pointerEvents="none">{ico}</InputLeftElement>
         <Input
+          ref={inputRef}
           type="tel"
           name={name}
           value={displayValue}

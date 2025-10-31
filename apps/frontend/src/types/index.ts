@@ -189,6 +189,7 @@ export type Owner = {
   email?: string;
   org_id?: string;
   avatar?: string
+  color?: string;
   unknown?: boolean;
 };
 export interface ConversationChat {

@@ -147,21 +147,51 @@ export const AppointmentDetailsModal: React.FC<AppointmentDetailsModalProps> = (
                       {/* Header: Name & Status */}
                       <HStack justify="space-between">
                         <HStack spacing={3}>
-                          <Avatar
-                            size="md"
-                            name={`${apt.nameInput} ${apt.lastNameInput}`}
-                            bg="blue.500"
-                          />
+                          {(() => {
+                            const getColors = (col?: string) => {
+                              if (!col) return { bg: "gray.500", color: "white", borderColor: "gray.700" };
+                              
+                              // Color de Chakra sin nivel (ej: "blue", "red")
+                              if (!col.startsWith('#') && !col.includes('.')) {
+                                return { bg: `${col}.500`, color: "white", borderColor: `${col}.700` };
+                              }
+                              
+                              // Color de Chakra con nivel (ej: "blue.500")
+                              if (col.includes(".")) {
+                                const [base] = col.split(".");
+                                return { bg: `${base}.500`, color: "white", borderColor: `${base}.700` };
+                              }
+                              
+                              // Color hexadecimal
+                              const hex = col.replace("#", "");
+                              const int = parseInt(hex.length === 3 ? hex.split("").map(c => c+c).join("") : hex, 16);
+                              const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
+                              const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+                              const text = yiq >= 128 ? "black" : "white";
+                              return { bg: col, color: text, borderColor: text === "white" ? "blackAlpha.400" : "blackAlpha.600" };
+                            };
+                            const colors = getColors(apt.color);
+                            return (
+                              <Avatar
+                                size="md"
+                                name={apt.nameInput?.[0] || ""}
+                                {...colors}
+                                boxShadow="0 2px 6px rgba(0,0,0,0.12)"
+                              />
+                            );
+                          })()}
                           <Box>
                             <Text fontWeight="bold" fontSize="lg" textTransform="capitalize">
                               {apt.nameInput} {apt.lastNameInput}
                             </Text>
                             {apt.representative && (
                               <HStack spacing={1} fontSize="sm" color="gray.500">
+                                {apt.representative.nameInput&&
+                                <>
                                 <Icon as={FiUser} />
                                 <Text textTransform="capitalize">
                                   Rep: {apt.representative.nameInput}
-                                </Text>
+                                </Text></>}
                               </HStack>
                             )}
                           </Box>
