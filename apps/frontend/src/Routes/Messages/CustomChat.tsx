@@ -9,6 +9,9 @@ import {
   ButtonGroup,
   Button,
   Spinner,
+  IconButton,
+  Tooltip,
+  Icon,
 } from "@chakra-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -36,16 +39,31 @@ import ChatWindows from "@/Components/Chat/ChatWindows";
 import NewChatButton from "@/Components/Chat/NewChatButton";
 import { useChatSocket } from "@/Hooks/Query/useChatSocket";
 import { useAssignCategoryToConversation } from "@/Hooks/Query/useChatCategorization";
+import { useGetCollection } from "@/Hooks/Query/useGetCollection";
+import { useCustomChat } from "@/Hooks/Query/useCustomChat";
+import { formatToE164 } from "@/Functions/formatToE164";
 import { useMarkConversationRead } from "@/Hooks/Query/useMarkConversationRead";
 import { useConversationsInfinite, type ConversationsPage } from "@/Hooks/Query/useConversationsInfinite";
 import type { ConversationChat } from "@/types";
 import { FaUserAlt } from "react-icons/fa";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import ChatCategorizationPanel from "@/Components/Chat/CustomMessages/ChatCategorizationPanel";
 import AddPatientButton from "@/Components/DraggableCards/AddPatientButton";
+import ContactDetailsPanel from "@/Components/Chat/ContactDetailsPanel";
+import { MESSAGES_OPEN_EVENT, type OpenMessagesPayload } from "@/Lib/messagesBus";
 
 /* --------------------------------- helpers --------------------------------- */
 type Mode = "active" | "only" | "all";
 type ConvInfinite = InfiniteData<ConversationsPage>;
+
+type ContactDoc = {
+  _id: string;
+  nameInput: string;
+  lastNameInput: string;
+  phoneInput: string;
+  sid: string;
+  color?: string;
+};
 
 function optimisticClearUnreadPages(
   qc: QueryClient,
@@ -212,22 +230,123 @@ function optimisticUpsertInboundAndMoveActive(opts: {
 export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
   const [view, setView] = useState<"active" | "only">("active");
+  const [catsOpen, setCatsOpen] = useState(false);
+  const [noMatchPhone, setNoMatchPhone] = useState<string | null>(null);
   const PAGE_SIZE = 50; // fetch larger pages to avoid long-running incremental loads
 
   const chatIdRef = useRef<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const autoSelectedRef = useRef<boolean>(false);
+  const [eventOpen, setEventOpen] = useState<OpenMessagesPayload | null>(null);
+  const creatingChatRef = useRef<boolean>(false);
 
   const { user } = useAuth0();
   const org_id = (user as any)?.org_id?.toLowerCase?.() ?? "";
   const queryClient = useQueryClient();
+  const { socket } = useCustomChat();
 
-  // Get conversationId from URL query params
+  // Get conversationId and phone from URL query params OR event bus
   const urlParams = new URLSearchParams(window.location.search);
   const conversationIdFromUrl = urlParams.get("conversationId");
+  const phoneFromUrl = urlParams.get("phone");
+
+  // Listen for programmatic open events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<OpenMessagesPayload>;
+      setEventOpen(ce.detail ?? null);
+    };
+    window.addEventListener(MESSAGES_OPEN_EVENT, handler as EventListener);
+    return () => window.removeEventListener(MESSAGES_OPEN_EVENT, handler as EventListener);
+  }, []);
 
   // While mark-read is in flight, force unread=0 locally
   const [readOverrides, setReadOverrides] = useState<Set<string>>(new Set());
+
+  // Search for contact by phone when no conversation exists
+  const phoneDigits = noMatchPhone ? noMatchPhone.replace(/\D/g, "") : "";
+  const contactQuery = useMemo(() => {
+    if (!noMatchPhone || phoneDigits.length < 3) return { _id: { $exists: false } };
+    return { phoneInput: { $regex: "^" + phoneDigits } };
+  }, [noMatchPhone, phoneDigits]);
+
+  const { data: contactResults = [] } = useGetCollection<ContactDoc>("Appointment", {
+    mongoQuery: contactQuery,
+    projection: { nameInput: 1, lastNameInput: 1, phoneInput: 1, sid: 1, color: 1 },
+    limit: 1,
+  });
+
+  // Auto-create chat when contact is found
+  useEffect(() => {
+    if (!noMatchPhone || creatingChatRef.current) return;
+    if (contactResults.length === 0) return;
+
+    const contact = contactResults[0];
+    creatingChatRef.current = true;
+
+    const phone = formatToE164(contact.phoneInput || "");
+    const name = `${contact.nameInput} ${contact.lastNameInput}`.trim();
+    const localConversationId = `local-${phone}`;
+
+    const now = new Date().toISOString();
+    const lm = {
+      clientTempId: `tmp-${Date.now()}`,
+      sid: `local-${Date.now()}`,
+      conversationId: localConversationId,
+      author: "clinic",
+      body: "",
+      index: undefined,
+      media: [],
+      direction: "outbound" as const,
+      createdAt: now,
+      updatedAt: now,
+      tempOrder: Date.now(),
+      status: "pending" as const,
+    };
+
+    const newConv: ConversationChat = {
+      conversationId: contact.sid,
+      owner: {
+        phone,
+        name,
+        _id: contact._id,
+        color: contact.color,
+      },
+      lastMessage: lm,
+      chatmessage: lm,
+      archived: false, // New chats are always active, not archived
+      unreadCount: 0,
+    };
+
+    console.log("[CustomChat] Auto-creating chat for:", name, phone);
+    
+    // Add to cache
+    queryClient.setQueryData<ConversationChat[]>(["conversations"], (prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      const exists = list.some(
+        (c) => c.owner.phone === newConv.owner.phone || c.conversationId === newConv.conversationId
+      );
+      if (exists) return list;
+      return [newConv, ...list];
+    });
+
+    // Switch to active view for new chats
+    if (view !== "active") {
+      setView("active");
+    }
+
+    // Set as active chat
+    setChat(newConv);
+    setNoMatchPhone(null);
+
+    // Notify server to initialize conversation
+    socket?.emit("smsSend", { appId: contact._id, phone, name });
+
+    // Reset flag after a delay
+    setTimeout(() => {
+      creatingChatRef.current = false;
+    }, 1000);
+  }, [noMatchPhone, contactResults, queryClient, socket]);
 
   // Infinite conversations
   const {
@@ -237,38 +356,130 @@ export default function CustomChat() {
     hasNextPage,
     fetchNextPage,
   } = useConversationsInfinite(view, PAGE_SIZE);
-console.log("data", data)
   const dataConversation: ConversationChat[] = useMemo(
     () => data?.pages.flatMap((p) => p.items) ?? [],
     [data]
   );
 
-  // Auto-select conversation from URL parameter
+  // Auto-select conversation from URL parameters (conversationId or phone) or event
+  // Search across ALL cached views (active, only, all) to find the conversation
   useEffect(() => {
-    if (conversationIdFromUrl && dataConversation.length > 0 && !autoSelectedRef.current) {
-      const conversation = dataConversation.find((c) => c.conversationId === conversationIdFromUrl);
-      if (conversation) {
-        setChat(conversation);
-        autoSelectedRef.current = true;
-        // Clean up URL params
-        window.history.replaceState({}, '', '/messages');
-      } else if (view === "active") {
-        // Not found in active view, try switching to archived view
-        setView("only");
+    const convId = conversationIdFromUrl || eventOpen?.conversationId || undefined;
+    const phone = phoneFromUrl || eventOpen?.phone || undefined;
+
+    // If we have a specific chat to find, mark that we're handling it
+    // to prevent default selection from taking over
+    if ((convId || phone) && !autoSelectedRef.current) {
+      autoSelectedRef.current = true; // Mark immediately to block default selection
+    }
+
+    if (autoSelectedRef.current && !eventOpen && !convId && !phone) return;
+
+    if (!convId && !phone) return;
+
+    // Helper: normalize phone (digits only)
+    const norm = (v?: string | null) => (v ? v.replace(/\D+/g, "") : "");
+
+    // Search in ALL query caches (active, only, all) to find the conversation
+    const allCaches = queryClient.getQueriesData<ConvInfinite>({
+      queryKey: ["conversations-infinite"],
+    });
+
+    let found: ConversationChat | undefined;
+
+    // Try to find by conversationId first
+    if (convId) {
+      for (const [, data] of allCaches) {
+        if (!data?.pages) continue;
+        for (const page of data.pages) {
+          found = page.items.find((c) => c.conversationId === convId);
+          if (found) break;
+        }
+        if (found) break;
       }
     }
-  }, [conversationIdFromUrl, dataConversation, view]);
+
+    // If not found by ID, try by phone
+    if (!found && phone) {
+      const p = norm(phone);
+      for (const [, data] of allCaches) {
+        if (!data?.pages) continue;
+        for (const page of data.pages) {
+          found = page.items.find((c) => {
+            const ownerPhone = norm(c.owner?.phone ?? "");
+            const author = norm(c.lastMessage?.author ?? "");
+            return ownerPhone === p || author === p || ownerPhone.endsWith(p) || author.endsWith(p);
+          });
+          if (found) break;
+        }
+        if (found) break;
+      }
+    }
+
+    if (found) {
+      // Found in cache - select it and switch to correct view
+      console.log("[CustomChat] Found conversation:", found.conversationId, "archived:", found.archived);
+      
+      // Switch to the correct view based on archived status BEFORE setting chat
+      // Default to "active" if archived status is undefined
+      const isArchived = found.archived === true;
+      const targetView = isArchived ? "only" : "active";
+      
+      if (view !== targetView) {
+        console.log("[CustomChat] Switching view from", view, "to", targetView);
+        setView(targetView);
+      }
+      
+      setChat(found);
+
+      if (conversationIdFromUrl || phoneFromUrl) {
+        window.history.replaceState({}, '', '/messages');
+      }
+      setEventOpen(null);
+      setNoMatchPhone(null);
+      return;
+    }
+
+    // Not found in any cache - try to load the missing view
+    if (convId && view === "active") {
+      // Maybe it's in archived, switch view to try loading it
+      setView("only");
+      return;
+    }
+
+    if (phone && view === "active") {
+      // Maybe it's in archived, switch view to try loading it
+      setView("only");
+      return;
+    }
+
+    // Still not found after checking all views - show "no chat" state
+    if (phone) {
+      console.log("[CustomChat] No conversation found for phone:", phone);
+      console.log("[CustomChat] Will open New Chat modal with this phone");
+      setNoMatchPhone(phone);
+      setChat(undefined); // Clear any previous chat selection
+    } else if (convId) {
+      console.log("[CustomChat] No conversation found for ID:", convId);
+    }
+    
+    if (conversationIdFromUrl || phoneFromUrl) {
+      window.history.replaceState({}, '', '/messages');
+    }
+    setEventOpen(null);
+  }, [conversationIdFromUrl, phoneFromUrl, eventOpen, queryClient, view]);
 
   // Default selection: pick the most recent conversation shown in MessageList
   // If there's no chat selected and no URL param handled, select the first item
   useEffect(() => {
-    if (autoSelectedRef.current) return; // URL-based selection already applied
+    if (autoSelectedRef.current) return; // URL-based selection already applied or in progress
+    if (noMatchPhone) return; // Don't auto-select if we're showing "no chat" state
     if (!chat && dataConversation.length > 0) {
       setChat(dataConversation[0]);
       // Mark so we don't re-select on further list changes
       autoSelectedRef.current = true;
     }
-  }, [chat, dataConversation]);
+  }, [chat, dataConversation, noMatchPhone]);
 
   // keep selected chat fresh
   useEffect(() => {
@@ -416,6 +627,14 @@ console.log("data", data)
   const scrollbarThumb = useColorModeValue("#CBD5E0", "#4A5568");
   const scrollbarTrack = useColorModeValue("#EDF2F7", "#2D3748");
 
+  // Overlay bubble position: sits over categories+conversations boundary
+  const bubbleLeft = useMemo(() => {
+    return {
+      base: "8px",
+      xl: catsOpen ? "calc(15% + 8px)" : "8px",
+    } as const;
+  }, [catsOpen]);
+
   // Abrir chat y marcar leído con override local + cancelQueries
   const handleOpenChat = useCallback(
     async (c: ConversationChat) => {
@@ -486,40 +705,90 @@ console.log("data", data)
           py={{ base: 2, md: 4 }}
           mx="auto"
         >
-          {/* Categories panel */}
-          <Box
-            flex={{ base: "1 1 0", xl: "0 0 18%" }}
-            w={{ base: "100%", xl: "18%" }}
-            maxW={{ xl: "520px" }}
-            minH={0}
-            maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
-            p={{ base: 3, md: 5 }}
-            bg={panelBg}
-            borderWidth="1px"
-            borderColor={panelBorder}
-            borderRadius="2xl"
-            boxShadow="0 10px 30px rgba(0,0,0,0.10)"
-            backdropFilter="saturate(140%) blur(6px)"
-            overflow="hidden"
-          >
+          {/* Categories panel (collapsible, default collapsed) */}
+          {catsOpen && (
             <Box
-              h="100%"
-              overflowY="auto"
-              pr={1}
-              sx={{
-                "::-webkit-scrollbar": { width: "10px" },
-                "::-webkit-scrollbar-thumb": { background: scrollbarThumb, borderRadius: "10px" },
-                "::-webkit-scrollbar-track": { background: scrollbarTrack },
-              }}
+              flex={{ base: "1 1 0", xl: "0 0 15%" }}
+              w={{ base: "100%", xl: "15%" }}
+              maxW={{ xl: "420px" }}
+              minH={0}
+              maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
+              p={{ base: 3, md: 5 }}
+              bg={panelBg}
+              borderWidth="1px"
+              borderColor={panelBorder}
+              borderRadius="2xl"
+              boxShadow="0 10px 30px rgba(0,0,0,0.10)"
+              backdropFilter="saturate(140%) blur(6px)"
+              overflow="hidden"
+              transition="all 0.25s ease"
             >
-              <ChatCategorizationPanel
-                conversationSid={chat?.conversationId ?? ""}
-                conversations={dataConversation}
-                onOpenChat={handleOpenChat}
-                density="compact"
-              />
+              <Box
+                h="100%"
+                overflowY="auto"
+                pr={1}
+                sx={{
+                  "::-webkit-scrollbar": { width: "10px" },
+                  "::-webkit-scrollbar-thumb": { background: scrollbarThumb, borderRadius: "10px" },
+                  "::-webkit-scrollbar-track": { background: scrollbarTrack },
+                }}
+              >
+                <ChatCategorizationPanel
+                  conversationSid={chat?.conversationId ?? ""}
+                  conversations={dataConversation}
+                  onOpenChat={handleOpenChat}
+                  density="compact"
+                />
+              </Box>
             </Box>
+          )}
+
+          {/* Floating bubble toggle overlay (above categories and conversations) */}
+          <Box
+            position="absolute"
+            top="50%"
+            left={bubbleLeft}
+            transform="translateY(-50%)"
+            zIndex={500}
+          >
+            <Tooltip
+              label={catsOpen ? "Ocultar categorías" : "Mostrar categorías"}
+              placement="right"
+              openDelay={150}
+              hasArrow
+            >
+              <IconButton
+                aria-label={catsOpen ? "Ocultar categorías" : "Mostrar categorías"}
+                onClick={() => setCatsOpen((v) => !v)}
+                rounded="full"
+                h={{ base: "40px", md: "44px" }}
+                w={{ base: "40px", md: "44px" }}
+                p={0}
+                variant="solid"
+                bg={useColorModeValue("rgba(255,255,255,0.9)", "rgba(26,32,44,0.75)" )}
+                borderWidth="1px"
+                borderColor={panelBorder}
+                boxShadow="0 10px 30px rgba(0,0,0,0.18)"
+                backdropFilter="saturate(150%) blur(8px)"
+                sx={{ WebkitBackdropFilter: "saturate(150%) blur(8px)" }}
+                _hover={{
+                  transform: "translateY(-1px)",
+                  boxShadow: "0 14px 36px rgba(0,0,0,0.22)",
+                  bg: useColorModeValue("rgba(255,255,255,0.98)", "rgba(26,32,44,0.85)"),
+                }}
+                _active={{ transform: "translateY(0) scale(0.98)" }}
+                icon={
+                  catsOpen ? (
+                    <Icon as={FiChevronLeft} boxSize={5} color={useColorModeValue("gray.700", "gray.200")} />
+                  ) : (
+                    <Icon as={FiChevronRight} boxSize={5} color={useColorModeValue("gray.700", "gray.200")} />
+                  )
+                }
+              />
+            </Tooltip>
           </Box>
+
+          
 
           {/* Sidebar: conversations list */}
           <Box
@@ -527,6 +796,7 @@ console.log("data", data)
             w={{ base: "100%", xl: "20%" }}
             minH={0}
             maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
+            position="relative"
             bg={panelBg}
             borderWidth="1px"
             borderColor={panelBorder}
@@ -562,7 +832,10 @@ console.log("data", data)
               </HStack>
 
               <HStack spacing={3} mt={3} wrap="wrap">
-                <NewChatButton setChat={setChat} dataConversation={dataConversation} />
+                <NewChatButton 
+                  setChat={setChat} 
+                  dataConversation={dataConversation}
+                />
                 <AddPatientButton
                   onlyPatient
                   text="New Contact"
@@ -615,7 +888,8 @@ console.log("data", data)
           {/* Chat window */}
           <Box
             flex={{ base: "1 1 0", xl: "1 1 auto" }}
-            minW={0}
+            w={{ base: "100%", xl: "auto" }}
+            minW={{ base: 0, xl: "520px" }}
             minH={0}
             bg={panelBg}
             borderWidth="1px"
@@ -627,6 +901,23 @@ console.log("data", data)
             maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
           >
             <ChatWindows chat={chat} isOpen={!!chat} />
+          </Box>
+
+          {/* Contact details panel */}
+          <Box
+            flex={{ base: "1 1 0", xl: "0 0 22%" }}
+            w={{ base: "100%", xl: "22%" }}
+            minH={0}
+            maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
+            bg={panelBg}
+            borderWidth="1px"
+            borderColor={panelBorder}
+            borderRadius="2xl"
+            boxShadow="0 10px 30px rgba(0,0,0,0.10)"
+            backdropFilter="saturate(140%) blur(6px)"
+            overflow="hidden"
+          >
+            <ContactDetailsPanel conversation={chat ?? null} />
           </Box>
         </Flex>
 

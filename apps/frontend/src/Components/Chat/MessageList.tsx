@@ -4,7 +4,6 @@ import {
   Box,
   VStack,
   HStack,
-  Avatar,
   Stack,
   Skeleton,
   Text,
@@ -16,9 +15,11 @@ import {
   InputGroup,
   InputLeftElement,
   CloseButton,
+  Icon,
+  useColorModeValue,
 } from "@chakra-ui/react";
 import React, { useEffect, useMemo, useState } from "react";
-import { FaUserAlt } from "react-icons/fa";
+import { FaUser } from "react-icons/fa";
 import { FiArchive, FiInbox, FiSearch } from "react-icons/fi";
 
 import { useSortable } from "@dnd-kit/sortable";
@@ -263,9 +264,6 @@ function InnerRowContent({
   readOverrides?: ReadonlySet<string>;
   archivedMode?: "active" | "only" | "all";
 }) {
-  const displayName =
-    contact.owner?.unknown ? undefined : contact.owner?.name || contact.lastMessage?.author;
-
   const lastPreview = (() => {
     if (contact.lastMessage?.body) return contact.lastMessage.body;
     if (contact.lastMessage?.media?.length) return "📷 Photo";
@@ -291,35 +289,24 @@ function InnerRowContent({
     archiveMutate({ id: contact.conversationId, archived: false });
   };
 
-  const avatarColors = (() => {
-    const color = contact.owner?.color;
-    if (!color) return { bg: "gray.500", color: "white" };
-    if (!color.startsWith('#') && !color.includes('.')) {
-      return { bg: `${color}.500`, color: "white" };
-    }
-    if (color.includes(".")) {
-      const [base] = color.split(".");
-      return { bg: `${base}.500`, color: "white" };
-    }
-    const hex = color.replace("#", "");
-    const int = parseInt(hex.length === 3 ? hex.split("").map((c: string) => c+c).join("") : hex, 16);
-    const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
-    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-    const text = yiq >= 128 ? "black" : "white";
-    return { bg: color, color: text };
-  })();
-
   return (
     <>
-      <Avatar
-        size="md"
-        name={displayName?.[0] || displayName}
-        src={contact.owner?.avatar}
-        icon={contact.owner?.unknown ? <FaUserAlt fontSize="1.5rem" /> : undefined}
-        pointerEvents="none"
-        {...avatarColors}
-        boxShadow="0 1px 4px rgba(0,0,0,0.1)"
-      />
+      <Box 
+        w="48px"
+        h="48px"
+        bg={useColorModeValue("gray.200", "gray.600")}
+        borderRadius="lg"
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+        flexShrink={0}
+      >
+        <Icon 
+          as={FaUser} 
+          boxSize="24px" 
+          color={contact.owner?.color ? `${contact.owner.color}.500` : useColorModeValue("gray.400", "gray.500")}
+        />
+      </Box>
 
       <Box flex="1" minW={0}>
         <HStack align="center" spacing={2}>

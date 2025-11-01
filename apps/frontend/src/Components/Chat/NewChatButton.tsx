@@ -1,10 +1,11 @@
 import React, { useMemo, useState, useEffect } from "react";
 import {
   Button, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody,
-  ModalCloseButton, Input, VStack, HStack, Avatar, Text, Box, Spinner,
-  useDisclosure,
+  ModalCloseButton, Input, VStack, HStack, Text, Box, Spinner,
+  useDisclosure, Icon, useColorModeValue,
 } from "@chakra-ui/react";
 import { FiMessageCircle } from "react-icons/fi";
+import { FaUser } from "react-icons/fa";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { useCustomChat } from "@/Hooks/Query/useCustomChat";
@@ -23,7 +24,7 @@ type ContactDoc = {
 
 type Props = {
   setChat?: React.Dispatch<React.SetStateAction<ConversationChat | undefined>>;
-  dataConversation: ConversationChat[] | undefined
+  dataConversation: ConversationChat[] | undefined;
 };
 
 const MIN_CHARS = 2;
@@ -190,28 +191,22 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
                     cursor="pointer"
                     onClick={() => handleSelectContact(contact)}
                   >
-                    <Avatar 
-                      size="sm" 
-                      name={contact.nameInput?.[0] || ""} 
-                      {...(() => {
-                        const color = contact.color;
-                        if (!color) return { bg: "gray.500", color: "white" };
-                        if (!color.startsWith('#') && !color.includes('.')) {
-                          return { bg: `${color}.500`, color: "white" };
-                        }
-                        if (color.includes(".")) {
-                          const [base] = color.split(".");
-                          return { bg: `${base}.500`, color: "white" };
-                        }
-                        const hex = color.replace("#", "");
-                        const int = parseInt(hex.length === 3 ? hex.split("").map((c: string) => c+c).join("") : hex, 16);
-                        const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
-                        const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-                        const text = yiq >= 128 ? "black" : "white";
-                        return { bg: color, color: text };
-                      })()}
-                      boxShadow="0 1px 4px rgba(0,0,0,0.1)"
-                    />
+                    <Box 
+                      w="32px"
+                      h="32px"
+                      bg={useColorModeValue("gray.200", "gray.600")}
+                      borderRadius="md"
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                      flexShrink={0}
+                    >
+                      <Icon 
+                        as={FaUser} 
+                        boxSize="16px" 
+                        color={contact.color ? `${contact.color}.500` : useColorModeValue("gray.400", "gray.500")}
+                      />
+                    </Box>
                     <Box>
                       <Text fontWeight="medium" textTransform="capitalize">
                         {contact.nameInput} {contact.lastNameInput}

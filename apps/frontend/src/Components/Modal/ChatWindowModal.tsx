@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   Flex,
@@ -18,6 +18,8 @@ import {
   VStack,
 } from "@chakra-ui/react";
 import { keyframes } from "@emotion/react";
+import { useNavigate } from "react-router-dom";
+import { FiMaximize2 } from "react-icons/fi";
 import { FaMessage } from "react-icons/fa6";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -63,8 +65,11 @@ export default function ChatWindowModal({
   isOpen,
   contact,
 }: ChatWindowModalProps) {
+  const navigate = useNavigate();
   const [pendingOpenPayload, setPendingOpenPayload] = useState<ChatOpenPayload | undefined>(initial);
-
+  void pendingOpenPayload;
+console.log("contact",contact)
+  const [isOpenMsgTip, setIsOpenMsgTip] = useState(false);
   // allow programmatic open
   useEffect(() => {
     const handler = (e: Event) => {
@@ -113,10 +118,43 @@ export default function ChatWindowModal({
           overflow="hidden"
           boxShadow="2xl"
         >
-          <ModalHeader>{title}</ModalHeader>
-          <ModalCloseButton />
+          <ModalHeader px={4} py={3}>
+            <Flex align="center">
+              <Text fontSize="lg" fontWeight="bold" flex="1">{title}</Text>
+              <HStack spacing={2}>
+                {contact ? (
+                  <Tooltip hasArrow label="Open in Messages" isOpen={isOpenMsgTip}>
+                    <IconButton
+                      aria-label="Open in Messages"
+                      size="sm"
+                      variant="ghost"
+                      onMouseEnter={() => setIsOpenMsgTip(true)}
+                      onMouseLeave={() => setIsOpenMsgTip(false)}
+                      onClick={() => {
+                        console.log("[ChatWindowModal] Navigating to chat");
+                        console.log("[ChatWindowModal] Contact:", contact);
+                        const phone = contact?.owner?.phone ? String(contact.owner.phone) : '';
+
+                        // If conversationId is valid (starts with CH and has 34 characters), use it
+                        const hasValidSid = contact.conversationId?.startsWith("CH") && contact.conversationId.length === 34;
+
+                        const qs = new URLSearchParams({
+                          ...(hasValidSid ? { conversationId: contact.conversationId! } : {}),
+                          ...(phone ? { phone } : {}),
+                        });
+                        navigate(`/messages?${qs.toString()}`);
+                        onClose();
+                      }}
+                      icon={<FiMaximize2 />}
+                    />
+                  </Tooltip>
+                ) : null}
+                <ModalCloseButton position="static" />
+              </HStack>
+            </Flex>
+          </ModalHeader>
           <ModalBody p={{ base: 2, md: 4 }}>
-            <ChatModalInner initial={pendingOpenPayload} contact={contact} />
+            <ChatModalInner contact={contact} />
           </ModalBody>
         </ModalContent>
       </Modal>
@@ -126,10 +164,8 @@ export default function ChatWindowModal({
 
 /* ======================= Inner content (modal) ======================= */
 function ChatModalInner({
-  initial,
   contact,
 }: {
-  initial: ChatOpenPayload | undefined;
   contact: ConversationChat | undefined;
 }) {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);

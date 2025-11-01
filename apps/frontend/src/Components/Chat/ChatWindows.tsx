@@ -1,9 +1,9 @@
 // ChatWindows.tsx
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Flex, HStack, Avatar, Box, Divider, VStack, Tooltip, IconButton, Input, Text,
+  Flex, HStack, Box, Divider, VStack, Tooltip, IconButton, Input, Text,
   useColorModeValue, useToast, Spinner,
-  Textarea,
+  Textarea, Icon,
 } from "@chakra-ui/react";
 import { FiSend } from "react-icons/fi";
 import { MdAccessTime, MdOutlinePostAdd, MdKeyboardArrowDown } from "react-icons/md";
@@ -21,7 +21,7 @@ import { useSendChatMessage } from "@/Hooks/Query/useSendChatMessage";
 import { useOptimisticMessages } from "@/Hooks/Query/useOptimisticMessages";
 import { formatToE164 } from "@/Functions/formatToE164";
 import { ConversationChat, Message } from "@/types";
-import { FaUserAlt } from "react-icons/fa";
+import { FaUser } from "react-icons/fa";
 import { useInfiniteMessages } from "@/Hooks/Query/UseInfiniteQuery";
 
 /* ---------- Helpers for day separators ---------- */
@@ -182,8 +182,6 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
     <Flex direction="column" w="100%" h="full" p={{ base: 3, md: 4 }} position="relative">
       <Header
         name={chat.owner?.unknown ? undefined : (chat.owner?.name || chat.lastMessage?.author)}
-        avatar={chat.owner?.avatar}
-        icon={chat.owner?.unknown ? <FaUserAlt fontSize="1.25rem" /> : undefined}
         name_={chat.owner?.name ? chat.owner?.name : undefined}
         color={chat.owner?.color}
       />
@@ -213,8 +211,6 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
 
 const Header = memo(function Header({
   name,
-  avatar,
-  icon,
   name_,
   color,
 }: {
@@ -226,23 +222,6 @@ const Header = memo(function Header({
 }) {
   const titleColor = useColorModeValue("gray.800", "gray.100");
   const subColor = useColorModeValue("gray.500", "gray.400");
-
-  const avatarColors = (() => {
-    if (!color) return { bg: "gray.500", color: "white" };
-    if (!color.startsWith('#') && !color.includes('.')) {
-      return { bg: `${color}.500`, color: "white" };
-    }
-    if (color.includes(".")) {
-      const [base] = color.split(".");
-      return { bg: `${base}.500`, color: "white" };
-    }
-    const hex = color.replace("#", "");
-    const int = parseInt(hex.length === 3 ? hex.split("").map((c: string) => c+c).join("") : hex, 16);
-    const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
-    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-    const text = yiq >= 128 ? "black" : "white";
-    return { bg: color, color: text };
-  })();
 
   // Capitalizar primera letra de cada palabra
   const capitalizeWords = (str: string | undefined) => {
@@ -259,14 +238,22 @@ const Header = memo(function Header({
 
   return (
     <HStack spacing={4} mb={2} align="center">
-      <Avatar 
-        size="md" 
-        name={name?.[0] || name} 
-        src={avatar} 
-        icon={icon}
-        {...avatarColors}
-        boxShadow="0 1px 4px rgba(0,0,0,0.1)"
-      />
+      <Box 
+        w="48px"
+        h="48px"
+        bg={useColorModeValue("gray.200", "gray.600")}
+        borderRadius="lg"
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+        flexShrink={0}
+      >
+        <Icon 
+          as={FaUser} 
+          boxSize="24px" 
+          color={color ? `${color}.500` : useColorModeValue("gray.400", "gray.500")}
+        />
+      </Box>
       <Box minW={0}>
         <Text fontWeight="semibold" fontSize={{ base: "lg", md: "xl" }} color={titleColor} noOfLines={1}>
           {displayName}

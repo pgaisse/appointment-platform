@@ -1,7 +1,9 @@
 import React, { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
-import { Box, IconButton, Tooltip, Spinner } from "@chakra-ui/react";
+import { Box, Tooltip, Spinner, Icon, useColorModeValue } from "@chakra-ui/react";
+
 import type { ConversationChat } from "@/types";
-import { FaCommentSms } from "react-icons/fa6";
+import { FaUser } from "react-icons/fa";
+
 
 // Lazy (load the chunk only when opened)
 const ChatWindowModalLazy = lazy(() => import("@/Components/Modal/ChatWindowModal"));
@@ -52,6 +54,7 @@ const ChatLauncher: React.FC<Props> = ({
   const [mounted, setMounted] = useState(false);
   const contactRef = useRef<ConversationChat | null>(null);
 
+
   const computedContact = useMemo<ConversationChat | null>(() => {
     if (contact) return contact;
     if (item && buildContact) return buildContact(item);
@@ -96,8 +99,31 @@ const ChatLauncher: React.FC<Props> = ({
     onClose?.();
   }, [onClose]);
 
+
+
+  const iconColor = useMemo(() => {
+    const c = computedContact?.owner?.color;
+    if (!c) return "gray.500";
+    if (c.startsWith("#")) return c; // use provided hex color as-is
+    if (c.includes(".")) return c; // already like 'blue.500'
+    return `${c}.500`;
+  }, [computedContact?.owner?.color]);
+
   const defaultTrigger = (
-    <IconButton aria-label="Open chat" icon={<FaCommentSms size={18} />} size="sm" variant="ghost" />
+    <Box
+      w={{ base: "36px", md: "40px" }}
+      h={{ base: "36px", md: "40px" }}
+      borderRadius="md"
+      display="inline-flex"
+      alignItems="center"
+      justifyContent="center"
+      bg={useColorModeValue("gray.100", "gray.700")}
+      borderWidth="1px"
+      borderColor={useColorModeValue("blackAlpha.200", "whiteAlpha.300")}
+      boxShadow="0 6px 18px rgba(0,0,0,0.12)"
+    >
+      <Icon as={FaUser} boxSize={{ base: 4, md: 5 }} color={iconColor} />
+    </Box>
   );
 
   return (

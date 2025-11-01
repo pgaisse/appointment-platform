@@ -3,15 +3,15 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   Box, Flex, Stack, Heading, Text, Input, InputGroup, InputLeftElement,
   IconButton, Button, HStack, Divider, Spinner, useToast, Tooltip,
-  useColorModeValue, Switch, Skeleton, Alert, AlertIcon, Avatar,
+  useColorModeValue, Switch, Skeleton, Alert, AlertIcon,
   AlertDialog, AlertDialogBody, AlertDialogContent, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogOverlay, Collapse, Portal,
+  AlertDialogHeader, AlertDialogOverlay, Collapse, Portal, Icon,
 } from "@chakra-ui/react";
 import {
   SearchIcon, AddIcon, CloseIcon, ChevronDownIcon, ChevronRightIcon,
 } from "@chakra-ui/icons";
 import { FiTrash2 } from "react-icons/fi";
-import { FaUserAlt } from "react-icons/fa";
+import { FaUser } from "react-icons/fa";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQueryClient, useQueries } from "@tanstack/react-query";
 import axios from "axios";
@@ -95,30 +95,22 @@ const CategorizedChatRow: React.FC<{
       onClick={onOpen ? () => onOpen(conv) : undefined}
       align="center"
     >
-      <Avatar
-        size="sm"
-        src={conv.owner?.avatar}
-        name={conv.owner?.unknown ? undefined : name?.[0] || name}
-        icon={conv.owner?.unknown ? <FaUserAlt fontSize="1.2rem" /> : undefined}
-        {...(() => {
-          const color = conv.owner?.color;
-          if (!color) return { bg: "gray.500", color: "white" };
-          if (!color.startsWith('#') && !color.includes('.')) {
-            return { bg: `${color}.500`, color: "white" };
-          }
-          if (color.includes(".")) {
-            const [base] = color.split(".");
-            return { bg: `${base}.500`, color: "white" };
-          }
-          const hex = color.replace("#", "");
-          const int = parseInt(hex.length === 3 ? hex.split("").map((c: string) => c+c).join("") : hex, 16);
-          const r = (int >> 16) & 255, g = (int >> 8) & 255, b = int & 255;
-          const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-          const text = yiq >= 128 ? "black" : "white";
-          return { bg: color, color: text };
-        })()}
-        boxShadow="0 1px 4px rgba(0,0,0,0.1)"
-      />
+      <Box 
+        w="32px"
+        h="32px"
+        bg={useColorModeValue("gray.200", "gray.600")}
+        borderRadius="md"
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+        flexShrink={0}
+      >
+        <Icon 
+          as={FaUser} 
+          boxSize="16px" 
+          color={conv.owner?.color ? `${conv.owner.color}.500` : useColorModeValue("gray.400", "gray.500")}
+        />
+      </Box>
       <Box flex="1" minW={0}>
         <Text fontWeight="semibold" noOfLines={1} fontSize="sm">
           {name}

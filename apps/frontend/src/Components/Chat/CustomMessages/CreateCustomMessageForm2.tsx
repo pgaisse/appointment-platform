@@ -54,7 +54,7 @@ export default function CreateCustomMessageForm({ mode, onClose, patientId }: Pr
   });
 
   // --- Patient fields -> tokens por "field" presentes (igual que antes)
-  const project = { firstName: 1, lastName: 1, phone: 1, selectedAppDates: 1, nameInput: 1, lastNameInput: 1, org_name: 1 };
+  const project = { firstName: 1, lastName: 1, phone: 1, selectedAppDates: 1, nameInput: 1, lastNameInput: 1, org_name: 1, color: 1 };
   const { data: fields } = useGetCollection<Appointment>('Appointment', {
     mongoQuery: { _id: patientId },
     projection: project,

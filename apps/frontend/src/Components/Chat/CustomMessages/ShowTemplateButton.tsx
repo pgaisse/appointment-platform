@@ -108,6 +108,8 @@ export default function ShowTemplateButton({
         }
       });
     });
+    // Ensure patient color is available for UI uses
+    projection["color"] = 1;
     return projection;
   }, [tokensWithField]);
 
