@@ -6,12 +6,14 @@ import {
   useColorModeValue,
   HStack,
   Avatar,
-  ButtonGroup,
-  Button,
   Spinner,
   IconButton,
   Tooltip,
   Icon,
+  InputGroup,
+  InputLeftElement,
+  Input,
+  CloseButton,
 } from "@chakra-ui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -46,7 +48,7 @@ import { useMarkConversationRead } from "@/Hooks/Query/useMarkConversationRead";
 import { useConversationsInfinite, type ConversationsPage } from "@/Hooks/Query/useConversationsInfinite";
 import type { ConversationChat } from "@/types";
 import { FaUserAlt } from "react-icons/fa";
-import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
+import { FiChevronLeft, FiChevronRight, FiInbox, FiArchive, FiSearch } from "react-icons/fi";
 import ChatCategorizationPanel from "@/Components/Chat/CustomMessages/ChatCategorizationPanel";
 import AddPatientButton from "@/Components/DraggableCards/AddPatientButton";
 import ContactDetailsPanel from "@/Components/Chat/ContactDetailsPanel";
@@ -231,6 +233,8 @@ export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
   const [view, setView] = useState<"active" | "only">("active");
   const [catsOpen, setCatsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
   const [noMatchPhone, setNoMatchPhone] = useState<string | null>(null);
   const PAGE_SIZE = 50; // fetch larger pages to avoid long-running incremental loads
 
@@ -360,6 +364,12 @@ export default function CustomChat() {
     () => data?.pages.flatMap((p) => p.items) ?? [],
     [data]
   );
+
+  // Subscribe lightweight meta queries (limit=1) to get accurate totals for badges
+  const activeMeta = useConversationsInfinite("active", 1);
+  const archivedMeta = useConversationsInfinite("only", 1);
+  const activeCount = activeMeta.data?.pages?.[0]?.pagination?.total;
+  const archivedCount = archivedMeta.data?.pages?.[0]?.pagination?.total;
 
   // Auto-select conversation from URL parameters (conversationId or phone) or event
   // Search across ALL cached views (active, only, all) to find the conversation
@@ -626,6 +636,7 @@ export default function CustomChat() {
   // removed unused sidebar header tokens (inlined where used)
   const scrollbarThumb = useColorModeValue("#CBD5E0", "#4A5568");
   const scrollbarTrack = useColorModeValue("#EDF2F7", "#2D3748");
+  const badgeBorder = useColorModeValue("white", "gray.800");
 
   // Overlay bubble position: sits over categories+conversations boundary
   const bubbleLeft = useMemo(() => {
@@ -634,6 +645,14 @@ export default function CustomChat() {
       xl: catsOpen ? "calc(15% + 8px)" : "8px",
     } as const;
   }, [catsOpen]);
+
+  // Right-side bubble position: sits over chat+details boundary
+  const bubbleRight = useMemo(() => {
+    return {
+      base: "8px",
+      xl: detailsOpen ? "calc(22% + 8px)" : "8px",
+    } as const;
+  }, [detailsOpen]);
 
   // Abrir chat y marcar leído con override local + cancelQueries
   const handleOpenChat = useCallback(
@@ -752,13 +771,13 @@ export default function CustomChat() {
             zIndex={500}
           >
             <Tooltip
-              label={catsOpen ? "Ocultar categorías" : "Mostrar categorías"}
+              label={catsOpen ? "Hide categories" : "Show categories"}
               placement="right"
               openDelay={150}
               hasArrow
             >
               <IconButton
-                aria-label={catsOpen ? "Ocultar categorías" : "Mostrar categorías"}
+                aria-label={catsOpen ? "Hide categories" : "Show categories"}
                 onClick={() => setCatsOpen((v) => !v)}
                 rounded="full"
                 h={{ base: "40px", md: "44px" }}
@@ -788,6 +807,51 @@ export default function CustomChat() {
             </Tooltip>
           </Box>
 
+          {/* Floating bubble toggle overlay (right side for details panel) */}
+          <Box
+            position="absolute"
+            top="50%"
+            right={bubbleRight}
+            transform="translateY(-50%)"
+            zIndex={500}
+          >
+            <Tooltip
+              label={detailsOpen ? "Hide details" : "Show details"}
+              placement="left"
+              openDelay={150}
+              hasArrow
+            >
+              <IconButton
+                aria-label={detailsOpen ? "Hide details" : "Show details"}
+                onClick={() => setDetailsOpen((v) => !v)}
+                rounded="full"
+                h={{ base: "40px", md: "44px" }}
+                w={{ base: "40px", md: "44px" }}
+                p={0}
+                variant="solid"
+                bg={useColorModeValue("rgba(255,255,255,0.9)", "rgba(26,32,44,0.75)" )}
+                borderWidth="1px"
+                borderColor={panelBorder}
+                boxShadow="0 10px 30px rgba(0,0,0,0.18)"
+                backdropFilter="saturate(150%) blur(8px)"
+                sx={{ WebkitBackdropFilter: "saturate(150%) blur(8px)" }}
+                _hover={{
+                  transform: "translateY(-1px)",
+                  boxShadow: "0 14px 36px rgba(0,0,0,0.22)",
+                  bg: useColorModeValue("rgba(255,255,255,0.98)", "rgba(26,32,44,0.85)"),
+                }}
+                _active={{ transform: "translateY(0) scale(0.98)" }}
+                icon={
+                  detailsOpen ? (
+                    <Icon as={FiChevronRight} boxSize={5} color={useColorModeValue("gray.700", "gray.200")} />
+                  ) : (
+                    <Icon as={FiChevronLeft} boxSize={5} color={useColorModeValue("gray.700", "gray.200")} />
+                  )
+                }
+              />
+            </Tooltip>
+          </Box>
+
           
 
           {/* Sidebar: conversations list */}
@@ -804,6 +868,8 @@ export default function CustomChat() {
             boxShadow="0 10px 30px rgba(0,0,0,0.10)"
             backdropFilter="saturate(140%) blur(6px)"
             overflow="hidden"
+            display="flex"
+            flexDirection="column"
           >
             {/* Sticky header */}
             <Box
@@ -821,34 +887,126 @@ export default function CustomChat() {
                 <Text fontSize={{ base: "xl", md: "2xl" }} fontWeight="bold">
                   Messages
                 </Text>
-                <ButtonGroup size="sm" isAttached variant="outline">
-                  <Button onClick={() => setView("active")} isActive={view === "active"}>
-                    Active
-                  </Button>
-                  <Button onClick={() => setView("only")} isActive={view === "only"}>
-                    Archived
-                  </Button>
-                </ButtonGroup>
+                <HStack spacing={2}>
+                  <Tooltip label="Main" placement="bottom" openDelay={150} hasArrow>
+                    <Box position="relative">
+                      <IconButton
+                        aria-label="Main"
+                        icon={<FiInbox />}
+                        size={{ base: "sm", md: "sm" }}
+                        variant={view === "active" ? "solid" : "ghost"}
+                        colorScheme={view === "active" ? "blue" : "gray"}
+                        onClick={() => setView("active")}
+                      />
+                      {typeof activeCount === "number" && activeCount > 0 && (
+                        <Box
+                          position="absolute"
+                          top="-6px"
+                          right="-6px"
+                          minW="18px"
+                          h="18px"
+                          px="1.5px"
+                          bg="blue.500"
+                          color="white"
+                          borderRadius="full"
+                          fontSize="xs"
+                          display="flex"
+                          alignItems="center"
+                          justifyContent="center"
+                          borderWidth="2px"
+                          borderColor={badgeBorder}
+                        >
+                          {activeCount > 99 ? "99+" : activeCount}
+                        </Box>
+                      )}
+                    </Box>
+                  </Tooltip>
+                  <Tooltip label="Archived" placement="bottom" openDelay={150} hasArrow>
+                    <Box position="relative">
+                      <IconButton
+                        aria-label="Archived"
+                        icon={<FiArchive />}
+                        size={{ base: "sm", md: "sm" }}
+                        variant={view === "only" ? "solid" : "ghost"}
+                        colorScheme={view === "only" ? "blue" : "gray"}
+                        onClick={() => setView("only")}
+                      />
+                      {typeof archivedCount === "number" && archivedCount > 0 && (
+                        <Box
+                          position="absolute"
+                          top="-6px"
+                          right="-6px"
+                          minW="18px"
+                          h="18px"
+                          px="1.5px"
+                          bg="gray.600"
+                          color="white"
+                          borderRadius="full"
+                          fontSize="xs"
+                          display="flex"
+                          alignItems="center"
+                          justifyContent="center"
+                          borderWidth="2px"
+                          borderColor={badgeBorder}
+                        >
+                          {archivedCount > 99 ? "99+" : archivedCount}
+                        </Box>
+                      )}
+                    </Box>
+                  </Tooltip>
+                </HStack>
               </HStack>
 
-              <HStack spacing={3} mt={3} wrap="wrap">
-                <NewChatButton 
-                  setChat={setChat} 
+              <HStack spacing={2} mt={3} wrap="wrap">
+                <NewChatButton
+                  setChat={setChat}
                   dataConversation={dataConversation}
+                  iconOnly
+                  tooltipLabel="New chat"
+                  size="sm"
+                  variant="ghost"
                 />
                 <AddPatientButton
                   onlyPatient
-                  text="New Contact"
-                  label="Add Contact"
-                  tooltip={false}
+                  iconOnly
+                  label="New contact"
+                  tooltip
+                  iconSize="sm"
                   formProps={{ typeButonVisible: false, phoneFieldReadOnly: false, mode: "CREATION" }}
                 />
               </HStack>
+
+              {/* Header search (always visible) */}
+              <Box mt={3}>
+                <InputGroup size="sm">
+                  <InputLeftElement pointerEvents="none">
+                    <FiSearch />
+                  </InputLeftElement>
+                  <Input
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search chats (name, phone, email, message, ID)…"
+                    variant="filled"
+                    borderRadius="xl"
+                  />
+                  {searchTerm && (
+                    <CloseButton
+                      aria-label="Clear"
+                      onClick={() => setSearchTerm("")}
+                      position="absolute"
+                      right="8px"
+                      top="50%"
+                      transform="translateY(-50%)"
+                    />
+                  )}
+                </InputGroup>
+              </Box>
             </Box>
 
             {/* Scrollable list */}
             <Box
-              h="calc(100% - 112px)"
+              flex="1"
+              minH={0}
               px={{ base: 3, md: 5 }}
               py={{ base: 3, md: 4 }}
               overflowY="auto"
@@ -865,6 +1023,8 @@ export default function CustomChat() {
                   isLoadingConversation={isPending}
                   readOverrides={readOverrides}
                   archivedMode={view}
+                  searchTerm={searchTerm}
+                  showSearch={false}
                 />
               </SortableContext>
 
@@ -903,22 +1063,24 @@ export default function CustomChat() {
             <ChatWindows chat={chat} isOpen={!!chat} />
           </Box>
 
-          {/* Contact details panel */}
-          <Box
-            flex={{ base: "1 1 0", xl: "0 0 22%" }}
-            w={{ base: "100%", xl: "22%" }}
-            minH={0}
-            maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
-            bg={panelBg}
-            borderWidth="1px"
-            borderColor={panelBorder}
-            borderRadius="2xl"
-            boxShadow="0 10px 30px rgba(0,0,0,0.10)"
-            backdropFilter="saturate(140%) blur(6px)"
-            overflow="hidden"
-          >
-            <ContactDetailsPanel conversation={chat ?? null} />
-          </Box>
+          {/* Contact details panel (collapsible, default open) */}
+          {detailsOpen && (
+            <Box
+              flex={{ base: "1 1 0", xl: "0 0 22%" }}
+              w={{ base: "100%", xl: "22%" }}
+              minH={0}
+              maxH={{ base: "100%", xl: "calc(100dvh - 2rem - env(safe-area-inset-bottom))" }}
+              bg={panelBg}
+              borderWidth="1px"
+              borderColor={panelBorder}
+              borderRadius="2xl"
+              boxShadow="0 10px 30px rgba(0,0,0,0.10)"
+              backdropFilter="saturate(140%) blur(6px)"
+              overflow="hidden"
+            >
+              <ContactDetailsPanel conversation={chat ?? null} />
+            </Box>
+          )}
         </Flex>
 
         {/* Drag preview */}

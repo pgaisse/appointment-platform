@@ -21,9 +21,15 @@ import {
   Tab,
   TabPanel,
   Divider,
+  Input,
+  Button,
+  FormControl,
+  FormLabel,
 } from "@chakra-ui/react";
 import { FiMessageSquare, FiSend, FiClock, FiCheckCircle } from "react-icons/fi";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
+import React from "react";
+import { useMessagesRange } from "@/Hooks/Query/useDashboardDetails";
 
 interface Message {
   _id: string;
@@ -68,6 +74,16 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
   const bgCard = useColorModeValue("white", "gray.700");
   const borderColor = useColorModeValue("gray.200", "gray.600");
   const hoverBg = useColorModeValue("green.50", "gray.600");
+
+  // Custom range state
+  const [startDate, setStartDate] = React.useState<string>("");
+  const [endDate, setEndDate] = React.useState<string>("");
+  const [rangeEnabled, setRangeEnabled] = React.useState<boolean>(false);
+  const { data: rangeMessages = [], isLoading: isLoadingRange } = useMessagesRange(
+    startDate || undefined,
+    endDate || undefined,
+    rangeEnabled
+  );
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -264,6 +280,21 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
                   </Badge>
                 </HStack>
               </Tab>
+              <Tab
+                _selected={{
+                  bg: "blue.500",
+                  color: "white",
+                  boxShadow: "md",
+                }}
+              >
+                <HStack>
+                  <Icon as={FiClock} />
+                  <Text>Custom Range</Text>
+                  <Badge colorScheme="blue" ml={2}>
+                    {rangeMessages.length}
+                  </Badge>
+                </HStack>
+              </Tab>
             </TabList>
 
             <TabPanels>
@@ -272,6 +303,31 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
               </TabPanel>
               <TabPanel p={0}>
                 <MessageList messages={monthMessages} isLoading={isLoadingMonth} />
+              </TabPanel>
+              <TabPanel>
+                <VStack align="stretch" spacing={4}>
+                  <HStack spacing={4} align="end">
+                    <FormControl maxW={{ base: "100%", md: "220px" }}>
+                      <FormLabel fontSize="sm">Start date</FormLabel>
+                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                    </FormControl>
+                    <FormControl maxW={{ base: "100%", md: "220px" }}>
+                      <FormLabel fontSize="sm">End date</FormLabel>
+                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                    </FormControl>
+                    <Button
+                      colorScheme="blue"
+                      onClick={() => setRangeEnabled(Boolean(startDate && endDate))}
+                      isDisabled={!startDate || !endDate}
+                    >
+                      Search
+                    </Button>
+                  </HStack>
+
+                  <Divider />
+
+                  <MessageList messages={rangeMessages} isLoading={isLoadingRange} />
+                </VStack>
               </TabPanel>
             </TabPanels>
           </Tabs>

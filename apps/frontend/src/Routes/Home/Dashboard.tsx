@@ -20,7 +20,6 @@ import {
   FiMessageSquare,
   FiUsers,
   FiClock,
-  FiCheckCircle,
   FiAlertCircle,
   FiActivity,
 } from "react-icons/fi";
@@ -166,7 +165,6 @@ const Dashboard: React.FC = () => {
             templateColumns={{
               base: "repeat(1, 1fr)",
               md: "repeat(2, 1fr)",
-              lg: "repeat(4, 1fr)",
             }}
             gap={6}
           >
@@ -187,22 +185,6 @@ const Dashboard: React.FC = () => {
               isLoading={isLoading}
               onClick={onPendingOpen}
               isClickable
-            />
-            <StatCard
-              title="Completed"
-              value={stats?.appointments.completed || 0}
-              icon={FiCheckCircle}
-              color="green"
-              subtitle="This month"
-              isLoading={isLoading}
-            />
-            <StatCard
-              title="Urgent"
-              value={stats?.pending.urgent || 0}
-              icon={FiAlertCircle}
-              color="red"
-              subtitle="Require attention"
-              isLoading={isLoading}
             />
           </Grid>
 
@@ -248,7 +230,7 @@ const Dashboard: React.FC = () => {
                 to="/appointments"
               />
               <QuickAction
-                title="Reports"
+                title="Reports (no ready yet)"
                 description="View statistics"
                 icon={FiActivity}
                 color="pink"

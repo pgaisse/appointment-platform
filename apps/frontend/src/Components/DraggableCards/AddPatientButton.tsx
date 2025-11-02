@@ -1,7 +1,6 @@
 // AddPatientButton.tsx
 import React from "react";
 import {
-  Text,
   Box,
   Flex,
   Modal,
@@ -42,6 +41,8 @@ type Props = {
   text?: string
   color?:string
   tooltip?:boolean
+  iconOnly?: boolean
+  iconSize?: "xs" | "sm" | "md" | "lg"
 };
 
 export default function AddPatientButton({
@@ -50,6 +51,8 @@ export default function AddPatientButton({
   label = "Add Patient",
   text = "",
   tooltip=true,
+  iconOnly = false,
+  iconSize = "sm",
   isOpen,
   color,
   onOpen,
@@ -60,8 +63,6 @@ export default function AddPatientButton({
   formProps,
 
   inline = false,
-  size = "sm",
-  variant,
   modalSize = "2xl",
 }: Props) {
   // Si no nos pasan isOpen, usamos el disclosure interno (modo no controlado)
@@ -81,7 +82,19 @@ export default function AddPatientButton({
     else internal.onClose();
   };
 
-  const Trigger = (
+  const Trigger = iconOnly ? (
+    <Tooltip label={tooltip ? label : ""} placement="top" fontSize="sm" hasArrow>
+      <IconButton
+        aria-label={label}
+        icon={<AiOutlineUserAdd />}
+        size={iconSize}
+        variant="ghost"
+        colorScheme="gray"
+        onClick={handleOpen}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
+    </Tooltip>
+  ) : (
     <Tooltip label={tooltip?label:""} placement="top" fontSize="sm" hasArrow>
       <Button
         aria-label={label}

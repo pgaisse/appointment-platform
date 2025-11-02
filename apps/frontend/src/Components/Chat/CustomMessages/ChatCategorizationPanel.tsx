@@ -96,8 +96,8 @@ const CategorizedChatRow: React.FC<{
       align="center"
     >
       <Box 
-        w="32px"
-        h="32px"
+        w={{ base: "28px", md: "32px" }}
+        h={{ base: "28px", md: "32px" }}
         bg={useColorModeValue("gray.200", "gray.600")}
         borderRadius="md"
         display="flex"
@@ -107,15 +107,17 @@ const CategorizedChatRow: React.FC<{
       >
         <Icon 
           as={FaUser} 
-          boxSize="16px" 
+          boxSize={{ base: "14px", md: "16px" }} 
           color={conv.owner?.color ? `${conv.owner.color}.500` : useColorModeValue("gray.400", "gray.500")}
         />
       </Box>
       <Box flex="1" minW={0}>
-        <Text fontWeight="semibold" noOfLines={1} fontSize="sm">
-          {name}
-        </Text>
-        <Text fontSize="xs" color="gray.500" noOfLines={1}>
+        <Tooltip hasArrow label={name} openDelay={200}>
+          <Text fontWeight="semibold" noOfLines={1} fontSize={{ base: "sm", md: "sm" }} title={name}>
+            {name}
+          </Text>
+        </Tooltip>
+        <Text fontSize={{ base: "xs", md: "xs" }} color="gray.500" noOfLines={1}>
           {preview}
         </Text>
       </Box>
@@ -174,7 +176,11 @@ const CategoryHeaderRow: React.FC<{
             bg={cat.color || "#4C6EF5"} border="1px solid rgba(0,0,0,0.08)"
           />
           <Box minW={0}>
-            <Text fontWeight="medium" fontSize="sm" noOfLines={1}>{cat.name}</Text>
+            <Tooltip hasArrow label={cat.name} openDelay={200} placement="top-start">
+              <Text fontWeight="medium" fontSize={{ base: "sm", md: "sm" }} noOfLines={1} title={cat.name}>
+                {cat.name}
+              </Text>
+            </Tooltip>
             <Text fontSize="xs" color="gray.500" noOfLines={1}>
               {cat.key} • {assignedCount} chat{assignedCount === 1 ? "" : "s"}
             </Text>
@@ -282,7 +288,8 @@ export const ChatCategorizationPanel: React.FC<Props> = ({
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       placeholderData: (prev: ConversationChatCategoryItem[] | undefined) => prev,
-      notifyOnChangeProps: ["data"],
+      // Ensure spinner reacts to background fetching toggles
+      notifyOnChangeProps: ["data", "isFetching"],
     })),
   });
 

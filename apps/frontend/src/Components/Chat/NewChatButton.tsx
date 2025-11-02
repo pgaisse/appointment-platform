@@ -1,8 +1,23 @@
 import React, { useMemo, useState, useEffect } from "react";
 import {
-  Button, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody,
-  ModalCloseButton, Input, VStack, HStack, Text, Box, Spinner,
-  useDisclosure, Icon, useColorModeValue,
+  Button,
+  IconButton,
+  Tooltip,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
+  Input,
+  VStack,
+  HStack,
+  Text,
+  Box,
+  Spinner,
+  useDisclosure,
+  Icon,
+  useColorModeValue,
 } from "@chakra-ui/react";
 import { FiMessageCircle } from "react-icons/fi";
 import { FaUser } from "react-icons/fa";
@@ -25,6 +40,10 @@ type ContactDoc = {
 type Props = {
   setChat?: React.Dispatch<React.SetStateAction<ConversationChat | undefined>>;
   dataConversation: ConversationChat[] | undefined;
+  iconOnly?: boolean;
+  tooltipLabel?: string;
+  size?: "xs" | "sm" | "md" | "lg";
+  variant?: string;
 };
 
 const MIN_CHARS = 2;
@@ -58,7 +77,7 @@ const buildLocalMessage = (conversationId: string, author: string): Message => {
   };
 };
 
-export default function NewChatButton({ setChat, dataConversation }: Props) {
+export default function NewChatButton({ setChat, dataConversation, iconOnly = false, tooltipLabel = "Nuevo chat", size = "sm", variant = "ghost" }: Props) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [search, setSearch] = useState("");
   const debounced = useDebouncedValue(search, 300);
@@ -139,23 +158,36 @@ export default function NewChatButton({ setChat, dataConversation }: Props) {
 
   return (
     <>
-      <Button
-        leftIcon={<FiMessageCircle />}
-        colorScheme="gray"
-        variant="ghost"
-        size="md"
-        justifyContent="start"
-        px={4}
-        py={2}
-        mb={3}
-        borderRadius="lg"
-        fontWeight="medium"
-        fontSize="md"
-        _hover={{ bg: "gray.100" }}
-        onClick={onOpen}
-      >
-        New Chat
-      </Button>
+      {iconOnly ? (
+        <Tooltip label={tooltipLabel} placement="top" hasArrow openDelay={150}>
+          <IconButton
+            aria-label={tooltipLabel}
+            icon={<FiMessageCircle />}
+            size={size}
+            variant={variant as any}
+            colorScheme="gray"
+            onClick={onOpen}
+          />
+        </Tooltip>
+      ) : (
+        <Button
+          leftIcon={<FiMessageCircle />}
+          colorScheme="gray"
+          variant="ghost"
+          size="md"
+          justifyContent="start"
+          px={4}
+          py={2}
+          mb={3}
+          borderRadius="lg"
+          fontWeight="medium"
+          fontSize="md"
+          _hover={{ bg: "gray.100" }}
+          onClick={onOpen}
+        >
+          New Chat
+        </Button>
+      )}
 
       <Modal isOpen={isOpen} onClose={() => { onClose(); setSearch(""); }} size="lg" isCentered>
         <ModalOverlay />

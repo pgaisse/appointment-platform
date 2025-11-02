@@ -215,7 +215,11 @@ router.get('/messages/monthly', jwtCheck, ensureUser, attachUserInfo, async (req
   }
 });
 
-// GET /api/dashboard/messages/range - Get message count for a specific date range
+// GET /api/dashboard/messages/range - Get message count or detailed list for a specific date range
+// Query params:
+// - start: YYYY-MM-DD (required)
+// - end: YYYY-MM-DD (required)
+// - detailed: 'true' to return enriched message list (optional; default false returns count only)
 router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
   try {
     const org_id = req.dbUser?.org_id;
@@ -223,7 +227,7 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
       return res.status(403).json({ error: "Missing organization scope." });
     }
 
-    const { start, end } = req.query;
+    const { start, end, detailed } = req.query;
     
     if (!start || !end) {
       return res.status(400).json({ error: "Both 'start' and 'end' query parameters are required (YYYY-MM-DD)" });
@@ -232,17 +236,90 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
     const startDate = dayjs.tz(start, TZ).startOf('day').toDate();
     const endDate = dayjs.tz(end, TZ).endOf('day').toDate();
 
+    // If detailed view requested, return enriched messages similar to today/month endpoints
+    if (String(detailed).toLowerCase() === 'true') {
+      const enriched = await Message.aggregate([
+        {
+          $match: {
+            author: org_id,
+            direction: 'outbound',
+            createdAt: { $gte: startDate, $lte: endDate },
+          },
+        },
+        { $sort: { createdAt: -1 } },
+        { $limit: 1000 },
+        {
+          $lookup: {
+            from: 'appointments',
+            let: { conv: '$conversationId' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$org_id', org_id] },
+                      { $eq: ['$sid', '$$conv'] },
+                    ],
+                  },
+                },
+              },
+              { $project: { nameInput: 1, lastNameInput: 1, phoneInput: 1, phoneE164: 1, sid: 1 } },
+              { $limit: 1 },
+            ],
+            as: 'appointment',
+          },
+        },
+        { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'appointments',
+            let: { repId: '$appointment.representative.appointment' },
+            pipeline: [
+              { $match: { $expr: { $and: [ { $eq: ['$_id', '$$repId'] }, { $eq: ['$org_id', org_id] } ] } } },
+              { $project: { nameInput: 1, lastNameInput: 1, phoneInput: 1, phoneE164: 1, sid: 1 } },
+              { $limit: 1 },
+            ],
+            as: 'representative',
+          },
+        },
+        { $unwind: { path: '$representative', preserveNullAndEmptyArrays: true } },
+        {
+          $addFields: {
+            recipientName: {
+              $let: {
+                vars: {
+                  nameRep: {
+                    $trim: { input: { $concat: [ { $ifNull: ['$representative.nameInput',''] }, ' ', { $ifNull: ['$representative.lastNameInput',''] } ] } }
+                  },
+                  nameApt: {
+                    $trim: { input: { $concat: [ { $ifNull: ['$appointment.nameInput',''] }, ' ', { $ifNull: ['$appointment.lastNameInput',''] } ] } }
+                  }
+                },
+                in: { $cond: [ { $gt: [ { $strLenCP: '$$nameRep' }, 0 ] }, '$$nameRep', { $cond: [ { $gt: [ { $strLenCP: '$$nameApt' }, 0 ] }, '$$nameApt', null ] } ] }
+              }
+            },
+            recipientPhone: {
+              $ifNull: [
+                '$representative.phoneInput',
+                { $ifNull: [ '$representative.phoneE164', { $ifNull: [ '$appointment.phoneInput', { $ifNull: [ '$appointment.phoneE164', { $ifNull: ['$proxyAddress', '$to'] } ] } ] } ] }
+              ]
+            },
+            time: '$createdAt',
+          },
+        },
+      ]);
+
+      return res.json(enriched);
+    }
+
+    // Default: count only
     const count = await Message.countDocuments({
       author: org_id,
       direction: 'outbound',
       createdAt: { $gte: startDate, $lte: endDate }
     });
 
-    res.json({ 
-      start: start,
-      end: end,
-      count: count 
-    });
+    res.json({ start, end, count });
   } catch (error) {
     console.error('Dashboard message range error:', error);
     res.status(500).json({ error: 'Failed to fetch message range stats', message: error.message });

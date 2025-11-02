@@ -38,6 +38,9 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
   const sectionBg = useColorModeValue("whiteAlpha.800", "whiteAlpha.50");
   const scrollbarThumb = useColorModeValue("gray.400", "gray.600");
   const scrollbarTrack = useColorModeValue("gray.100", "gray.800");
+  // Avoid calling hooks conditionally inside JSX: precompute common color tokens
+  const avatarBg = useColorModeValue("gray.200", "gray.600");
+  const iconMutedColor = useColorModeValue("gray.400", "gray.500");
 
   // Extract phone/sid for appointment query
   const { ownerPhone, ownerSid } = useMemo(() => {
@@ -182,7 +185,7 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
           <Box 
             w="96px"
             h="96px"
-            bg={useColorModeValue("gray.200", "gray.600")}
+            bg={avatarBg}
             borderRadius="lg"
             display="flex"
             alignItems="center"
@@ -191,7 +194,7 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
             <Icon 
               as={FaUser} 
               boxSize="48px" 
-              color={avatarColor ? `${avatarColor}.500` : useColorModeValue("gray.400", "gray.500")}
+              color={avatarColor ? `${avatarColor}.500` : iconMutedColor}
             />
           </Box>
           <VStack spacing={1}>
@@ -289,7 +292,7 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
                       <Box 
                         w="32px"
                         h="32px"
-                        bg={useColorModeValue("gray.200", "gray.600")}
+                        bg={avatarBg}
                         borderRadius="md"
                         display="flex"
                         alignItems="center"
@@ -299,7 +302,7 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
                         <Icon 
                           as={FaUser} 
                           boxSize="16px" 
-                          color={useColorModeValue("gray.400", "gray.500")}
+                          color={iconMutedColor}
                         />
                       </Box>
                       <VStack align="start" spacing={0} flex="1">
@@ -422,7 +425,7 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
                         <Box 
                           w="24px"
                           h="24px"
-                          bg={useColorModeValue("gray.200", "gray.600")}
+                          bg={avatarBg}
                           borderRadius="md"
                           display="flex"
                           alignItems="center"
@@ -432,7 +435,7 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
                           <Icon 
                             as={FaUser} 
                             boxSize="12px" 
-                            color={provider.color ? `${provider.color}.500` : useColorModeValue("gray.400", "gray.500")}
+                            color={provider.color ? `${provider.color}.500` : iconMutedColor}
                           />
                         </Box>
                         <Text fontSize="sm">

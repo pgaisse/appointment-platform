@@ -121,3 +121,26 @@ export const useMonthMessages = () => {
     staleTime: 60_000, // 1 minuto
   });
 };
+
+// Hook para obtener mensajes por rango custom (detallado)
+export const useMessagesRange = (start?: string, end?: string, enabledParam?: boolean) => {
+  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+
+  const enabled = Boolean(isAuthenticated && start && end && enabledParam);
+  return useQuery({
+    queryKey: ["dashboard-range-messages", { start, end }],
+    enabled,
+    queryFn: async () => {
+      const token = await getAccessTokenSilently({
+        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+      });
+      const url = `${import.meta.env.VITE_BASE_URL}/dashboard/messages/range`;
+      const params = new URLSearchParams({ start: String(start), end: String(end), detailed: "true" });
+      const res = await axios.get(`${url}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return res.data as Message[];
+    },
+    staleTime: 30_000,
+  });
+};

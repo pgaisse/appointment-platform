@@ -1115,10 +1115,25 @@ router.get('/conversations/search', async (req, res) => {
     const regex = hasSearch ? new RegExp(escapeRegex(term), 'i') : null;
 
     // phone digits search (ignore formatting)
+    // Improve: allow shorter prefixes (>=3) and handle AU normalization 0xxxx ↔ +61xxxx
     const digits = term.replace(/\D/g, '');
-    const phoneRegex = digits.length >= 6
-      ? new RegExp(digits.split('').join('\\D*')) // matches digits with any separators in between
-      : null;
+    const phonePatterns = [];
+    if (digits.length >= 3) {
+      // base pattern as typed (tolerant to separators)
+      phonePatterns.push(digits.split('').join('\\D*'));
+
+      // If user typed a local AU number starting with 0 (e.g., 04...), also try +61 without the 0
+      if (digits.startsWith('0') && digits.length >= 2) {
+        const alt = '61' + digits.slice(1);
+        phonePatterns.push(alt.split('').join('\\D*'));
+      }
+
+      // If user typed starting with 61 (or +61 in term), also try the local 0-prefixed variant
+      if (digits.startsWith('61') && digits.length >= 3) {
+        const altLocal = '0' + digits.slice(2);
+        phonePatterns.push(altLocal.split('').join('\\D*'));
+      }
+    }
 
     const basePipeline = [
       // Limit by Twilio number
@@ -1284,8 +1299,12 @@ router.get('/conversations/search', async (req, res) => {
               { 'appointment.lastNameInput': { $regex: regex } },
               { 'appointment.emailInput': { $regex: regex } },
               { 'lastMessage.body': { $regex: regex } },
-              // phone digits tolerant match
-              ...(phoneRegex ? [{ 'appointment.phoneInput': { $regex: phoneRegex } }] : []),
+              // phone digits tolerant match (supports AU 0xxxxx and +61xxxxx)
+              ...(
+                phonePatterns.length
+                  ? phonePatterns.map((p) => ({ 'appointment.phoneInput': { $regex: new RegExp(p) } }))
+                  : []
+              ),
             ],
           },
         }]

@@ -36,6 +36,8 @@ type Props = {
   readOverrides?: ReadonlySet<string>;
   archivedMode?: "active" | "only" | "all";
   onReorder?: (ordered: ConversationChat[]) => void;
+  searchTerm?: string; // external search term to control from parent
+  showSearch?: boolean; // whether to render the search box inside this component
 };
 
 export default function MessageList({
@@ -44,20 +46,24 @@ export default function MessageList({
   isLoadingConversation,
   readOverrides,
   archivedMode = "active",
+  searchTerm,
+  showSearch = true,
 }: Props) {
   // Debounced search
-  const [term, setTerm] = useState("");
+  const [localTerm, setLocalTerm] = useState("");
+  const effectiveTerm = searchTerm ?? localTerm;
   const [debounced, setDebounced] = useState("");
 
   useEffect(() => {
-    const id = setTimeout(() => setDebounced(term.trim()), 300);
+    const id = setTimeout(() => setDebounced(effectiveTerm.trim()), 300);
     return () => clearTimeout(id);
-  }, [term]);
+  }, [effectiveTerm]);
 
   const searchEnabled = debounced.length >= 2;
+  const effectiveSearchScope: "active" | "only" | "all" = searchEnabled ? "all" : archivedMode;
   const { data: searchData, isLoading: isSearching } = useConversationSearch(
     debounced,
-    archivedMode,
+    effectiveSearchScope,
     1,
     50 // request larger pages to match conversations list and reduce extra fetches
   );
@@ -80,7 +86,9 @@ export default function MessageList({
   if (!searchEnabled && isLoadingConversation) {
     return (
       <Stack>
-        <SearchBox term={term} setTerm={setTerm} isSearching={false} />
+        {showSearch ? (
+          <SearchBox term={localTerm} setTerm={setLocalTerm} isSearching={false} />
+        ) : null}
         <Skeleton borderRadius="xl" height="60px" m={2} />
         <Skeleton borderRadius="xl" height="60px" m={2} />
         <Skeleton borderRadius="xl" height="60px" m={2} />
@@ -90,7 +98,9 @@ export default function MessageList({
 
   return (
     <VStack align="stretch" spacing={4}>
-      <SearchBox term={term} setTerm={setTerm} isSearching={isSearching} />
+      {showSearch ? (
+        <SearchBox term={localTerm} setTerm={setLocalTerm} isSearching={isSearching} />
+      ) : null}
 
       {!searchEnabled && !list.length ? (
         <Text color="gray.500">No conversations</Text>
@@ -109,7 +119,7 @@ export default function MessageList({
                 contact={contact}
                 onOpen={() => setChat(contact)}
                 readOverrides={readOverrides}
-                archivedMode={archivedMode}
+                archivedMode={contact.archived ? "only" : "active"}
               />
             ))}
         </>
@@ -177,13 +187,22 @@ function PlainChatRow({
   readOverrides?: ReadonlySet<string>;
   archivedMode?: "active" | "only" | "all";
 }) {
+  const isArchived = typeof (contact as any).archived === "boolean" ? (contact as any).archived : archivedMode === "only";
+  const rowBg = isArchived ? useColorModeValue("purple.50", "whiteAlpha.100") : undefined;
+  const rowHoverBg = isArchived
+    ? useColorModeValue("purple.100", "whiteAlpha.200")
+    : undefined;
+  const rowBorder = isArchived ? useColorModeValue("purple.200", "whiteAlpha.300") : undefined;
   return (
     <HStack
       px={3}
       py={2}
       borderRadius="xl"
       transition="background 0.2s ease"
-      _hover={{ bg: "blackAlpha.50", _dark: { bg: "whiteAlpha.100" } }}
+      bg={rowBg}
+      borderWidth={isArchived ? "1px" : undefined}
+      borderColor={rowBorder}
+      _hover={{ bg: rowHoverBg ?? "blackAlpha.50", _dark: { bg: rowHoverBg ? undefined : "whiteAlpha.100" } }}
       onClick={onOpen}
       cursor="pointer"
     >
@@ -218,6 +237,13 @@ function SortableChatRow({
     },
   });
 
+  const isArchived = typeof (contact as any).archived === "boolean" ? (contact as any).archived : archivedMode === "only";
+  const rowBg = isArchived ? useColorModeValue("purple.50", "whiteAlpha.100") : undefined;
+  const rowHoverBg = isArchived
+    ? useColorModeValue("purple.100", "whiteAlpha.200")
+    : undefined;
+  const rowBorder = isArchived ? useColorModeValue("purple.200", "whiteAlpha.300") : undefined;
+
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition:
@@ -240,7 +266,10 @@ function SortableChatRow({
       py={2}
       borderRadius="xl"
       transition="background 0.2s ease, transform 0.2s ease"
-      _hover={{ bg: "blackAlpha.50", _dark: { bg: "whiteAlpha.100" } }}
+      bg={rowBg}
+      borderWidth={isArchived ? "1px" : undefined}
+      borderColor={rowBorder}
+      _hover={{ bg: rowHoverBg ?? "blackAlpha.50", _dark: { bg: rowHoverBg ? undefined : "whiteAlpha.100" } }}
       {...listeners}
       {...attributes}
       onClick={onOpen}
@@ -292,8 +321,8 @@ function InnerRowContent({
   return (
     <>
       <Box 
-        w="48px"
-        h="48px"
+        w={{ base: "40px", md: "48px" }}
+        h={{ base: "40px", md: "48px" }}
         bg={useColorModeValue("gray.200", "gray.600")}
         borderRadius="lg"
         display="flex"
@@ -301,18 +330,43 @@ function InnerRowContent({
         justifyContent="center"
         flexShrink={0}
       >
-        <Icon 
-          as={FaUser} 
-          boxSize="24px" 
-          color={contact.owner?.color ? `${contact.owner.color}.500` : useColorModeValue("gray.400", "gray.500")}
-        />
+        {(() => {
+          const defaultIconColor = useColorModeValue("gray.400", "gray.500");
+          const c = contact.owner?.color;
+          let colorValue: string = defaultIconColor;
+          if (c && typeof c === "string") {
+            if (c.startsWith("#")) {
+              colorValue = c; // hex color provided by appointment
+            } else if (c.includes(".")) {
+              colorValue = c; // chakra token like "teal.500"
+            } else {
+              colorValue = `${c}.500`; // base token name, add weight
+            }
+          }
+          return (
+            <Icon as={FaUser} boxSize={{ base: "20px", md: "24px" }} color={colorValue} />
+          );
+        })()}
       </Box>
 
       <Box flex="1" minW={0}>
         <HStack align="center" spacing={2}>
-          <Text fontWeight={isUnread ? "bold" : "semibold"} noOfLines={1}>
-            {contact.owner?.name || contact.lastMessage?.author || "No name"}
-          </Text>
+          <Tooltip hasArrow label={contact.owner?.name || contact.lastMessage?.author || "No name"} openDelay={300}>
+            <Text fontWeight={isUnread ? "bold" : "semibold"} noOfLines={1} fontSize={{ base: "sm", md: "md" }}>
+              {contact.owner?.name || contact.lastMessage?.author || "No name"}
+            </Text>
+          </Tooltip>
+
+          {/* Archived badge: hide in archived-only list to keep max space for name */}
+          {(() => {
+            const isArchived = typeof (contact as any).archived === "boolean" ? (contact as any).archived : archivedMode === "only";
+            const showBadge = isArchived && archivedMode !== "only";
+            return showBadge ? (
+              <Badge colorScheme="purple" variant="subtle" borderRadius="full" px="2" fontSize="0.65rem">
+                Archived
+              </Badge>
+            ) : null;
+          })()}
 
           {contact.owner?.unknown ? (
             <AddPatientButton
@@ -343,7 +397,7 @@ function InnerRowContent({
         </HStack>
 
         <Text
-          fontSize="sm"
+          fontSize={{ base: "xs", md: "sm" }}
           color={isUnread ? "inherit" : "gray.500"}
           fontWeight={isUnread ? "semibold" : "normal"}
           noOfLines={1}
