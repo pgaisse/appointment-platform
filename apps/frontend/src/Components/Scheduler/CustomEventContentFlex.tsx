@@ -29,9 +29,18 @@ import {
   PopoverCloseButton,
   Input,
   Portal,
+  Avatar,
+  AvatarBadge,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
 } from "@chakra-ui/react";
 import { useState, useRef, useEffect } from "react";
-import { AppointmentGroup } from "@/types";
+import { AppointmentGroup, env } from "@/types";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { PhoneIcon, RepeatIcon } from "@chakra-ui/icons";
 import { CiUser } from "react-icons/ci";
@@ -43,9 +52,10 @@ import { useNavigate } from "react-router-dom";
 import { useSendAppointmentSMS } from "@/Hooks/Query/useSendAppointmentSMS";
 import ShowTemplateButtonWithData from "../Chat/CustomMessages/ShowTemplateButtonWithData";
 import CreateMessageModal from "../Chat/CustomMessages/CreateCustomMessageModal";
-import { MdOutlinePostAdd, MdScheduleSend } from "react-icons/md";
-import { RiCalendarScheduleLine } from "react-icons/ri";
+import { MdOutlinePostAdd, MdScheduleSend, MdEdit } from "react-icons/md";
+import { RiCalendarScheduleLine, RiMessage3Line } from "react-icons/ri";
 import { DateTime } from "luxon";
+import CreateCustomMessageForm2 from "../Chat/CustomMessages/CreateCustomMessageForm2";
 
 const MotionBox = motion(Box);
 const FadeInBox = motion(Box);
@@ -60,15 +70,42 @@ interface Props {
 
 const CustomEventContent: React.FC<Props> = ({ event }) => {
   const [templateTextByPatient, setTemplateTextByPatient] = useState<Record<string, string>>({});
+  // Separate optional reminder message per patient; falls back to confirmation text if not provided
+  const [reminderTextByPatient, setReminderTextByPatient] = useState<Record<string, string>>({});
   const [reminderCheckedByPatient, setReminderCheckedByPatient] = useState<Record<string, boolean>>({});
   const [tipOpenByPid, setTipOpenByPid] = useState<Record<string, boolean>>({});
   const [reminderWhenByPid, setReminderWhenByPid] = useState<Record<string, string>>({});
+  const [msgOpenByPid, setMsgOpenByPid] = useState<Record<string, boolean>>({});
+  const [selectedTemplateByPid, setSelectedTemplateByPid] = useState<Record<string, any>>({});
+  const [selectedReminderTemplateByPid, setSelectedReminderTemplateByPid] = useState<Record<string, any>>({});
+  const [editModalOpenByPid, setEditModalOpenByPid] = useState<Record<string, boolean>>({});
+  const [editReminderModalOpenByPid, setEditReminderModalOpenByPid] = useState<Record<string, boolean>>({});
 
   // Mutations ahora con mutateAsync para encadenar con await
   const { mutateAsync: updateItemsAsync, isPending: isUpdating } = useUpdateItems();
   const { mutateAsync: sendSMSAsync, isPending: isSending } = useSendAppointmentSMS();
 
   const toast = useToast();
+  
+  // Socket toast para notificar cuando el backend programe el recordatorio
+  useEffect(() => {
+    // Asume que el socket está disponible en window.socket o similar
+    const socket = (window as any).socket;
+    if (!socket) return;
+    const handler = (data: any) => {
+      toast({
+        title: "Reminder scheduled",
+        description: `Reminder for slot ${data.slotId} scheduled at ${data.runAtLocal}`,
+        status: "success",
+        duration: 4000,
+        isClosable: true,
+      });
+    };
+    socket.on("reminderScheduled", handler);
+    return () => {
+      socket.off("reminderScheduled", handler);
+    };
+  }, [toast]);
   const queryClient = useQueryClient();
   const group = event?.[0];
   const containerRef = useRef<HTMLDivElement>(null);
@@ -217,6 +254,17 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
           "selectedAppDates.0.proposed.startDate": start,
           "selectedAppDates.0.proposed.endDate": end,
           "selectedAppDates.0.status": "Pending",
+          // Persist reminder plan (if any). Scheduling will happen after patient confirms.
+          ...(reminderCheckedByPatient[id] ?? true
+            ? {
+                "selectedAppDates.0.reminder.msg": (reminderTextByPatient[id] || templateTextByPatient[id]) ?? "",
+                "selectedAppDates.0.reminder.tz": TZ,
+                "selectedAppDates.0.reminder.whenISO": (reminderWhenByPid[id] || makeDefaultReminderISO(start)) as any,
+                "selectedAppDates.0.reminder.scheduled": false,
+              }
+            : {
+                "selectedAppDates.0.reminder": null as any,
+              }),
         },
       },
     ];
@@ -225,63 +273,14 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
       // 1) Update de la cita
       await updateItemsAsync(payload);
 
-      // 2) Confirmación instantánea
-      await sendSMSAsync({ appointmentId: id, msg: templateTextByPatient[id] });
+      // 2) Do NOT send confirmation here. The clinic will contact separately; we only saved the reminder plan.
       toast({
-        title: "Confirmation SMS sent",
-        description: "The patient has been notified via SMS.",
+        title: "Rebooked",
+        description: "Reminder plan saved and will be scheduled automatically after patient confirms.",
         status: "info",
-        duration: 3000,
+        duration: 3500,
         isClosable: true,
       });
-
-      // 3) Recordatorio programado si corresponde
-      const wantsReminder = reminderCheckedByPatient[id] ?? true;
-      if (wantsReminder) {
-        const candidateISO = reminderWhenByPid[id] || makeDefaultReminderISO(start);
-        const check = enforceTwilioWindow(candidateISO);
-
-        if (!check.ok) {
-          toast({
-            title: check.error === "tooFar" ? "Reminder not scheduled" : "Invalid reminder time",
-            description:
-              check.error === "tooFar"
-                ? "Twilio only allows scheduling up to 35 days in the future. Please pick a closer date."
-                : "Please choose a valid date and time for the reminder.",
-            status: check.error === "tooFar" ? "info" : "warning",
-            duration: 4000,
-            isClosable: true,
-          });
-        } else {
-          if ((check as any).adjusted) {
-            setReminderWhenByPid((prev) => ({ ...prev, [id]: check.iso! }));
-            toast({
-              title: "Reminder time adjusted",
-              description: "The reminder was too soon and was moved to about 15 minutes from now.",
-              status: "warning",
-              duration: 4000,
-              isClosable: true,
-            });
-          }
-
-          await sendSMSAsync({
-            appointmentId: id,
-            msg: templateTextByPatient[id],
-            scheduleWithTwilio: true,
-            whenISO: check.iso!,
-            tz: TZ,
-          });
-
-          const human = parseSydney(check.iso!).toFormat("ccc, dd LLL yyyy • h:mm a");
-          toast({
-            title: "Reminder scheduled",
-            description: `Scheduled for ${human} (${TZ}).`,
-            status: "success",
-            duration: 3000,
-            isClosable: true,
-          });
-        }
-      }
 
       // 4) Caché y navegación
       await Promise.all([
@@ -442,7 +441,9 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                         const { icon, color } = getMatchLevelIcon(item.matchLevel);
                         const pid = item._id;
                         const tooltipForThisPatient = templateTextByPatient[pid] ?? "";
+                        const reminderTooltipForThisPatient = reminderTextByPatient[pid] ?? "";
                         const iconColorForThisPatient = tooltipForThisPatient ? "green.500" : "red.500";
+                        const reminderIconColorForThisPatient = reminderTooltipForThisPatient ? "green.500" : "red.500";
 
                         const defaultISO = makeDefaultReminderISO(group.dateRange.startDate);
                         const selectedISO = reminderWhenByPid[pid] || defaultISO;
@@ -469,26 +470,48 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                             gridTemplateRows="auto 1fr auto"
                             gap={2}
                           >
-                            {/* Header */}
-                            <HStack align="start" justify="space-between" spacing={3}>
-                              <HStack spacing={2} minW={0}>
-                                <Tooltip label={`${item.matchLevel}`}>
-                                  <Icon as={icon} color={color} boxSize={5} />
-                                </Tooltip>
-                                <Icon as={CiUser} color="green" boxSize={4} />
+                            {/* Header - Apple-like compact layout prioritizing name */}
+                            <HStack align="center" spacing={3}>
+                              <Avatar
+                                size="sm"
+                                name={`${item.nameInput} ${item.lastNameInput}`}
+                                bg={item.color || "gray.200"}
+                                color="white"
+                              >
+                                <AvatarBadge boxSize="0.9em" bg={color as any} borderColor="white" />
+                              </Avatar>
+                              <Box flex="1" minW={0}>
                                 <Tooltip label={`${item.nameInput} ${item.lastNameInput}`}>
-                                  <Text fontWeight="semibold" noOfLines={1} textTransform="capitalize">
+                                  <Text
+                                    fontWeight="semibold"
+                                    fontSize="sm"
+                                    noOfLines={2}
+                                    lineHeight="short"
+                                    textTransform="capitalize"
+                                  >
                                     {item.nameInput} {item.lastNameInput}
                                   </Text>
                                 </Tooltip>
-                              </HStack>
-
-                              <HStack spacing={1} flexShrink={0}>
-                                <Icon as={PhoneIcon} color="green" boxSize={3.5} />
-                                <Tag size="sm" variant="subtle" colorScheme="gray">
-                                  {formatAusPhoneNumber(item.phoneInput)}
-                                </Tag>
-                              </HStack>
+                                <HStack spacing={1.5} mt={1} color="gray.600">
+                                  <Icon as={PhoneIcon} boxSize={3} />
+                                  <Text fontSize="xs">{formatAusPhoneNumber(item.phoneInput)}</Text>
+                                </HStack>
+                              </Box>
+                              <VStack spacing={0} align="flex-end">
+                                <Tooltip label={`${item.matchLevel}`}>
+                                  <Icon as={icon} color={color} boxSize={4} />
+                                </Tooltip>
+                                {item.selectedAppDates?.[0]?.startDate && (
+                                  <Tooltip label="Original appointment date">
+                                    <HStack spacing={1} color="gray.500">
+                                      <Icon as={RiCalendarScheduleLine} boxSize={3} />
+                                      <Text fontSize="xs">
+                                        {parseSydney(item.selectedAppDates[0].startDate).toFormat("dd/MM")}
+                                      </Text>
+                                    </HStack>
+                                  </Tooltip>
+                                )}
+                              </VStack>
                             </HStack>
 
                             {/* Availability */}
@@ -512,173 +535,188 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
 
                             <Divider />
 
-                            {/* Actions */}
-                            <Flex align="center" justify="space-between" gap={2} wrap="wrap">
-                              <HStack spacing={1.5}>
-                                <Tooltip
-                                  label={
-                                    item.selectedAppDates?.[0]?.startDate
-                                      ? `Appointment Date: ${parseSydney(item.selectedAppDates[0].startDate).toFormat("ccc, dd LLL yyyy • h:mm a")} — ${parseSydney(item.selectedAppDates[0].endDate).toFormat("h:mm a")}`
-                                      : "No appointment date selected"
-                                  }
-                                >
-                                  <Box as="span">
-                                    <Icon as={RiCalendarScheduleLine} />
-                                  </Box>
+                            {/* Actions - Messaging moved into a modal */}
+                            <VStack align="stretch" spacing={2} w="full">
+                              <HStack justify="flex-end">
+                                <Tooltip label="Messages">
+                                  <IconButton
+                                    aria-label="Open messaging"
+                                    icon={<RiMessage3Line />}
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setMsgOpenByPid((prev) => ({ ...prev, [pid]: true }))}
+                                    isDisabled={isThisRowWorking}
+                                  />
                                 </Tooltip>
-                                <ShowTemplateButtonWithData
-                                  category="confirmation"
-                                  dataForTokens={{
-                                    nameInput: item.nameInput,
-                                    lastNameInput: item.lastNameInput,
-                                    phoneInput: item.phoneInput,
-                                    selectedAppDates: item.selectedAppDates || [],
-                                  }}
-                                  onSelectTemplate={(val: string) =>
-                                    setTemplateTextByPatient((prev) => ({ ...prev, [pid]: val }))
-                                  }
-                                  tooltipText={tooltipForThisPatient}
-                                  colorIcon={iconColorForThisPatient}
-                                />
-                                <CreateMessageModal
-                                  patientId={pid}
-                                  triggerButton={
-                                    <IconButton
-                                      aria-label="Create template"
-                                      icon={<MdOutlinePostAdd size={20} />}
-                                      variant="ghost"
-                                      size="sm"
-                                      borderRadius="full"
-                                      _focusVisible={{ boxShadow: "0 0 0 3px rgba(66,153,225,0.6)" }}
-                                    />
-                                  }
-                                />
-                                <Tooltip
-                                  label={`Reminder: ${selectedHuman} (${TZ})`}
-                                  isOpen={!!tipOpenByPid[pid]}
-                                  openDelay={150}
-                                  closeDelay={0}
-                                >
-                                  <Box
-                                    display="inline-flex"
-                                    onMouseEnter={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: true }))
-                                    }
-                                    onMouseLeave={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: false }))
-                                    }
-                                    onFocus={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: true }))
-                                    }
-                                    onBlur={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: false }))
-                                    }
-                                  >
-                                    <Checkbox
-                                      size="sm"
-                                      colorScheme="green"
-                                      isChecked={reminderCheckedByPatient[pid] ?? true}
-                                      onChange={(e) => {
-                                        setReminderCheckedByPatient((prev) => ({
-                                          ...prev,
-                                          [pid]: e.target.checked,
-                                        }));
-                                        (e.currentTarget as HTMLInputElement).blur();
-                                      }}
-                                      isDisabled={isThisRowWorking}
-                                    >
-                                      Reminder
-                                    </Checkbox>
-                                  </Box>
-                                </Tooltip>
+                              </HStack>
 
-                                {/* Editor del horario */}
-                                <Popover placement="bottom-end" gutter={8} isLazy>
-                                  <PopoverTrigger>
-                                    <IconButton
-                                      aria-label="Edit reminder time"
-                                      icon={<MdScheduleSend size={18} />}
-                                      size="sm"
-                                      variant="ghost"
-                                      isDisabled={!(reminderCheckedByPatient[pid] ?? true) || isThisRowWorking}
-                                    />
-                                  </PopoverTrigger>
-                                  <Portal>
-                                    <PopoverContent zIndex={10000} w="full" maxW="100vw">
-                                      <PopoverArrow />
-                                      <PopoverCloseButton />
-                                      <PopoverHeader fontWeight="semibold">
-                                        Edit reminder date and time ({TZ})
-                                      </PopoverHeader>
-                                      <PopoverBody>
-                                        <VStack align="stretch" spacing={3}>
-                                          <Input
-                                            type="datetime-local"
-                                            value={isoToInputValue(selectedISO)}
-                                            onChange={(e) => {
-                                              const raw = e.target.value;
-                                              let dt = DateTime.fromISO(raw, { zone: TZ });
-                                              if (dt.isValid) {
-                                                dt = dt.set({ second: 0, millisecond: 0 });
-                                                setReminderWhenByPid((prev) => ({
-                                                  ...prev,
-                                                  [pid]: toIsoLocalSydney(dt),
-                                                }));
+                              {/* Modal with confirmation and reminder settings */}
+                              {msgOpenByPid[pid] && (
+                                <Modal isOpen={true} onClose={() => setMsgOpenByPid((prev) => ({ ...prev, [pid]: false }))} size={{ base: "full", md: "lg" }}>
+                                  <ModalOverlay />
+                                  <ModalContent>
+                                    <ModalHeader>Messaging for {item.nameInput} {item.lastNameInput}</ModalHeader>
+                                    <ModalCloseButton />
+                                    <ModalBody>
+                                      <VStack align="stretch" spacing={4}>
+                                        <HStack spacing={2} align="center">
+                                          <Icon as={RiCalendarScheduleLine} color="gray.500" />
+                                          <Text fontSize="sm" color="gray.600">
+                                            {item.selectedAppDates?.[0]?.startDate
+                                              ? parseSydney(item.selectedAppDates[0].startDate).toFormat("ccc, dd LLL yyyy • h:mm a")
+                                              : "No appointment date selected"}
+                                          </Text>
+                                        </HStack>
+
+                                        <Divider />
+
+                                        <Box>
+                                          <Text fontSize="xs" fontWeight="semibold" color="gray.600" mb={2}>Confirmation Message</Text>
+                                          <HStack spacing={2} flexWrap="wrap">
+                                            <ShowTemplateButtonWithData
+                                              category="confirmation"
+                                              dataForTokens={{
+                                                nameInput: item.nameInput,
+                                                lastNameInput: item.lastNameInput,
+                                                phoneInput: item.phoneInput,
+                                                org_name: item.org_name || env.VITE_AUTH0_ORGANIZATION_NAME,
+                                                selectedAppDates: item.selectedAppDates || [],
+                                              }}
+                                              onSelectTemplate={(val: string) =>
+                                                setTemplateTextByPatient((prev) => ({ ...prev, [pid]: val }))
                                               }
-                                            }}
-                                            isDisabled={isThisRowWorking}
-                                          />
-                                          <HStack justify="flex-end">
-                                            <Button
+                                              tooltipText={tooltipForThisPatient || "Select confirmation template"}
+                                              colorIcon={iconColorForThisPatient}
+                                              enableEdit={true}
+                                            />
+                                            <CreateMessageModal
+                                              patientId={pid}
+                                              triggerButton={
+                                                <Tooltip label="New template">
+                                                  <IconButton
+                                                    aria-label="Create template"
+                                                    icon={<MdOutlinePostAdd size={18} />}
+                                                    variant="ghost"
+                                                    size="sm"
+                                                  />
+                                                </Tooltip>
+                                              }
+                                            />
+                                          </HStack>
+                                        </Box>
+
+                                        <Divider />
+
+                                        <Box>
+                                          <HStack justify="space-between" mb={2}>
+                                            <Text fontSize="xs" fontWeight="semibold" color="gray.600">Reminder</Text>
+                                            <Checkbox
                                               size="sm"
-                                              variant="outline"
-                                              onClick={() =>
-                                                setReminderWhenByPid((prev) => ({
-                                                  ...prev,
-                                                  [pid]: makeDefaultReminderISO(group.dateRange.startDate),
-                                                }))
+                                              colorScheme="teal"
+                                              isChecked={reminderCheckedByPatient[pid] ?? true}
+                                              onChange={(e) =>
+                                                setReminderCheckedByPatient((prev) => ({ ...prev, [pid]: e.target.checked }))
                                               }
                                               isDisabled={isThisRowWorking}
                                             >
-                                              Reset to default
-                                            </Button>
+                                              Enabled
+                                            </Checkbox>
                                           </HStack>
-                                          <Text fontSize="xs" color="gray.600">
-                                            Default is one day before the appointment at 12:00 PM ({TZ}). Twilio allows scheduling up to 35 days in advance and not earlier than about 15 minutes from now. If too soon, we will adjust automatically.
-                                          </Text>
-                                        </VStack>
-                                      </PopoverBody>
-                                    </PopoverContent>
-                                  </Portal>
-                                </Popover>
-                              </HStack>
 
-                              <VStack align="flex-end" spacing={1} w="full">
-                                <HStack spacing={1} justify="flex-end" w="full">
-                                  <Button
-                                    size="sm"
-                                    colorScheme="green"
-                                    isDisabled={!tooltipForThisPatient || isThisRowWorking}
-                                    onClick={() =>
-                                      handleClick(
-                                        pid,
-                                        group.dateRange.startDate,
-                                        group.dateRange.endDate
-                                      )
-                                    }
-                                    leftIcon={
-                                      isThisRowWorking && processingPid === pid ? (
-                                        <Spinner size="xs" color="white" />
-                                      ) : (
-                                        <RepeatIcon />
-                                      )
-                                    }
-                                  >
-                                    Rebook
-                                  </Button>
-                                </HStack>
-                              </VStack>
-                            </Flex>
+                                          {(reminderCheckedByPatient[pid] ?? true) && (
+                                            <VStack align="stretch" spacing={3}>
+                                              <HStack spacing={2} flexWrap="wrap">
+                                                <ShowTemplateButtonWithData
+                                                  category="message"
+                                                  dataForTokens={{
+                                                    nameInput: item.nameInput,
+                                                    lastNameInput: item.lastNameInput,
+                                                    phoneInput: item.phoneInput,
+                                                    org_name: item.org_name || env.VITE_AUTH0_ORGANIZATION_NAME,
+                                                    selectedAppDates: item.selectedAppDates || [],
+                                                  }}
+                                                  onSelectTemplate={(val: string) =>
+                                                    setReminderTextByPatient((prev) => ({ ...prev, [pid]: val }))
+                                                  }
+                                                  tooltipText={reminderTooltipForThisPatient || "Reminder template (optional)"}
+                                                  colorIcon={reminderTooltipForThisPatient ? "teal.500" : "orange.400"}
+                                                  enableEdit={true}
+                                                />
+                                                <CreateMessageModal
+                                                  patientId={pid}
+                                                  triggerButton={
+                                                    <Tooltip label="New reminder template">
+                                                      <IconButton
+                                                        aria-label="Create reminder template"
+                                                        icon={<MdOutlinePostAdd size={18} />}
+                                                        variant="ghost"
+                                                        size="sm"
+                                                      />
+                                                    </Tooltip>
+                                                  }
+                                                />
+                                              </HStack>
+                                              <HStack spacing={2} align="center">
+                                                <Input
+                                                  type="datetime-local"
+                                                  size="sm"
+                                                  value={isoToInputValue(selectedISO)}
+                                                  onChange={(e) => {
+                                                    const raw = e.target.value;
+                                                    let dt = DateTime.fromISO(raw, { zone: TZ });
+                                                    if (dt.isValid) {
+                                                      dt = dt.set({ second: 0, millisecond: 0 });
+                                                      setReminderWhenByPid((prev) => ({ ...prev, [pid]: toIsoLocalSydney(dt) }));
+                                                    }
+                                                  }}
+                                                  isDisabled={isThisRowWorking}
+                                                />
+                                                <Button
+                                                  size="xs"
+                                                  variant="outline"
+                                                  onClick={() =>
+                                                    setReminderWhenByPid((prev) => ({
+                                                      ...prev,
+                                                      [pid]: makeDefaultReminderISO(group.dateRange.startDate),
+                                                    }))
+                                                  }
+                                                  isDisabled={isThisRowWorking}
+                                                >
+                                                  Reset Default
+                                                </Button>
+                                              </HStack>
+                                              <Text fontSize="xs" color="gray.500">
+                                                Default: 1 day before at 12 PM. Range: 15min-35days. ({TZ})
+                                              </Text>
+                                            </VStack>
+                                          )}
+                                        </Box>
+                                      </VStack>
+                                    </ModalBody>
+                                    <ModalFooter>
+                                      <HStack w="full" justify="space-between">
+                                        <Button variant="ghost" onClick={() => setMsgOpenByPid((prev) => ({ ...prev, [pid]: false }))}>Cancel</Button>
+                                        <Button
+                                          size="sm"
+                                          colorScheme="green"
+                                          isDisabled={!tooltipForThisPatient || isThisRowWorking}
+                                          onClick={() => handleClick(pid, group.dateRange.startDate, group.dateRange.endDate)}
+                                          leftIcon={
+                                            isThisRowWorking && processingPid === pid ? (
+                                              <Spinner size="xs" />
+                                            ) : (
+                                              <RepeatIcon />
+                                            )
+                                          }
+                                        >
+                                          {isThisRowWorking && processingPid === pid ? "Processing..." : "Rebook"}
+                                        </Button>
+                                      </HStack>
+                                    </ModalFooter>
+                                  </ModalContent>
+                                </Modal>
+                              )}
+                            </VStack>
                           </MotionBox>
                         );
                       })}

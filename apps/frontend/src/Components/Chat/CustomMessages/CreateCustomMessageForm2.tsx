@@ -36,11 +36,12 @@ type Props = {
   onClose?: () => void;
   mode: FormMode;
   patientId: string;
+  initialData?: any; // Datos iniciales para modo edición
 };
 
 // Extiende el formulario para incluir category sin romper el schema actual
 
-export default function CreateCustomMessageForm({ mode, onClose, patientId }: Props) {
+export default function CreateCustomMessageForm({ mode, onClose, patientId, initialData }: Props) {
   const sanitize = (data: ScheaMessageTemplate): ScheaMessageTemplate => ({
     ...data,
     title: DOMPurify.sanitize(data.title ?? '', { ALLOWED_TAGS: [] }),
@@ -58,20 +59,42 @@ export default function CreateCustomMessageForm({ mode, onClose, patientId }: Pr
   const { data: fields } = useGetCollection<Appointment>('Appointment', {
     mongoQuery: { _id: patientId },
     projection: project,
+    enabled: !!patientId && mode === 'CREATION',
   });
   const doc = fields?.[0];
   const presentKeys = doc ? Object.keys(compactObject(doc)) : [];
   const presentKeysNoId = presentKeys.filter(k => k !== '_id');
+  
+  // Detectar si es un contacto (solo tiene firstName, lastName, phone - campos básicos)
+  const basicContactFields = ['firstName', 'lastName', 'phone', 'nameInput', 'lastNameInput', 'phoneInput'];
+  const hasOnlyBasicFields = presentKeysNoId.length > 0 && 
+    presentKeysNoId.every(key => basicContactFields.includes(key));
+  const isLikelyContact = hasOnlyBasicFields && !doc?.selectedAppDates;
+  
   const inList = useMemo<(string | null)[]>(() => [...new Set([...presentKeysNoId, null])], [presentKeysNoId]);
 
-  // --- Trae tokens SOLO por "field" presentes (sin categoría)
+  // --- Trae tokens: 
+  // - EDITION sin patientId: todos los tokens
+  // - CREATION con contacto: solo tokens básicos (firstName, lastName, phone, org_name)
+  // - CREATION con appointment: tokens según campos presentes
+  const shouldFetchAllTokens = mode === 'EDITION' && !patientId;
+  const contactBasicFields = ['firstName', 'lastName', 'phone', 'nameInput', 'lastNameInput', 'phoneInput', 'org_name', null];
+  
+  const tokenQuery = shouldFetchAllTokens 
+    ? {} 
+    : isLikelyContact 
+      ? { field: { $in: contactBasicFields } }
+      : patientId && presentKeysNoId.length > 0
+        ? { field: { $in: inList } }
+        : {};
+  
   const { data: tokens } = useGetCollection<TemplateToken>('TemplateToken', {
-    mongoQuery: { field: { $in: inList } },
+    mongoQuery: tokenQuery,
   });
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const { mutate, isPending } = useCreateMessageTemplate();
-  const { isPending: editIsPending } = useUpdateItems();
+  const { mutateAsync: updateItemsAsync, isPending: editIsPending } = useUpdateItems();
   const [, setHasSubmitted] = useState(false);
   const [tokensUsed, setTokensUsed] = useState<string[]>([]);
   const toast = useToast();
@@ -86,7 +109,7 @@ export default function CreateCustomMessageForm({ mode, onClose, patientId }: Pr
     formState: { errors, isSubmitting },
   } = useForm<ScheaMessageTemplate>({
     resolver: zodResolver(messageTemplateSchema as any),
-    defaultValues: {
+    defaultValues: initialData || {
       category: 'message',
       title: '',
       content: '',
@@ -143,11 +166,45 @@ export default function CreateCustomMessageForm({ mode, onClose, patientId }: Pr
         },
       });
     } else if (mode === 'EDITION') {
-      // Mantengo tu lógica (no implementada aquí)
-      toast({
-        title: 'Edit mode not implemented here.',
-        status: 'info',
-        duration: 2500,
+      if (!initialData?._id) {
+        toast({
+          title: 'Error: No template ID provided for editing.',
+          status: 'error',
+          duration: 3000,
+        });
+        return;
+      }
+      
+      const payload = [{
+        table: 'MessageTemplate',
+        id_field: '_id',
+        id_value: initialData._id,
+        data: {
+          title: cleanedData.title,
+          content: cleanedData.content,
+          category: cleanedData.category,
+          variablesUsed: cleanedData.variablesUsed,
+        },
+      }];
+
+      updateItemsAsync(payload).then(() => {
+        toast({
+          title: 'Template successfully updated.',
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+        queryClient.invalidateQueries({ queryKey: ["MessageTemplate"] });
+        queryClient.invalidateQueries({ queryKey: ["message-templates"] });
+        if (onClose) onClose();
+      }).catch((error: any) => {
+        toast({
+          title: 'Error updating template.',
+          description: error?.response?.data?.message || 'An unexpected error occurred.',
+          status: 'error',
+          duration: 4000,
+          isClosable: true,
+        });
       });
     }
   };

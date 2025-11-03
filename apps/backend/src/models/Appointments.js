@@ -45,6 +45,17 @@ const ConfirmationSchema = new Schema({
   lateResponse: { type: Boolean, default: false },
 }, { _id: false });
 
+const ReminderSchema = new Schema({
+  msg: { type: String, default: '' },
+  tz: { type: String, default: 'Australia/Sydney' },
+  whenISO: { type: String, default: '' }, // local ISO string
+  scheduled: { type: Boolean, default: false },
+  scheduledSid: { type: String, default: null },
+  runAtLocal: { type: Date, default: null },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User' }, // usuario que definió el recordatorio
+  createdAt: { type: Date }, // fecha de creación del recordatorio
+}, { _id: false });
+
 const SelectedAppDateSchema = new Schema({
   startDate: { type: Date },
   endDate: { type: Date },
@@ -58,6 +69,7 @@ const SelectedAppDateSchema = new Schema({
     createdAt: { type: Date },
   },
   confirmation: ConfirmationSchema,
+  reminder: { type: ReminderSchema, default: {} },
 }, { _id: true });
 
 /* ======================= Appointment (principal) ======================= */

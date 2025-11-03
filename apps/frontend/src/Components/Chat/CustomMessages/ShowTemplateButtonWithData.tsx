@@ -26,10 +26,17 @@ import {
   Icon,
   usePrefersReducedMotion,
   useToken,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalCloseButton,
+  ModalBody,
+  ModalFooter,
 } from '@chakra-ui/react';
 import { keyframes } from '@emotion/react';
-import { CloseIcon, SearchIcon } from '@chakra-ui/icons';
-import { useEffect, useRef, useState } from 'react';
+import { CloseIcon, SearchIcon, EditIcon } from '@chakra-ui/icons';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
 import { Appointment, MessageTemplate, TemplateToken } from '@/types';
 import { applyTemplateTokens } from '@/Functions/applyTemplateTokens';
@@ -37,6 +44,7 @@ import { useDeleteItem } from '@/Hooks/Query/useDeleteItem';
 import { useQueryClient } from '@tanstack/react-query';
 import { AiFillLayout } from 'react-icons/ai';
 import { useInfiniteMessageTemplates } from '@/Hooks/Query/useInfiniteMessageTemplates';
+import CreateCustomMessageForm2 from './CreateCustomMessageForm2';
 
 interface ShowTemplateButtonWithDataProps {
   onSelectTemplate: (text: string) => void;
@@ -47,6 +55,7 @@ interface ShowTemplateButtonWithDataProps {
   tooltipText?: string;
   colorIcon?: string; // p.ej. "red.500" | "green.500" | "gray"
   category?: 'confirmation' | 'message';
+  enableEdit?: boolean; // Habilitar edición de plantillas
 }
 
 // ───────────────── Parpadeo suave por tono (interpolación real) ─────────────────
@@ -62,6 +71,7 @@ export default function ShowTemplateButtonWithData({
   tooltipText = 'Custom messages',
   colorIcon = 'gray',
   category = 'message',
+  enableEdit = false,
 }: ShowTemplateButtonWithDataProps) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   // Mantener un snapshot efectivo para rellenar tokens
@@ -73,7 +83,9 @@ export default function ShowTemplateButtonWithData({
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const queryClient = useQueryClient();
   const deleteDisclosure = useDisclosure();
+  const editDisclosure = useDisclosure();
   const [itemToDelete, setItemToDelete] = useState<string>('');
+  const [itemToEdit, setItemToEdit] = useState<MessageTemplate | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -115,6 +127,55 @@ export default function ShowTemplateButtonWithData({
 
   const allTemplates: MessageTemplate[] = data?.pages.flatMap((p) => p.items) ?? [];
 
+  // ───────────────── Detectar si es un contacto y filtrar plantillas ─────────────────
+  const isContact = useMemo(() => {
+    // Un contacto tiene solo campos básicos y no tiene selectedAppDates
+    const hasSelectedAppDates = effectiveData?.selectedAppDates && 
+      Array.isArray(effectiveData.selectedAppDates) && 
+      effectiveData.selectedAppDates.length > 0;
+    
+    return !hasSelectedAppDates;
+  }, [effectiveData]);
+
+  // Obtener los fields básicos de contacto desde los tokens de BD
+  const contactAllowedFields = useMemo(() => {
+    return ['firstName', 'lastName', 'phone', 'nameInput', 'lastNameInput', 'phoneInput', 'org_name', null];
+  }, []);
+
+  // Filtrar plantillas: para contactos, solo mostrar las que usen tokens básicos
+  const filteredTemplates = useMemo(() => {
+    if (!isContact || !tokens) return allTemplates;
+
+    // Obtener todos los tokens básicos permitidos (field en contactAllowedFields)
+    const allowedTokenStrings = tokens
+      .filter(t => contactAllowedFields.includes(t.field))
+      .map(t => t.key);
+
+    console.log('🔍 Filtrado de plantillas para contacto:', {
+      isContact,
+      allowedTokens: allowedTokenStrings,
+      totalTemplates: allTemplates.length,
+    });
+
+    return allTemplates.filter((template) => {
+      const variablesUsed = template.variablesUsed || [];
+      
+      // Si no usa variables, es válida para todos
+      if (variablesUsed.length === 0) return true;
+
+      // Verificar que TODAS las variables usadas estén en los tokens permitidos
+      const isAllowed = variablesUsed.every((varToken) => {
+        return allowedTokenStrings.includes(varToken);
+      });
+
+      if (!isAllowed) {
+        console.log('❌ Plantilla rechazada:', template.title, 'Tokens:', variablesUsed);
+      }
+
+      return isAllowed;
+    });
+  }, [isContact, allTemplates, tokens, contactAllowedFields]);
+
   // Sentinel + observer
   const drawerBodyRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -142,7 +203,11 @@ export default function ShowTemplateButtonWithData({
   // ───────────────── selección y borrado ─────────────────
   const handleSelectTemplate = (template: MessageTemplate) => {
     // ✅ Usamos los datos del formulario directamente (sin ir a BD)
-    const filledMessage = applyTemplateTokens(template.content, effectiveData, tokens ?? []);
+    const filledMessage = applyTemplateTokens(
+      template.content, 
+      effectiveData, 
+      tokens ?? []
+    );
     onSelectTemplate(filledMessage);
     onClose();
   };
@@ -165,6 +230,11 @@ export default function ShowTemplateButtonWithData({
     deleteDisclosure.onOpen();
   };
 
+  const handleEdit = (template: MessageTemplate) => {
+    setItemToEdit(template);
+    editDisclosure.onOpen();
+  };
+
   const { deleteById } = useDeleteItem({ modelName: 'MessageTemplate' });
 
   const handleDelete = async () => {
@@ -174,6 +244,14 @@ export default function ShowTemplateButtonWithData({
     queryClient.invalidateQueries({ queryKey: ['message-templates'] });
     queryClient.invalidateQueries({ queryKey: ['MessageTemplate'] });
     deleteDisclosure.onClose();
+    refetch();
+  };
+
+  const handleEditClose = () => {
+    editDisclosure.onClose();
+    setItemToEdit(null);
+    queryClient.invalidateQueries({ queryKey: ['message-templates'] });
+    queryClient.invalidateQueries({ queryKey: ['MessageTemplate'] });
     refetch();
   };
 
@@ -243,13 +321,13 @@ export default function ShowTemplateButtonWithData({
               <Spinner mt={4} />
             ) : (
               <>
-                {allTemplates.length === 0 && !isFetching ? (
+                {filteredTemplates.length === 0 && !isFetching ? (
                   <Box mt={4} color="gray.500" fontSize="sm">
-                    No templates found.
+                    {isContact ? 'No templates available for contacts with basic info.' : 'No templates found.'}
                   </Box>
                 ) : (
                   <VStack spacing={4} align="stretch">
-                    {allTemplates.map((template) => (
+                    {filteredTemplates.map((template) => (
                       <Box
                         cursor="pointer"
                         key={template._id}
@@ -260,21 +338,33 @@ export default function ShowTemplateButtonWithData({
                         _hover={{ bg: 'gray.50' }}
                         onClick={() => handleSelectTemplate(template)}
                       >
-                        <IconButton
-                          icon={<CloseIcon />}
-                          size="sm"
-                          aria-label="Delete"
-                          position="absolute"
-                          top={2}
-                          right={2}
-                          variant="ghost"
-                          colorScheme="red"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(template._id);
-                          }}
-                        />
-                        <Text fontWeight="semibold">{template.title}</Text>
+                        <HStack position="absolute" top={2} right={2} spacing={1}>
+                          {enableEdit && (
+                            <IconButton
+                              icon={<EditIcon />}
+                              size="sm"
+                              aria-label="Edit"
+                              variant="ghost"
+                              colorScheme="blue"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(template);
+                              }}
+                            />
+                          )}
+                          <IconButton
+                            icon={<CloseIcon />}
+                            size="sm"
+                            aria-label="Delete"
+                            variant="ghost"
+                            colorScheme="red"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmDelete(template._id);
+                            }}
+                          />
+                        </HStack>
+                        <Text fontWeight="semibold" pr={enableEdit ? 20 : 10}>{template.title}</Text>
                         <Text fontSize="sm" color="gray.600" noOfLines={2}>
                           {template.content}
                         </Text>
@@ -321,6 +411,30 @@ export default function ShowTemplateButtonWithData({
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
+
+      {/* Modal de edición */}
+      {enableEdit && itemToEdit && (
+        <Modal isOpen={editDisclosure.isOpen} onClose={handleEditClose} size="xl" isCentered>
+          <ModalOverlay />
+          <ModalContent borderRadius="xl" p={2}>
+            <ModalHeader textAlign="center">Edit Template</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody>
+              <CreateCustomMessageForm2
+                onClose={handleEditClose}
+                mode="EDITION"
+                patientId={Object.keys(effectiveData).length > 0 ? (effectiveData._id as string) || '' : ''}
+                initialData={itemToEdit}
+              />
+            </ModalBody>
+            <ModalFooter>
+              <Button onClick={handleEditClose} variant="ghost">
+                Cancel
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      )}
     </>
   );
 }

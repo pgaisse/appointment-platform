@@ -3,20 +3,6 @@ import { TemplateToken } from "@/types"; // Asegúrate de tener esta interfaz
 
 type PatientInfo = Record<string, any>;
 
-// Helper: safely resolve nested paths like "selectedAppDates.0.startDate"
-function getValueByPath(obj: any, path: string): any {
-  if (!obj || !path) return undefined;
-  const parts = path.split('.');
-  let cur = obj;
-  for (const raw of parts) {
-    // Handle numeric-like indices
-    const key: string | number = /^\d+$/.test(raw) ? Number(raw) : raw;
-    if (cur == null) return undefined;
-    cur = cur[key as any];
-  }
-  return cur;
-}
-
 export function applyTemplateTokens(
   template: string,
   patientInfo: PatientInfo,
@@ -25,42 +11,42 @@ export function applyTemplateTokens(
   let finalText = template;
 
   tokens.forEach((token) => {
-    const { key, field, secondLevelField, type } = token;
+    const { key, field, secondLevelField, type, label } = token;
 
     let replacement: string | undefined = "";
+    let hasValue = false;
 
-    // 🔹 Campos combinados con '+' (ej: "nameInput + lastNameInput")
-    if (field && field.includes('+')) {
-      const parts = field.split('+').map((s) => s.trim()).filter(Boolean);
-      const values = parts
-        .map((p) => formatIfNeeded(getValueByPath(patientInfo, p), undefined))
-        .filter((v) => v);
-      replacement = values.join(' ').trim();
-    }
-    // 🔹 Campo con nivel secundario definido explícitamente
-    else if (field && secondLevelField) {
+    // 🔹 Si el token apunta a un campo con nivel secundario, como selectedAppDates.0.startDate
+    if (field && secondLevelField) {
       const firstLevel = patientInfo[field];
-      let nestedValue: any = undefined;
-      if (Array.isArray(firstLevel) && firstLevel.length > 0) {
-        nestedValue = firstLevel[0]?.[secondLevelField];
-      } else if (typeof firstLevel === 'object' && firstLevel) {
-        nestedValue = (firstLevel as any)[secondLevelField];
+      if (Array.isArray(firstLevel) && firstLevel.length > 0 && typeof firstLevel[0] === "object") {
+        const nestedValue = firstLevel[0][secondLevelField];
+        replacement = formatIfNeeded(nestedValue, type);
+        hasValue = !!replacement;
       }
-      replacement = formatIfNeeded(nestedValue, type);
     }
-    // 🔹 Campo simple o ruta con puntos (soporta selectedAppDates.0.startDate)
+
+    // 🔹 Si solo tiene un campo plano (ej: nameInput)
     else if (field && !secondLevelField) {
-      const val = field.includes('.') ? getValueByPath(patientInfo, field) : patientInfo[field];
-      replacement = formatIfNeeded(val, type);
+      replacement = formatIfNeeded(patientInfo[field], type);
+      hasValue = !!replacement;
     }
 
     // 🔹 Si no hay field definido (ej: fecha/hora automática)
     else if (!field) {
       if (key === ":Today") {
         replacement = formatDateSingle(new Date());
+        hasValue = true;
       } else if (key === ":Time") {
         replacement = formatDateSingle(new Date(), true, true); // ya considera hora:minuto
+        hasValue = true;
       }
+    }
+
+    // 🔹 Si el token está vacío, mostrar [TokenLabel]
+    if (!hasValue && replacement === "") {
+      const tokenName = label || key.replace(':', '');
+      replacement = `[${tokenName}]`;
     }
 
     // Reemplaza todas las apariciones del token en el texto

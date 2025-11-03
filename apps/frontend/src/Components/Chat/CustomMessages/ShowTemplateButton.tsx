@@ -145,6 +145,57 @@ export default function ShowTemplateButton({
 
   const allTemplates: MessageTemplate[] = data?.pages.flatMap((p) => p.items) ?? [];
 
+  // ───────────────── Detectar si es un contacto y filtrar plantillas ─────────────────
+  const isContact = useMemo(() => {
+    if (!patientInfo || patientInfo.length === 0) return false;
+    const patient = patientInfo[0];
+    // Un contacto tiene solo campos básicos y no tiene selectedAppDates
+    const hasSelectedAppDates = patient?.selectedAppDates && 
+      Array.isArray(patient.selectedAppDates) && 
+      patient.selectedAppDates.length > 0;
+    
+    return !hasSelectedAppDates;
+  }, [patientInfo]);
+
+  // Obtener los fields básicos de contacto desde los tokens de BD
+  const contactAllowedFields = useMemo(() => {
+    return ['firstName', 'lastName', 'phone', 'nameInput', 'lastNameInput', 'phoneInput', 'org_name', null];
+  }, []);
+
+  // Filtrar plantillas: para contactos, solo mostrar las que usen tokens básicos
+  const filteredTemplates = useMemo(() => {
+    if (!isContact || !tokens) return allTemplates;
+
+    // Obtener todos los tokens básicos permitidos (field en contactAllowedFields)
+    const allowedTokenStrings = tokens
+      .filter(t => contactAllowedFields.includes(t.field))
+      .map(t => t.key);
+
+    console.log('🔍 Filtrado de plantillas para contacto:', {
+      isContact,
+      allowedTokens: allowedTokenStrings,
+      totalTemplates: allTemplates.length,
+    });
+
+    return allTemplates.filter((template) => {
+      const variablesUsed = template.variablesUsed || [];
+      
+      // Si no usa variables, es válida para todos
+      if (variablesUsed.length === 0) return true;
+
+      // Verificar que TODAS las variables usadas estén en los tokens permitidos
+      const isAllowed = variablesUsed.every((varToken) => {
+        return allowedTokenStrings.includes(varToken);
+      });
+
+      if (!isAllowed) {
+        console.log('❌ Plantilla rechazada:', template.title, 'Tokens:', variablesUsed);
+      }
+
+      return isAllowed;
+    });
+  }, [isContact, allTemplates, tokens, contactAllowedFields]);
+
   // Sentinel + observer
   const drawerBodyRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -172,7 +223,11 @@ export default function ShowTemplateButton({
   // ───────────────── selección y borrado ─────────────────
   const handleSelectTemplate = (template: MessageTemplate) => {
     if (!patientInfo || patientInfo.length === 0) return;
-    const filledMessage = applyTemplateTokens(template.content, patientInfo[0], tokens ?? []);
+    const filledMessage = applyTemplateTokens(
+      template.content, 
+      patientInfo[0], 
+      tokens ?? []
+    );
     onSelectTemplate(filledMessage);
     onClose();
   };
@@ -262,13 +317,13 @@ export default function ShowTemplateButton({
               <Spinner mt={4} />
             ) : (
               <>
-                {allTemplates.length === 0 && !isFetching ? (
+                {filteredTemplates.length === 0 && !isFetching ? (
                   <Box mt={4} color="gray.500" fontSize="sm">
-                    No templates found.
+                    {isContact ? 'No templates available for contacts with basic info.' : 'No templates found.'}
                   </Box>
                 ) : (
                   <VStack spacing={4} align="stretch">
-                    {allTemplates.map((template) => (
+                    {filteredTemplates.map((template) => (
                       <Box
                         cursor="pointer"
                         key={template._id}

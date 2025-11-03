@@ -54,6 +54,7 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
 const client = twilio(accountSid, authToken);
+const MG_SID = process.env.TWILIO_MESSAGING_SERVICE_SID; // Messaging Service for scheduling
 
 router.use(
   ['/sendMessage', '/sendMessageAsk', '/conversations', '/messages', '/categories'],
@@ -663,7 +664,7 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
             conversationId: payload.ConversationSid,
           });
 
-          if (slotId) {
+            if (slotId) {
             const arrayFilters = [{ "slot._id": new mongoose.Types.ObjectId(slotId) }];
             if (decision === "confirmed") {
               const startDate = q.selectedAppDates[0]?.proposed?.startDate;
@@ -707,6 +708,98 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
               } finally {
                 session.endSession();
               }
+
+                // 3) Si hay un recordatorio pendiente en el slot, programarlo ahora
+                try {
+                  if (!MG_SID) {
+                    console.warn("⚠️ Missing TWILIO_MESSAGING_SERVICE_SID, cannot schedule reminder");
+                  } else {
+                    // Refrescar el appointment para leer el reminder del slot específico
+                    const fresh = await Appointment.findOne(
+                      { sid: payload.ConversationSid, unknown: { $ne: true } },
+                      { selectedAppDates: 1, phoneInput: 1, org_id: 1, org_name: 1 }
+                    ).lean();
+                    const slot = fresh?.selectedAppDates?.find((s) => String(s._id) === String(slotId));
+                    const reminder = slot?.reminder;
+                    if (reminder && !reminder.scheduled && (reminder.msg || '').trim()) {
+                      const tz = reminder.tz || "Australia/Sydney";
+                      const { adjusted, localISO, utcISO } = clampSendAt(reminder.whenISO || '', tz);
+
+                      // usar el address (tel del paciente) detectado del webhook
+                      const toNumber = address;
+                      if (toNumber) {
+                        const statusCallback = process.env.TWILIO_MESSAGING_STATUS_CALLBACK_URL
+                          ? `${process.env.TWILIO_MESSAGING_STATUS_CALLBACK_URL}?org_id=${encodeURIComponent(q.org_id)}&conversationSid=${encodeURIComponent(payload.ConversationSid)}`
+                          : undefined;
+
+                        const twScheduled = await client.messages.create({
+                          to: toNumber,
+                          messagingServiceSid: MG_SID,
+                          body: reminder.msg,
+                          scheduleType: "fixed",
+                          sendAt: utcISO,
+                          ...(statusCallback ? { statusCallback } : {})
+                        });
+
+                        // Placeholder en mensajes para la UI
+                        await Message.findOneAndUpdate(
+                          { sid: twScheduled.sid },
+                          {
+                            $setOnInsert: {
+                              user: prev.user,
+                              conversationId: payload.ConversationSid,
+                              proxyAddress,
+                              userId: q._id,
+                              sid: twScheduled.sid,
+                              author: q.org_id,
+                              body: reminder.msg,
+                              status: "pending",
+                              direction: "outbound",
+                              type: MsgType.Message,
+                              index: makeSyntheticIndex(),
+                            },
+                            $set: { status: "pending" },
+                          },
+                          { upsert: true, new: true }
+                        );
+
+                        // Marcar reminder como programado en el slot
+                        await Appointment.updateOne(
+                          { sid: payload.ConversationSid },
+                          {
+                            $set: {
+                              "selectedAppDates.$[slot].reminder.scheduled": true,
+                              "selectedAppDates.$[slot].reminder.scheduledSid": twScheduled.sid,
+                              "selectedAppDates.$[slot].reminder.runAtLocal": new Date(localISO),
+                              "selectedAppDates.$[slot].reminder.createdBy": req.user?._id || null,
+                              "selectedAppDates.$[slot].reminder.createdAt": new Date(),
+                            }
+                          },
+                          { arrayFilters }
+                        );
+
+                        // Emitir evento socket para la UI
+                        req.io.to(`org:${q.org_id}`).emit("reminderScheduled", {
+                          conversationId: payload.ConversationSid,
+                          slotId,
+                          reminderSid: twScheduled.sid,
+                          runAtLocal: localISO,
+                          createdBy: req.user?._id || null,
+                          createdAt: new Date(),
+                        });
+
+                        console.log("📅 Reminder scheduled after confirmation:", {
+                          sid: twScheduled.sid,
+                          sendAtUTC: utcISO,
+                          localISO,
+                          adjusted,
+                        });
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.error("❌ Error scheduling reminder after confirmation:", e?.message || e);
+                }
             } else if (decision === "declined") {
               const session = await mongoose.startSession();
               try {
