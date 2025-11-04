@@ -229,6 +229,12 @@ export interface Message {
   tempOrder?: number;   // 👈 orden local para optimistas
   status: MessageStatus;   // <- usa el tipo flexible
   proxyAddress?: string
+  user?: {
+    _id: string;
+    name?: string;
+    email?: string;
+    picture?: string;
+  }
 }
 
 

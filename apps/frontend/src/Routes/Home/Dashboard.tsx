@@ -53,13 +53,14 @@ const Dashboard: React.FC = () => {
 
   // Selected appointment for detail modal
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
+  const [messageDirection, setMessageDirection] = useState<'outbound' | 'inbound' | 'both'>('outbound');
 
   // Fetch detailed data
   const { data: todayAppointments = [], isLoading: isLoadingToday } = useTodayAppointments();
   const { data: weekAppointments = [], isLoading: isLoadingWeek } = useWeekAppointments();
   const { data: pendingAppointments = [], isLoading: isLoadingPending } = usePendingAppointments();
-  const { data: todayMessages = [], isLoading: isLoadingTodayMsg } = useTodayMessages();
-  const { data: monthMessages = [], isLoading: isLoadingMonthMsg } = useMonthMessages();
+  const { data: todayMessages = [], isLoading: isLoadingTodayMsg } = useTodayMessages(messageDirection);
+  const { data: monthMessages = [], isLoading: isLoadingMonthMsg } = useMonthMessages(messageDirection);
 
   // Handler to open appointment detail modal
   const handleAppointmentClick = (appointmentId: string) => {
@@ -283,6 +284,8 @@ const Dashboard: React.FC = () => {
           isLoadingToday={isLoadingTodayMsg}
           isLoadingMonth={isLoadingMonthMsg}
           onMessageClick={handleMessageClick}
+          direction={messageDirection}
+          onDirectionChange={setMessageDirection}
         />
 
         {/* Appointment Detail Modal */}

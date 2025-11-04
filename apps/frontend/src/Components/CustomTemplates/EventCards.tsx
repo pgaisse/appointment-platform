@@ -19,7 +19,7 @@ import { Appointment } from "@/types";
 import { DateRange } from "@/Hooks/Handles/useSlotSelection";
 import CustomText from "../Text/CustomText";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
-import { iconMap } from "../CustomIcons";
+import { getIconComponent } from "../CustomIcons";
 import { MdLocalHospital } from "react-icons/md";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 
@@ -148,7 +148,7 @@ export default function EventCards({ data }: Props) {
               >
                 <Flex align="center" gap={1}>
                   <Icon
-                    as={iconMap[data.treatment.minIcon]}
+                    as={getIconComponent(data.treatment.minIcon) || getIconComponent('md:MdHealthAndSafety')}
                     color={`${data.treatment.color || "gray"}.500`}
                     fontSize="22px"
                   />

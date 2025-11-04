@@ -44,12 +44,8 @@ import {
   useToast,
 } from "@chakra-ui/react";
 import { FiEdit3, FiPlus, FiSearch, FiTrash2 } from "react-icons/fi";
-import * as FiIcons from "react-icons/fi";
-import * as FaIcons from "react-icons/fa";
-import * as MdIcons from "react-icons/md";
-import * as RiIcons from "react-icons/ri";
-import * as GiIcons from "react-icons/gi";
 import type { IconType } from "react-icons";
+import { ICON_SETS, getIconComponent, canonicalizeIconKey } from "@/Components/CustomIcons";
 import { z } from "zod";
 import type { Treatment } from "@/Hooks/Query/useMeta";
 
@@ -61,13 +57,6 @@ type Props = {
   onDelete: (args: { id: string }) => Promise<any>;
 };
 
-const ICON_SETS: Record<string, Record<string, IconType>> = {
-  fi: FiIcons as Record<string, IconType>,
-  fa: FaIcons as Record<string, IconType>,
-  md: MdIcons as Record<string, IconType>,
-  ri: RiIcons as Record<string, IconType>,
-  gi: GiIcons as Record<string, IconType>,
-};
 
 const DEFAULT_ICON_KEYS: string[] = [
   "md:MdOutlineConstruction", "md:MdConstruction",
@@ -78,24 +67,7 @@ const DEFAULT_ICON_KEYS: string[] = [
   "fa:FaTooth", "fa:FaCrown", "fi:FiScissors",
 ];
 
-function normalizeIconKey(key: string): string {
-  if (!key) return "";
-  if (key.includes(":")) return key;
-  if (key.startsWith("Fi")) return `fi:${key}`;
-  if (key.startsWith("Fa")) return `fa:${key}`;
-  if (key.startsWith("Md")) return `md:${key}`;
-  if (key.startsWith("Ri")) return `ri:${key}`;
-  if (key.startsWith("Gi")) return `gi:${key}`;
-  return key;
-}
-
-function getIconComponent(key?: string): IconType | undefined {
-  if (!key) return undefined;
-  const normKey = normalizeIconKey(key);
-  const [pack, name] = normKey.split(":");
-  const set = ICON_SETS[pack?.toLowerCase?.()];
-  return set ? set[name] : undefined;
-}
+// normalizeIconKey and getIconComponent are provided by CustomIcons
 
 const byName = <T extends { name?: string }>(a: T, b: T) =>
   (a.name || "").localeCompare(b.name || "");
@@ -514,10 +486,15 @@ export function TreatmentsManager({ data, isLoading, onCreate, onUpdate, onDelet
   async function handleSave(payload: Partial<Treatment>) {
     try {
       setSaving(true);
+      const normalized = {
+        ...payload,
+        icon: canonicalizeIconKey(String(payload.icon || "")),
+        minIcon: canonicalizeIconKey(String(payload.minIcon || "")),
+      } as Partial<Treatment>;
       if (editing?._id) {
-        await onUpdate({ id: editing._id, payload });
+        await onUpdate({ id: editing._id, payload: normalized });
       } else if (editing) {
-        await onCreate(payload);
+        await onCreate(normalized);
       }
       toast({ title: "Saved", status: "success" });
       setEditing(null);

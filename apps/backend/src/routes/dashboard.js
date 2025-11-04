@@ -227,7 +227,8 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
       return res.status(403).json({ error: "Missing organization scope." });
     }
 
-    const { start, end, detailed } = req.query;
+  const { start, end, detailed } = req.query;
+  const directionParam = String(req.query.direction || 'outbound').toLowerCase();
     
     if (!start || !end) {
       return res.status(400).json({ error: "Both 'start' and 'end' query parameters are required (YYYY-MM-DD)" });
@@ -238,13 +239,15 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
 
     // If detailed view requested, return enriched messages similar to today/month endpoints
     if (String(detailed).toLowerCase() === 'true') {
+      const baseMatch = { createdAt: { $gte: startDate, $lte: endDate } };
+      let directionMatch = {};
+      if (directionParam === 'outbound') directionMatch = { direction: 'outbound', author: org_id };
+      else if (directionParam === 'inbound') directionMatch = { direction: 'inbound' };
+      else directionMatch = { direction: { $in: ['outbound', 'inbound'] } };
+
       const enriched = await Message.aggregate([
         {
-          $match: {
-            author: org_id,
-            direction: 'outbound',
-            createdAt: { $gte: startDate, $lte: endDate },
-          },
+          $match: { ...baseMatch, ...directionMatch },
         },
         { $sort: { createdAt: -1 } },
         { $limit: 1000 },
@@ -269,7 +272,17 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
             as: 'appointment',
           },
         },
-        { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: true } },
+  { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: false } },
+        // Look up sender user to show avatar in UI
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user',
+            foreignField: '_id',
+            as: 'user',
+          }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
         {
           $lookup: {
             from: 'appointments',
@@ -305,6 +318,12 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
               ]
             },
             time: '$createdAt',
+            user: {
+              _id: '$user._id',
+              name: '$user.name',
+              email: '$user.email',
+              picture: '$user.picture',
+            },
           },
         },
       ]);
@@ -313,11 +332,37 @@ router.get('/messages/range', jwtCheck, ensureUser, attachUserInfo, async (req, 
     }
 
     // Default: count only
-    const count = await Message.countDocuments({
-      author: org_id,
-      direction: 'outbound',
-      createdAt: { $gte: startDate, $lte: endDate }
-    });
+    const baseMatch = { createdAt: { $gte: startDate, $lte: endDate } };
+    let directionMatch = {};
+    if (directionParam === 'outbound') directionMatch = { direction: 'outbound', author: org_id };
+    else if (directionParam === 'inbound') directionMatch = { direction: 'inbound' };
+    else directionMatch = { direction: { $in: ['outbound', 'inbound'] } };
+
+    const count = await Message.aggregate([
+      { $match: { ...baseMatch, ...directionMatch } },
+      {
+        $lookup: {
+          from: 'appointments',
+          let: { conv: '$conversationId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$org_id', org_id] },
+                    { $eq: ['$sid', '$$conv'] },
+                  ],
+                },
+              },
+            },
+            { $limit: 1 },
+          ],
+          as: 'appointment',
+        },
+      },
+      { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: false } },
+      { $count: 'c' },
+    ]).then(a => (a?.[0]?.c || 0));
 
     res.json({ start, end, count });
   } catch (error) {
@@ -419,13 +464,16 @@ router.get('/messages/today', jwtCheck, ensureUser, attachUserInfo, async (req, 
     const todayStart = now.startOf('day').toDate();
     const todayEnd = now.endOf('day').toDate();
 
+    const directionParam = String(req.query.direction || 'outbound').toLowerCase();
+    const baseMatch = { createdAt: { $gte: todayStart, $lte: todayEnd } };
+    let directionMatch = {};
+    if (directionParam === 'outbound') directionMatch = { direction: 'outbound', author: org_id };
+    else if (directionParam === 'inbound') directionMatch = { direction: 'inbound' };
+    else directionMatch = { direction: { $in: ['outbound', 'inbound'] } };
+
     const enriched = await Message.aggregate([
       {
-        $match: {
-          author: org_id,
-          direction: 'outbound',
-          createdAt: { $gte: todayStart, $lte: todayEnd },
-        },
+        $match: { ...baseMatch, ...directionMatch },
       },
       { $sort: { createdAt: -1 } },
       { $limit: 100 },
@@ -450,7 +498,18 @@ router.get('/messages/today', jwtCheck, ensureUser, attachUserInfo, async (req, 
           as: 'appointment',
         },
       },
-      { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: true } },
+      // Solo mantener mensajes cuyo appointment pertenezca a la organización
+      { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: false } },
+      // Look up sender user to show avatar in UI
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user',
+          foreignField: '_id',
+          as: 'user',
+        }
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       // If the appointment is a dependent (has representative.appointment), fetch representative record
       {
         $lookup: {
@@ -488,6 +547,12 @@ router.get('/messages/today', jwtCheck, ensureUser, attachUserInfo, async (req, 
             ]
           },
           time: '$createdAt',
+          user: {
+            _id: '$user._id',
+            name: '$user.name',
+            email: '$user.email',
+            picture: '$user.picture',
+          },
         },
       },
     ]);
@@ -511,13 +576,16 @@ router.get('/messages/month', jwtCheck, ensureUser, attachUserInfo, async (req, 
     const monthStart = now.startOf('month').toDate();
     const monthEnd = now.endOf('month').toDate();
 
+    const directionParam = String(req.query.direction || 'outbound').toLowerCase();
+    const baseMatch = { createdAt: { $gte: monthStart, $lte: monthEnd } };
+    let directionMatch = {};
+    if (directionParam === 'outbound') directionMatch = { direction: 'outbound', author: org_id };
+    else if (directionParam === 'inbound') directionMatch = { direction: 'inbound' };
+    else directionMatch = { direction: { $in: ['outbound', 'inbound'] } };
+
     const enriched = await Message.aggregate([
       {
-        $match: {
-          author: org_id,
-          direction: 'outbound',
-          createdAt: { $gte: monthStart, $lte: monthEnd },
-        },
+        $match: { ...baseMatch, ...directionMatch },
       },
       { $sort: { createdAt: -1 } },
       { $limit: 500 },
@@ -542,7 +610,17 @@ router.get('/messages/month', jwtCheck, ensureUser, attachUserInfo, async (req, 
           as: 'appointment',
         },
       },
-      { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: false } },
+      // Look up sender user to show avatar in UI
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user',
+          foreignField: '_id',
+          as: 'user',
+        }
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       // If the appointment is a dependent (has representative.appointment), fetch representative record
       {
         $lookup: {
@@ -580,6 +658,12 @@ router.get('/messages/month', jwtCheck, ensureUser, attachUserInfo, async (req, 
             ]
           },
           time: '$createdAt',
+          user: {
+            _id: '$user._id',
+            name: '$user.name',
+            email: '$user.email',
+            picture: '$user.picture',
+          },
         },
       },
     ]);

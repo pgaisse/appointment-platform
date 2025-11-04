@@ -861,18 +861,24 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
       }
 
-      // 4) Emitir el newMessage a la organización
+      // 4) Populate user antes de emitir
+      const populatedMessage = await Message.findById(saved._id)
+        .populate('user', 'name email picture')
+        .lean();
+
+      // 5) Emitir el newMessage a la organización
       req.io.to(`org:${orgId}`).emit("newMessage", {
-        sid: saved.sid,
-        index: saved.index,
-        conversationId: saved.conversationId,
-        author: saved.author,
-        body: saved.body,
-        media: saved.media,
-        status: saved.status,
-        direction: saved.direction,
-        createdAt: saved.createdAt,
-        updatedAt: saved.updatedAt,
+        sid: populatedMessage.sid,
+        index: populatedMessage.index,
+        conversationId: populatedMessage.conversationId,
+        author: populatedMessage.author,
+        body: populatedMessage.body,
+        media: populatedMessage.media,
+        status: populatedMessage.status,
+        direction: populatedMessage.direction,
+        createdAt: populatedMessage.createdAt,
+        updatedAt: populatedMessage.updatedAt,
+        user: populatedMessage.user,
       });
 
       console.log("✅ onMessageAdded →", payload.ConversationSid);
@@ -1120,7 +1126,9 @@ router.get('/messages/:conversationId/sync', async (req, res) => {
       newMessages = await Message.find({
         conversationId,
         createdAt: { $gt: new Date(after) }
-      }).sort({ createdAt: 1 });
+      })
+      .populate('user', 'name email picture')
+      .sort({ createdAt: 1 });
     }
 
     // 🔹 Mensajes ya existentes pero que cambiaron (ej: status)
@@ -1128,7 +1136,9 @@ router.get('/messages/:conversationId/sync', async (req, res) => {
       updatedMessages = await Message.find({
         conversationId,
         updatedAt: { $gt: new Date(updatedAfter) }
-      }).sort({ updatedAt: 1 });
+      })
+      .populate('user', 'name email picture')
+      .sort({ updatedAt: 1 });
     }
 
     res.json({ newMessages, updatedMessages });
@@ -1150,6 +1160,7 @@ router.get('/messages/:conversationId', async (req, res) => {
       .sort({ createdAt: -1 }) // últimos primero
       .skip(skip)
       .limit(limit)
+      .populate('user', 'name email picture')
       .lean();
 
     const ordered = messages.sort(

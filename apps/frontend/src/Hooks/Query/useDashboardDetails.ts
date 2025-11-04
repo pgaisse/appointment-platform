@@ -15,6 +15,12 @@ interface Message {
   recipientName?: string | null;
   proxyAddress?: string;
   createdAt: Date;
+  user?: {
+    _id?: string;
+    name?: string;
+    email?: string;
+    picture?: string;
+  } | null;
 }
 
 // Hook para obtener appointments de hoy
@@ -81,17 +87,17 @@ export const usePendingAppointments = () => {
 };
 
 // Hook para obtener mensajes de hoy
-export const useTodayMessages = () => {
+export const useTodayMessages = (direction: 'outbound' | 'inbound' | 'both' = 'outbound') => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
   return useQuery({
-    queryKey: ["dashboard-today-messages"],
+    queryKey: ["dashboard-today-messages", direction],
     enabled: isAuthenticated,
     queryFn: async () => {
       const token = await getAccessTokenSilently({
         authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
-      const url = `${import.meta.env.VITE_BASE_URL}/dashboard/messages/today`;
+      const url = `${import.meta.env.VITE_BASE_URL}/dashboard/messages/today?direction=${direction}`;
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -102,17 +108,17 @@ export const useTodayMessages = () => {
 };
 
 // Hook para obtener mensajes del mes
-export const useMonthMessages = () => {
+export const useMonthMessages = (direction: 'outbound' | 'inbound' | 'both' = 'outbound') => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
   return useQuery({
-    queryKey: ["dashboard-month-messages"],
+    queryKey: ["dashboard-month-messages", direction],
     enabled: isAuthenticated,
     queryFn: async () => {
       const token = await getAccessTokenSilently({
         authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
-      const url = `${import.meta.env.VITE_BASE_URL}/dashboard/messages/month`;
+      const url = `${import.meta.env.VITE_BASE_URL}/dashboard/messages/month?direction=${direction}`;
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -123,19 +129,19 @@ export const useMonthMessages = () => {
 };
 
 // Hook para obtener mensajes por rango custom (detallado)
-export const useMessagesRange = (start?: string, end?: string, enabledParam?: boolean) => {
+export const useMessagesRange = (start?: string, end?: string, enabledParam?: boolean, direction: 'outbound' | 'inbound' | 'both' = 'outbound') => {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
   const enabled = Boolean(isAuthenticated && start && end && enabledParam);
   return useQuery({
-    queryKey: ["dashboard-range-messages", { start, end }],
+    queryKey: ["dashboard-range-messages", { start, end, direction }],
     enabled,
     queryFn: async () => {
       const token = await getAccessTokenSilently({
         authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
       const url = `${import.meta.env.VITE_BASE_URL}/dashboard/messages/range`;
-      const params = new URLSearchParams({ start: String(start), end: String(end), detailed: "true" });
+      const params = new URLSearchParams({ start: String(start), end: String(end), detailed: "true", direction });
       const res = await axios.get(`${url}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });

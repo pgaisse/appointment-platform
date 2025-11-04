@@ -1,9 +1,9 @@
 // ChatWindows.tsx
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Flex, HStack, Box, Divider, VStack, Tooltip, IconButton, Input, Text,
+  Flex, HStack, Box, Divider, VStack, Tooltip, IconButton, Text,
   useColorModeValue, useToast, Spinner,
-  Textarea, Icon,
+  Textarea, Avatar, Icon,
 } from "@chakra-ui/react";
 import { FiSend } from "react-icons/fi";
 import { MdAccessTime, MdOutlinePostAdd, MdKeyboardArrowDown } from "react-icons/md";
@@ -21,7 +21,6 @@ import { useSendChatMessage } from "@/Hooks/Query/useSendChatMessage";
 import { useOptimisticMessages } from "@/Hooks/Query/useOptimisticMessages";
 import { formatToE164 } from "@/Functions/formatToE164";
 import { ConversationChat, Message } from "@/types";
-import { FaUser } from "react-icons/fa";
 import { useInfiniteMessages } from "@/Hooks/Query/UseInfiniteQuery";
 
 /* ---------- Helpers for day separators ---------- */
@@ -184,6 +183,7 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         name={chat.owner?.unknown ? undefined : (chat.owner?.name || chat.lastMessage?.author)}
         name_={chat.owner?.name ? chat.owner?.name : undefined}
         color={chat.owner?.color}
+        avatar={chat.owner?.avatar}
       />
       <Divider mb={4} borderColor={borderCol} />
 
@@ -193,6 +193,8 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         loadOlder={async () => { if (hasNextPage && !isFetchingNextPage) await fetchNextPage(); }}
         hasOlder={!!hasNextPage}
         isLoadingOlder={isFetchingNextPage || isRefetching}
+        patientColor={chat.owner?.color}
+        patientName={`${chat.owner?.name || ''} ${chat.owner?.lastName || ''}`.trim()}
       />
 
       <Composer
@@ -213,10 +215,10 @@ const Header = memo(function Header({
   name,
   name_,
   color,
+  avatar,
 }: {
   name: string | undefined;
   avatar?: string;
-  icon?: React.ReactElement | undefined;
   name_: string | undefined;
   color?: string;
 }) {
@@ -238,22 +240,13 @@ const Header = memo(function Header({
 
   return (
     <HStack spacing={4} mb={2} align="center">
-      <Box 
-        w="48px"
-        h="48px"
-        bg={useColorModeValue("gray.200", "gray.600")}
-        borderRadius="lg"
-        display="flex"
-        alignItems="center"
-        justifyContent="center"
-        flexShrink={0}
-      >
-        <Icon 
-          as={FaUser} 
-          boxSize="24px" 
-          color={color ? `${color}.500` : useColorModeValue("gray.400", "gray.500")}
-        />
-      </Box>
+      <Avatar 
+        size="md"
+        name={displayName}
+        src={avatar}
+        bg={color ? `${color}.400` : "gray.400"}
+        color="white"
+      />
       <Box minW={0}>
         <Text fontWeight="semibold" fontSize={{ base: "lg", md: "xl" }} color={titleColor} noOfLines={1}>
           {displayName}
@@ -268,61 +261,120 @@ const Header = memo(function Header({
   );
 });
 
-const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message }) {
+const MessageBubble = memo(function MessageBubble({ msg, patientColor, patientName }: { msg: Message; patientColor?: string; patientName?: string }) {
   const isClinic = msg.direction === "outbound";
 
   const bubbleInbound = useColorModeValue("gray.100", "gray.700");
-  const bubbleOutbound = useColorModeValue("blue.100", "blue.600");
-  const textInbound = useColorModeValue("gray.900", "white");
-  const textOutbound = useColorModeValue("gray.900", "white");
-  const tickColor = useColorModeValue("green", "green.300");
+  const bubbleOutbound = useColorModeValue("blue.500", "blue.400");
+  const textInbound = useColorModeValue("gray.900", "gray.100");
+  const textOutbound = "white";
+  const tickColor = useColorModeValue("green.500", "green.300");
+  const timeColor = useColorModeValue("gray.600", "gray.300");
 
   const showDrive = (u?: string) => !!u && !u.startsWith("blob:");
 
-  return (
-    <Flex justify={isClinic ? "flex-end" : "flex-start"} w="100%">
-      <Box
-        bg={isClinic ? bubbleOutbound : bubbleInbound}
-        color={isClinic ? textOutbound : textInbound}
-        px={4}
-        py={3}
-        borderRadius="lg"
-        maxW="75%"
-        boxShadow="sm"
-      >
-        {!!msg.body && (
-          <Text fontWeight={"normal"} mb={Array.isArray(msg.media) && msg.media.length ? 2 : 0} whiteSpace="pre-wrap">
-            {msg.body}
-          </Text>
-        )}
+  // Obtener iniciales del nombre
+  const getInitials = (name: string | undefined) => {
+    if (!name) return "?";
+    return name
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase())
+      .slice(0, 2)
+      .join('');
+  };
 
-        {Array.isArray(msg.media) &&
-          msg.media.map((m, i) =>
-            showDrive(m.url) ? (
-              <ImageFromDrive key={i} fileId={m.url} />
-            ) : (
-              <Box key={i} mt={2}>
-                <img
-                  src={m.url}
-                  alt={m.type || "preview"}
-                  style={{ maxWidth: "100%", borderRadius: 8, display: "block" }}
-                />
-              </Box>
-            )
+  // Para mensajes outbound, obtener info del usuario que envió
+  const senderName = isClinic && msg.user?.name ? msg.user.name : "User";
+  const senderPicture = isClinic && msg.user?.picture ? msg.user.picture : undefined;
+
+  return (
+    <Flex 
+      justify={isClinic ? "flex-end" : "flex-start"} 
+      w="100%" 
+      align="flex-end"
+      gap={2}
+    >
+      {/* Avatar para mensajes entrantes (paciente) */}
+      {!isClinic && (
+        <Tooltip label={patientName || "Patient"} placement="left" hasArrow>
+          <Avatar 
+            size="sm" 
+            name={patientName || "Patient"}
+            bg={patientColor ? `${patientColor}.400` : "gray.400"}
+            color="white"
+            getInitials={getInitials}
+            flexShrink={0}
+          />
+        </Tooltip>
+      )}
+
+      {/* Burbuja del mensaje */}
+      <Flex direction="column" maxW="75%" align={isClinic ? "flex-end" : "flex-start"}>
+        <Box
+          bg={isClinic ? bubbleOutbound : bubbleInbound}
+          color={isClinic ? textOutbound : textInbound}
+          px={4}
+          py={2.5}
+          borderRadius="2xl"
+          boxShadow="md"
+          position="relative"
+        >
+          {!!msg.body && (
+            <Text 
+              fontSize="sm" 
+              mb={Array.isArray(msg.media) && msg.media.length ? 2 : 0} 
+              whiteSpace="pre-wrap"
+              lineHeight="1.4"
+            >
+              {msg.body}
+            </Text>
           )}
 
-        <HStack justify="flex-end" mt={1} spacing={2}>
-          {isClinic &&
-            (msg.status === "delivered" ? (
-              <TiTick size={12} color={tickColor as any} />
-            ) : (
-              <MdAccessTime size={12} />
-            ))}
-          <Text fontWeight={"normal"} fontSize="10px" opacity={0.8}>
+          {Array.isArray(msg.media) &&
+            msg.media.map((m, i) =>
+              showDrive(m.url) ? (
+                <ImageFromDrive key={i} fileId={m.url} />
+              ) : (
+                <Box key={i} mt={2}>
+                  <img
+                    src={m.url}
+                    alt={m.type || "preview"}
+                    style={{ maxWidth: "100%", borderRadius: 12, display: "block" }}
+                  />
+                </Box>
+              )
+            )}
+        </Box>
+
+        {/* Timestamp y status fuera de la burbuja */}
+        <HStack spacing={1} mt={1} px={1}>
+          <Text fontSize="xs" color={timeColor} fontWeight="medium">
             {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </Text>
+          {isClinic && (
+            msg.status === "delivered" ? (
+              <Icon as={TiTick} boxSize={3} color={tickColor} />
+            ) : (
+              <Icon as={MdAccessTime} boxSize={3} color={timeColor} />
+            )
+          )}
         </HStack>
-      </Box>
+      </Flex>
+
+      {/* Avatar para mensajes salientes (usuario de la clínica) */}
+      {isClinic && (
+        <Tooltip label={senderName} placement="right" hasArrow>
+          <Avatar 
+            size="sm" 
+            name={senderName}
+            src={senderPicture}
+            bg="blue.500"
+            color="white"
+            getInitials={getInitials}
+            flexShrink={0}
+          />
+        </Tooltip>
+      )}
     </Flex>
   );
 }, areMsgEqual);
@@ -344,12 +396,16 @@ const MessageList = memo(function MessageList({
   loadOlder,
   hasOlder,
   isLoadingOlder,
+  patientColor,
+  patientName,
 }: {
   messages: Message[];
   conversationId: string;
   loadOlder: () => Promise<void> | void;
   hasOlder: boolean;
   isLoadingOlder: boolean;
+  patientColor?: string;
+  patientName?: string;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
@@ -501,10 +557,10 @@ const MessageList = memo(function MessageList({
         out.push(<DayDivider key={`day-${d.toDateString()}`} date={d} />);
         prevDate = d;
       }
-      out.push(<MessageBubble key={m.sid} msg={m} />);
+      out.push(<MessageBubble key={m.sid} msg={m} patientColor={patientColor} patientName={patientName} />);
     }
     return out;
-  }, [messages]);
+  }, [messages, patientColor, patientName]);
 
   return (
     <Box position="relative" flex="1" minH={0}>

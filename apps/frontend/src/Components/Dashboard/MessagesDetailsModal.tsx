@@ -26,6 +26,7 @@ import {
   FormControl,
   FormLabel,
 } from "@chakra-ui/react";
+import { Avatar, Tooltip, ButtonGroup } from "@chakra-ui/react";
 import { FiMessageSquare, FiSend, FiClock, FiCheckCircle } from "react-icons/fi";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import React from "react";
@@ -50,6 +51,12 @@ interface Message {
     phoneE164?: string;
     sid?: string;
   };
+  user?: {
+    _id?: string;
+    name?: string;
+    email?: string;
+    picture?: string;
+  } | null;
 }
 
 interface MessagesDetailsModalProps {
@@ -60,6 +67,8 @@ interface MessagesDetailsModalProps {
   isLoadingToday?: boolean;
   isLoadingMonth?: boolean;
   onMessageClick?: (conversationId: string) => void;
+  direction: 'outbound' | 'inbound' | 'both';
+  onDirectionChange: (d: 'outbound' | 'inbound' | 'both') => void;
 }
 
 export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
@@ -70,6 +79,8 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
   isLoadingToday,
   isLoadingMonth,
   onMessageClick,
+  direction,
+  onDirectionChange,
 }) => {
   const bgCard = useColorModeValue("white", "gray.700");
   const borderColor = useColorModeValue("gray.200", "gray.600");
@@ -82,7 +93,8 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
   const { data: rangeMessages = [], isLoading: isLoadingRange } = useMessagesRange(
     startDate || undefined,
     endDate || undefined,
-    rangeEnabled
+    rangeEnabled,
+    direction
   );
 
   const getStatusColor = (status: string) => {
@@ -121,6 +133,10 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
       ? `${msg.recipientName} (${phoneNumber})`
       : phoneNumber;
 
+    const isOutbound = (msg.direction || '').toLowerCase() === 'outbound';
+    const senderName = msg.user?.name || 'User';
+    const senderPicture = msg.user?.picture || undefined;
+
     return (
       <Box
         p={4}
@@ -146,15 +162,22 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
                 {displayName}
               </Text>
             </HStack>
-            <Badge
-              colorScheme={getStatusColor(msg.status)}
-              px={2}
-              py={1}
-              borderRadius="full"
-              fontSize="xs"
-            >
-              {msg.status}
-            </Badge>
+            <HStack spacing={3}>
+              {isOutbound && (
+                <Tooltip label={senderName} hasArrow placement="left">
+                  <Avatar size="sm" name={senderName} src={senderPicture} bg="blue.500" color="white" />
+                </Tooltip>
+              )}
+              <Badge
+                colorScheme={getStatusColor(msg.status)}
+                px={2}
+                py={1}
+                borderRadius="full"
+                fontSize="xs"
+              >
+                {msg.status}
+              </Badge>
+            </HStack>
           </HStack>
 
         <Text fontSize="sm" color="gray.600" noOfLines={3}>
@@ -248,6 +271,33 @@ export const MessagesDetailsModal: React.FC<MessagesDetailsModalProps> = ({
         <ModalCloseButton color="white" top={6} />
 
         <ModalBody py={6}>
+          {/* Direction Filter */}
+          <HStack justify="space-between" mb={4}>
+            <Box />
+            <ButtonGroup size="sm" isAttached variant="outline">
+              <Button
+                onClick={() => onDirectionChange('outbound')}
+                colorScheme="green"
+                variant={direction === 'outbound' ? 'solid' : 'outline'}
+              >
+                Outbound
+              </Button>
+              <Button
+                onClick={() => onDirectionChange('inbound')}
+                colorScheme="blue"
+                variant={direction === 'inbound' ? 'solid' : 'outline'}
+              >
+                Inbound
+              </Button>
+              <Button
+                onClick={() => onDirectionChange('both')}
+                colorScheme="gray"
+                variant={direction === 'both' ? 'solid' : 'outline'}
+              >
+                Both
+              </Button>
+            </ButtonGroup>
+          </HStack>
           <Tabs variant="soft-rounded" colorScheme="green">
             <TabList mb={6}>
               <Tab

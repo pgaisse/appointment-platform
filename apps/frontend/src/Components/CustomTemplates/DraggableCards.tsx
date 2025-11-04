@@ -50,7 +50,7 @@ import { CSS } from '@dnd-kit/utilities';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Appointment, GroupedAppointment } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
-import { iconMap } from '../CustomIcons';
+import { getIconComponent } from '../CustomIcons';
 import Pagination from '../Pagination';
 import AddPatientButton from '../DraggableCards/AddPatientButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
@@ -287,11 +287,17 @@ const AppointmentCard: React.FC<{
       <HStack justify="space-between" align="center" mb={2}>
         <HStack color="gray.600">
           <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow>
-            <Box
-              as={iconMap[item.treatment?.minIcon]}
-              color={item.treatment?.color}
-              fontSize="22px"
-            />
+            {(() => {
+              const key = item.treatment?.minIcon;
+              const Comp = getIconComponent(key) || getIconComponent('md:MdHealthAndSafety');
+              if (!Comp && process.env.NODE_ENV !== 'production') {
+                // eslint-disable-next-line no-console
+                console.warn('[icons] DraggableCards unresolved key:', key, 'for', item.treatment?.name);
+              }
+              return (
+                <Icon as={Comp} color={item.treatment?.color} fontSize="22px" />
+              );
+            })()}
           </Tooltip>
         </HStack>
 

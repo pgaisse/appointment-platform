@@ -58,12 +58,8 @@ import {
 } from "@chakra-ui/react";
 import { motion } from "framer-motion";
 import { FiPlus, FiSearch, FiTrash2, FiEdit3 } from "react-icons/fi";
-import * as FiIcons from "react-icons/fi";
-import * as FaIcons from "react-icons/fa";
-import * as MdIcons from "react-icons/md";
-import * as RiIcons from "react-icons/ri";
-import * as GiIcons from "react-icons/gi";
 import type { IconType } from "react-icons";
+import { ICON_SETS, getIconComponent, normalizeIconKey, canonicalizeIconKey } from "@/Components/CustomIcons";
 import { z } from "zod";
 import { useMeta, type Priority, type Treatment } from "@/Hooks/Query/useMeta";
 
@@ -78,14 +74,6 @@ import {
 
 const MotionCard = motion(Card);
 
-// -------- Icon packs registry --------
-const ICON_SETS: Record<string, Record<string, IconType>> = {
-  fi: FiIcons as Record<string, IconType>,
-  fa: FaIcons as Record<string, IconType>,
-  md: MdIcons as Record<string, IconType>,
-  ri: RiIcons as Record<string, IconType>,
-  gi: GiIcons as Record<string, IconType>,
-};
 
 const DEFAULT_ICON_KEYS: string[] = [
   "md:MdOutlineConstruction", "md:MdConstruction",
@@ -109,25 +97,7 @@ const DEFAULT_ICON_KEYS: string[] = [
   "fi:FiScissors",
 ];
 
-// -------- Icon helpers --------
-function normalizeIconKey(key: string): string {
-  if (!key) return "";
-  if (key.includes(":")) return key;
-  if (key.startsWith("Fi")) return `fi:${key}`;
-  if (key.startsWith("Fa")) return `fa:${key}`;
-  if (key.startsWith("Md")) return `md:${key}`;
-  if (key.startsWith("Ri")) return `ri:${key}`;
-  if (key.startsWith("Gi")) return `gi:${key}`;
-  return key;
-}
-
-function getIconComponent(key?: string): IconType | undefined {
-  if (!key) return undefined;
-  const normKey = normalizeIconKey(key);
-  const [pack, name] = normKey.split(":");
-  const set = ICON_SETS[pack?.toLowerCase?.()];
-  return set ? set[name] : undefined;
-}
+// Icon helpers centralizados se importan desde CustomIcons
 
 // -------- Small utils --------
 const byName = <T extends { name?: string }>(a: T, b: T) =>
@@ -978,13 +948,22 @@ export default function MetaManager() {
     try {
       setSaving(true);
       if (!editing) return;
+      // Normaliza claves de ícono en tratamientos para guardar en formato pack:Name
+      let normalized = payload;
+      if (editing.kind === "treatment") {
+        normalized = {
+          ...payload,
+          icon: canonicalizeIconKey(payload.icon),
+          minIcon: canonicalizeIconKey(payload.minIcon),
+        };
+      }
       if (editing.data?._id) {
         if (editing.kind === "priority")
-          await updatePriority({ id: editing.data._id, payload });
-        else await updateTreatment({ id: editing.data._id, payload });
+          await updatePriority({ id: editing.data._id, payload: normalized });
+        else await updateTreatment({ id: editing.data._id, payload: normalized });
       } else {
-        if (editing.kind === "priority") await createPriority(payload);
-        else await createTreatment(payload);
+        if (editing.kind === "priority") await createPriority(normalized);
+        else await createTreatment(normalized);
       }
       toast({ title: "Saved", status: "success" });
       setEditing(null);
