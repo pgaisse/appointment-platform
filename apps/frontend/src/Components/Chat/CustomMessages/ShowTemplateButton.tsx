@@ -251,7 +251,7 @@ export default function ShowTemplateButton({
 
   const loadingInitial =
     templatesStatus === 'pending' || isLoadingTokens || isLoadingPatient;
-
+  console.log("tooltipText", tooltipText)
   return (
     <>
       <Tooltip label={tooltipText} hasArrow>
