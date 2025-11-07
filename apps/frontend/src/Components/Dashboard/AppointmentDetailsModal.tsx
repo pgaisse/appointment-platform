@@ -22,6 +22,7 @@ import {
 import { FiCalendar, FiUser, FiPhone } from "react-icons/fi";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import type { Appointment } from "@/types";
+import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
 
 interface AppointmentDetailsModalProps {
   isOpen: boolean;
@@ -118,7 +119,7 @@ export const AppointmentDetailsModal: React.FC<AppointmentDetailsModalProps> = (
           ) : (
             <VStack spacing={4} align="stretch">
               {appointments.map((apt) => {
-                const nextDate = apt.selectedAppDates?.[0];
+                const nextDate = getLatestSelectedAppDate(apt.selectedAppDates);
                 const status = nextDate?.status || "Uncontacted";
 
                 return (

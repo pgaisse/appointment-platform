@@ -1,5 +1,6 @@
 import { formatDateSingle } from "./FormatDateSingle";
 import { TemplateToken } from "@/types"; // Asegúrate de tener esta interfaz
+import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
 
 type PatientInfo = Record<string, any>;
 
@@ -16,13 +17,23 @@ export function applyTemplateTokens(
     let replacement: string | undefined = "";
     let hasValue = false;
 
-    // 🔹 Si el token apunta a un campo con nivel secundario, como selectedAppDates.0.startDate
+    // 🔹 Si el token apunta a un campo con nivel secundario, como selectedAppDates.startDate (antes se pensaba .0.startDate)
     if (field && secondLevelField) {
       const firstLevel = patientInfo[field];
-      if (Array.isArray(firstLevel) && firstLevel.length > 0 && typeof firstLevel[0] === "object") {
-        const nestedValue = firstLevel[0][secondLevelField];
-        replacement = formatIfNeeded(nestedValue, type);
-        hasValue = !!replacement;
+      if (Array.isArray(firstLevel) && firstLevel.length > 0) {
+        // Prefer the latest appointment slot if the field is selectedAppDates
+        const targetObj =
+          field === "selectedAppDates"
+            ? getLatestSelectedAppDate(firstLevel) ?? firstLevel[firstLevel.length - 1]
+            : typeof firstLevel[0] === "object"
+            ? firstLevel[0]
+            : undefined;
+
+        if (targetObj && typeof targetObj === "object") {
+          const nestedValue = (targetObj as any)[secondLevelField];
+          replacement = formatIfNeeded(nestedValue, type);
+          hasValue = !!replacement;
+        }
       }
     }
 

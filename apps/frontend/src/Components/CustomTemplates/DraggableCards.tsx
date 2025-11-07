@@ -63,6 +63,7 @@ import ChatLauncher from '@/Components/Chat/ChatLauncher';
 import { FaCommentSms } from 'react-icons/fa6';
 import { CiPhone } from 'react-icons/ci';
 import { RiParentFill } from 'react-icons/ri';
+import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
 
 /* ───────────────────────────────────────────────────────────────
    Helpers de estilo premium
@@ -302,10 +303,10 @@ const AppointmentCard: React.FC<{
         </HStack>
 
         <HStack gap={2}>
-          <Tooltip label={`Appointment Date: ${formatDateWS(item.selectedAppDates?.[0])}`} placement="top" hasArrow>
+          <Tooltip label={`Appointment Date: ${formatDateWS(getLatestSelectedAppDate(item.selectedAppDates) as any)}`} placement="top" hasArrow>
             <Icon as={TimeIcon} />
           </Tooltip>
-          <StatusPill status={item.selectedAppDates?.[0]?.status} />
+          <StatusPill status={getLatestSelectedAppDate(item.selectedAppDates)?.status} />
           <PrefBadge pref={item.contactPreference as any} />
           {!asOverlay && (
             <ChatLauncher
@@ -1140,7 +1141,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     <GridItem>
                       <HStack justify="space-between">
                         <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
-                        <StatusPill status={item.selectedAppDates?.[0]?.status} />
+                        <StatusPill status={getLatestSelectedAppDate(item.selectedAppDates)?.status} />
                       </HStack>
                     </GridItem>
                     <GridItem mt={2}>

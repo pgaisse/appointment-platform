@@ -16,12 +16,12 @@ import {
   HiOutlineClipboardList,
 } from "react-icons/hi";
 import { Appointment } from "@/types";
-import { DateRange } from "@/Hooks/Handles/useSlotSelection";
 import CustomText from "../Text/CustomText";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { getIconComponent } from "../CustomIcons";
 import { MdLocalHospital } from "react-icons/md";
 import { formatDateWS } from "@/Functions/FormatDateWS";
+import { getLatestSelectedAppDate, getSlotStart, getSlotEnd } from "@/Functions/getLatestSelectedAppDate";
 
 type Props = {
   data: Appointment;
@@ -33,15 +33,11 @@ export default function EventCards({ data }: Props) {
   const cardBg = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.600");
   const highlightColor = useColorModeValue("blue.500", "blue.300");
-  const tagBg = useColorModeValue("gray.100", "gray.700");
 
-  const formattedDate =
-    data.selectedAppDates?.length > 0
-      ? formatDateWS({
-          startDate: data.selectedAppDates[0].startDate,
-          endDate: data.selectedAppDates[0].endDate,
-        })
-      : "No date provided";
+  const latest = getLatestSelectedAppDate(data.selectedAppDates);
+  const formattedDate = latest && getSlotStart(latest) && getSlotEnd(latest)
+    ? formatDateWS({ startDate: getSlotStart(latest) as Date, endDate: getSlotEnd(latest) as Date })
+    : "No date provided";
 
   return (
     <VStack

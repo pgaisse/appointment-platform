@@ -320,6 +320,31 @@ router.post('/sendMessageAsk', async (req, res) => {
         console.error("Error saving message to DB:", err);
       }
 
+      // Registrar intento de contacto (ContactAppointment: Pending)
+      try {
+        const slots = (data?.selectedAppDates || [])
+          .map((s) => ({ slot: s, t: new Date(s?.proposed?.startDate || s?.startDate || 0).getTime() }))
+          .sort((a, b) => b.t - a.t);
+        const latest = slots.length ? slots[0].slot : null;
+        const startDate = latest?.proposed?.startDate || latest?.startDate || null;
+        const endDate = latest?.proposed?.endDate || latest?.endDate || null;
+
+        await ContactAppointment.create([
+          {
+            user: req.dbUser?._id,
+            org_id,
+            appointment: data._id,
+            status: ContactStatus.Pending,
+            startDate,
+            endDate,
+            context: "Confirmation ask",
+            cSid: conversationId,
+          },
+        ]);
+      } catch (e) {
+        console.warn("⚠️ Could not create Pending ContactAppointment:", e?.message || e);
+      }
+
       await session.commitTransaction(); committed = true;
 
       return res.status(200).json({
@@ -672,20 +697,26 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
               const session = await mongoose.startSession();
               try {
                 await session.withTransaction(async () => {
-                  // 1) Crear/actualizar el documento ContactAppointment
-                  const contactDoc = await ContactAppointment.create([{
-                    user: prev.user,
-                    org_id: q.org_id,
-                    appointment: q._id,
-                    status: ContactStatus.Confirmed,     // usa el enum
-                    startDate,
-                    endDate,
-                    context: "Reschedule confirmation",
-                    cSid: payload.ConversationSid,
-                    pSid: payload.ParticipantSid,
-                  }], { session });
-
-                  const contactedId = contactDoc[0]._id;
+                  // 1) Actualizar el último Pending ContactAppointment (o crear si no existe)
+                  await ContactAppointment.findOneAndUpdate(
+                    {
+                      appointment: q._id,
+                      org_id: q.org_id,
+                      cSid: payload.ConversationSid,
+                      status: ContactStatus.Pending,
+                    },
+                    {
+                      $set: {
+                        status: ContactStatus.Confirmed,
+                        startDate,
+                        endDate,
+                        context: "Reschedule confirmation",
+                        pSid: payload.ParticipantSid,
+                      },
+                      $setOnInsert: { user: prev.user },
+                    },
+                    { session, upsert: true, new: true, sort: { createdAt: -1 } }
+                  );
 
                   // 2) Actualizar el Appointment y referenciar el contactedId en el slot
                   await Appointment.updateOne(
@@ -804,24 +835,29 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
               const session = await mongoose.startSession();
               try {
                 await session.withTransaction(async () => {
-                  // 1) Crear/actualizar el documento ContactAppointment
                   const startDate = q.selectedAppDates[0]?.proposed?.startDate;
                   const endDate = q.selectedAppDates[0]?.proposed?.endDate;
-                  const contactDoc = await ContactAppointment.create([{
-                    user: prev.user,
-                    org_id: q.org_id,
-                    appointment: q._id,
-                    status: ContactStatus.Rejected,     // usa el enum
-                    startDate,
-                    endDate,
-                    context: "Reschedule confirmation",
-                    cSid: payload.ConversationSid,
-                    pSid: payload.ParticipantSid,
 
-                  }], { session });
+                  await ContactAppointment.findOneAndUpdate(
+                    {
+                      appointment: q._id,
+                      org_id: q.org_id,
+                      cSid: payload.ConversationSid,
+                      status: ContactStatus.Pending,
+                    },
+                    {
+                      $set: {
+                        status: ContactStatus.Rejected,
+                        startDate,
+                        endDate,
+                        context: "Reschedule confirmation",
+                        pSid: payload.ParticipantSid,
+                      },
+                      $setOnInsert: { user: prev.user },
+                    },
+                    { session, upsert: true, new: true, sort: { createdAt: -1 } }
+                  );
 
-                  //console.log("conversationId: ", payload.ConversationSid)
-                  // 2) Actualizar el Appointment y referenciar el contactedId en el slot
                   await Appointment.updateOne(
                     { sid: payload.ConversationSid, unknown: { $ne: true } },
                     {

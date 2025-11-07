@@ -131,6 +131,7 @@ import ShowTemplateButtonWithData from "../Chat/CustomMessages/ShowTemplateButto
 dayjs.extend(utc);
 dayjs.extend(timezone);
 import customParseFormat from "dayjs/plugin/customParseFormat";
+import { getLatestSelectedAppDate, getLatestSelectedAppDateRange } from "@/Functions/getLatestSelectedAppDate";
 const SYD_TZ = "Australia/Sydney";
 
 /* ----------------- helpers ----------------- */
@@ -889,19 +890,17 @@ function CustomEntryForm({
 
   // Appointment window y start
   const appointmentWindow = useMemo(() => {
-    const pick =
-      (selectedAppDates && selectedAppDates.length
-        ? selectedAppDates[0]
-        : undefined) as DateRange | undefined;
-    if (!pick?.startDate || !pick?.endDate) return null;
-    const fromIso = dayjs.utc(pick.startDate).toDate().toISOString();
-    const toIso = dayjs.utc(pick.endDate).toDate().toISOString();
+    const latest = getLatestSelectedAppDateRange(selectedAppDates as any);
+    if (!latest) return null;
+    const fromIso = dayjs.utc(latest.start).toDate().toISOString();
+    const toIso = dayjs.utc(latest.end).toDate().toISOString();
     return { fromIso, toIso };
   }, [selectedAppDates]);
 
   const appointmentStartLocal = useMemo(() => {
-    const first = selectedAppDates?.[0]?.startDate;
-    return first ? dayjs.utc(first).tz(SYD_TZ) : null;
+    const latest = getLatestSelectedAppDate(selectedAppDates as any);
+    const start = (latest as any)?.startDate ?? (latest as any)?.propStartDate ?? (latest as any)?.proposed?.startDate;
+    return start ? dayjs.utc(start).tz(SYD_TZ) : null;
   }, [selectedAppDates]);
 
   // ======== Reminder ========

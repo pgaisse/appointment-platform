@@ -34,6 +34,7 @@ import { Appointment, ContactAppointment, Provider } from "@/types";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { GrContact } from "react-icons/gr";
 import { CiUser } from "react-icons/ci";
+import { getLatestSelectedAppDate, getSlotStart, getSlotEnd } from "@/Functions/getLatestSelectedAppDate";
 
 // 🚀 Chat: componente reutilizable (lazy) + icono
 import ChatLauncher from "@/Components/Chat/ChatLauncher";
@@ -590,55 +591,70 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                           >
                             <VStack align="start" spacing={1} flex={1}>
                               <HStack spacing={2}>
-                                <Badge
-                                  rounded="xl"
-                                  px={2}
-                                  py={1}
-                                  bg={
-                                    (log as any).status === "Confirmed"
-                                      ? "green.100"
-                                      : "red.100"
+                                {(() => {
+                                  const status = (log as any).status as string | undefined;
+                                  const isConfirmed = status === "Confirmed";
+                                  const isPending = status === "Pending";
+                                  const isRejected = status === "Rejected" || status === "Declined";
+                                  const bg = isConfirmed
+                                    ? "green.100"
+                                    : isPending
+                                    ? "purple.100"
+                                    : isRejected
+                                    ? "red.100"
+                                    : "gray.100";
+                                  const color = isConfirmed
+                                    ? "green.800"
+                                    : isPending
+                                    ? "purple.800"
+                                    : isRejected
+                                    ? "red.800"
+                                    : "gray.800";
+                                  return (
+                                    <Badge rounded="xl" px={2} py={1} bg={bg} color={color} fontSize="xs" fontWeight="bold" textTransform="uppercase">
+                                      {status ?? "Unknown"}
+                                    </Badge>
+                                  );
+                                })()}
+                              </HStack>
+                              <HStack spacing={4} align="flex-start" flexWrap="wrap">
+                                <LabeledRow
+                                  icon={CiUser}
+                                  label="User"
+                                  value={
+                                    ((log as any).user?.name || "")
+                                      .trim()
+                                      .split(" ")[0] ||
+                                    (log as any).user?.email ||
+                                    (log as any).user?.auth0_id
                                   }
-                                  color={
-                                    (log as any).status === "Confirmed"
-                                      ? "green.800"
-                                      : "red.800"
+                                />
+                                <LabeledRow
+                                  icon={GrContact}
+                                  label="Contacted"
+                                  value={fmtDateTime((log as any).createdAt)}
+                                />
+                                <LabeledRow
+                                  icon={FiClock}
+                                  label="Responded"
+                                  value={
+                                    (log as any).status && (log as any).status !== "Pending"
+                                      ? fmtDateTime((log as any).updatedAt)
+                                      : "—"
                                   }
-                                  fontSize="xs"
-                                  fontWeight="bold"
-                                  textTransform="uppercase"
-                                >
-                                  <HStack spacing={1}>
-                                    <LabeledRow
-                                      icon={CiUser}
-                                      label="User"
-                                      value={
-                                        ((log as any).user?.name || "")
-                                          .trim()
-                                          .split(" ")[0] ||
-                                        (log as any).user?.email ||
-                                        (log as any).user?.auth0_id
-                                      }
-                                    />
-                                    <LabeledRow
-                                      icon={GrContact}
-                                      label="Contacted"
-                                      value={fmtDateTime((log as any).createdAt)}
-                                    />
+                                />
+                                {(() => {
+                                  const s = (log as any).startDate ? new Date((log as any).startDate) : null;
+                                  const e = (log as any).endDate ? new Date((log as any).endDate) : null;
+                                  const valid = s && e && !isNaN(s.getTime()) && !isNaN(e.getTime());
+                                  return valid ? (
                                     <LabeledRow
                                       icon={FiClock}
                                       label="Appointment"
-                                      value={formatDateWS({
-                                        startDate: new Date(
-                                          (log as any).startDate || ""
-                                        ),
-                                        endDate: new Date(
-                                          (log as any).endDate || ""
-                                        ),
-                                      })}
+                                      value={formatDateWS({ startDate: s as Date, endDate: e as Date })}
                                     />
-                                  </HStack>
-                                </Badge>
+                                  ) : null;
+                                })()}
                               </HStack>
                             </VStack>
                           </HStack>
@@ -670,100 +686,102 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                       {(appointment?.selectedAppDates ?? []).length === 0 ? (
                         <Text>—</Text>
                       ) : (
-                        <Stack spacing={3}>
-                          {(appointment?.selectedAppDates ?? []).map((it, idx) => (
-                            <Box
-                              key={(it as any)._id ?? idx}
-                              border="1px solid"
-                              borderColor={border}
-                              rounded="xl"
-                              p={3}
-                            >
-                              <HStack justify="space-between" mb={2}>
-                                <HStack spacing={2}>
-                                  {(it as any).rescheduleRequested ? (
-                                    <Badge colorScheme="orange" rounded="full">
-                                      Reschedule requested
-                                    </Badge>
-                                  ) : null}
-                                  {(it as any).status && (
-                                    <Badge
-                                      rounded="full"
-                                      colorScheme={
-                                        ({
-                                          Confirmed: "green",
-                                          Declined: "red",
-                                          Reschedule: "orange",
-                                          Unknown: "gray",
-                                        } as Record<string, string>)[
-                                          (it as any).status ?? "Unknown"
-                                        ] ?? "gray"
-                                      }
-                                    >
-                                      {(it as any).status}
-                                    </Badge>
-                                  )}
-                                </HStack>
+                        <>
+                          {/* Latest summary */}
+                          {(() => {
+                            const latest = getLatestSelectedAppDate(appointment?.selectedAppDates ?? []);
+                            const ls = latest ? getSlotStart(latest) : null;
+                            const le = latest ? getSlotEnd(latest) : null;
+                            const status = (latest as any)?.status ?? "Unknown";
+                            const colorScheme = ({
+                              Confirmed: "green",
+                              Declined: "red",
+                              Reschedule: "orange",
+                              Pending: "purple",
+                              Unknown: "gray",
+                            } as Record<string, string>)[status] ?? "gray";
+                            return latest && ls && le ? (
+                              <HStack justify="space-between" border="1px solid" borderColor={border} rounded="lg" p={2}>
+                                <Text fontWeight="semibold">Latest:</Text>
+                                <Text>{formatDateWS({ startDate: ls, endDate: le })}</Text>
+                                <Badge rounded="full" colorScheme={colorScheme}>{status}</Badge>
                               </HStack>
-                              <Grid
-                                templateColumns={{ base: "1fr", md: "1fr 1fr" }}
-                                gap={3}
-                              >
-                                <LabeledRow
-                                  icon={FiClock}
-                                  label="Start"
-                                  value={fmtDateTime((it as any).startDate)}
-                                />
-                                <LabeledRow
-                                  icon={FiClock}
-                                  label="End"
-                                  value={fmtDateTime((it as any).endDate)}
-                                />
-                                <LabeledRow
-                                  icon={FiCalendar}
-                                  label="Proposed Start"
-                                  value={fmtDateTime((it as any).proposed?.startDate)}
-                                />
-                                <LabeledRow
-                                  icon={FiCalendar}
-                                  label="Proposed End"
-                                  value={fmtDateTime((it as any).proposed?.endDate)}
-                                />
-                              </Grid>
-                              {(it as any).proposed && (
-                                <Box mt={2}>
-                                  <Text fontSize="xs" color={sub}>
-                                    Proposed by: <b>{(it as any).proposed?.proposedBy}</b>
-                                    {(it as any).proposed?.createdAt
-                                      ? ` · ${fmtDateTime((it as any).proposed.createdAt)}`
-                                      : ""}
-                                  </Text>
-                                  {(it as any).proposed?.reason && (
-                                    <Text fontSize="sm">
-                                      Reason: {(it as any).proposed.reason}
-                                    </Text>
-                                  )}
-                                </Box>
-                              )}
-                              {(it as any).confirmation && (
-                                <Box mt={2}>
-                                  <Text fontSize="xs" color={sub}>
-                                    Decided at:{" "}
-                                    {fmtDateTime((it as any).confirmation.decidedAt)}
-                                    {(it as any).confirmation.lateResponse
-                                      ? " · Late response"
-                                      : ""}
-                                  </Text>
-                                  {(it as any).confirmation.byMessageSid && (
-                                    <Text fontSize="xs" color={sub}>
-                                      By Msg SID: {(it as any).confirmation.byMessageSid}
-                                    </Text>
-                                  )}
-                                </Box>
-                              )}
-                            </Box>
-                          ))}
-                        </Stack>
+                            ) : null;
+                          })()}
+
+                          {/* Timeline list */}
+                          <Box maxH="320px" overflowY="auto" pr={1}
+                            sx={{ "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-thumb": { backgroundColor: "#a0aec0", borderRadius: "4px" }, "&::-webkit-scrollbar-track": { backgroundColor: "#edf2f7" } }}
+                          >
+                            <VStack align="stretch" spacing={2}>
+                              {[...(appointment?.selectedAppDates ?? [])]
+                                .sort((a: any, b: any) => {
+                                  const as = getSlotStart(a)?.getTime() ?? 0;
+                                  const bs = getSlotStart(b)?.getTime() ?? 0;
+                                  return bs - as; // latest first
+                                })
+                                .map((it: any, idx: number) => {
+                                  const s = getSlotStart(it);
+                                  const e = getSlotEnd(it);
+                                  const status = it?.status ?? "Unknown";
+                                  const colorScheme = ({
+                                    Confirmed: "green",
+                                    Declined: "red",
+                                    Reschedule: "orange",
+                                    Pending: "purple",
+                                    Unknown: "gray",
+                                  } as Record<string, string>)[status] ?? "gray";
+                                  const isLatest = idx === 0; // because sorted desc
+                                  return (
+                                    <Box key={it?._id ?? idx} border="1px solid" borderColor={border} rounded="xl" p={3}>
+                                      <HStack justify="space-between" align="center" mb={1}>
+                                        <HStack spacing={2}>
+                                          <Badge rounded="full" colorScheme={colorScheme}>{status}</Badge>
+                                          {it?.rescheduleRequested ? (
+                                            <Badge colorScheme="orange" rounded="full">Reschedule requested</Badge>
+                                          ) : null}
+                                          {isLatest ? (
+                                            <Badge colorScheme="blue" variant="subtle" rounded="full">Latest</Badge>
+                                          ) : null}
+                                        </HStack>
+                                        <Text fontSize="sm" color={sub}>
+                                          {s && e ? formatDateWS({ startDate: s, endDate: e }) : "—"}
+                                        </Text>
+                                      </HStack>
+                                      <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={3}>
+                                        <LabeledRow icon={FiClock} label="Start" value={fmtDateTime(s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate)} />
+                                        <LabeledRow icon={FiClock} label="End" value={fmtDateTime(e ?? it?.endDate ?? it?.propEndDate ?? it?.proposed?.endDate)} />
+                                        <LabeledRow icon={FiCalendar} label="Proposed Start" value={fmtDateTime(it?.proposed?.startDate)} />
+                                        <LabeledRow icon={FiCalendar} label="Proposed End" value={fmtDateTime(it?.proposed?.endDate)} />
+                                      </Grid>
+                                      {it?.proposed && (
+                                        <Box mt={2}>
+                                          <Text fontSize="xs" color={sub}>
+                                          
+                                            {it?.proposed?.createdAt ? ` · ${fmtDateTime(it?.proposed.createdAt)}` : ""}
+                                          </Text>
+                                          {it?.proposed?.reason && (
+                                            <Text fontSize="sm">Reason: {it?.proposed.reason}</Text>
+                                          )}
+                                        </Box>
+                                      )}
+                                      {it?.confirmation && (
+                                        <Box mt={2}>
+                                          <Text fontSize="xs" color={sub}>
+                                            Decided at: {fmtDateTime(it?.confirmation.decidedAt)}
+                                            {it?.confirmation.lateResponse ? " · Late response" : ""}
+                                          </Text>
+                                          {it?.confirmation.byMessageSid && (
+                                            <Text fontSize="xs" color={sub}>By Msg SID: {it?.confirmation.byMessageSid}</Text>
+                                          )}
+                                        </Box>
+                                      )}
+                                    </Box>
+                                  );
+                                })}
+                            </VStack>
+                          </Box>
+                        </>
                       )}
                     </VStack>
                   </SectionCard>

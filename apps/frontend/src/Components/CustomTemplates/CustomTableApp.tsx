@@ -15,7 +15,7 @@ import { useDeleteItem } from "@/Hooks/Query/useDeleteItem";
 import { Appointment, Provider, TimeBlock, WeekDay } from "@/types";
 import AvailabilityDates2 from "./AvailabilityDates2";
 import Pagination from "../Pagination";
-import { iconMap } from "../CustomIcons";
+import { getIconComponent } from "../CustomIcons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppointmentEditor } from "@/Hooks/Handles/useAppointmentEditor";
 import { useInfoModal } from "@/Hooks/Handles/useInfoModal";
@@ -24,6 +24,7 @@ import { useAppointmentSearch } from "@/Hooks/Query/useAppointmentSearch";
 import { LiaSmsSolid } from "react-icons/lia";
 import { CiPhone } from "react-icons/ci";
 import { RiParentFill } from "react-icons/ri";
+import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
 
 interface Props { pageSize?: number; }
 
@@ -301,9 +302,16 @@ function CustomTableApp({ pageSize = 20 }: Props) {
 
                   {/* appointment */}
                   <Td>
-                    <Tag colorScheme={item.selectedAppDates?.[0]?.status === "Confirmed" ? "green" : item.selectedAppDates?.[0]?.status === "Pending" ? "yellow" : "gray"} mr={1}>
-                      {item.selectedAppDates?.[0] ? formatDateWS(item.selectedAppDates[0]) : "No appointment"}
-                    </Tag>
+                    {(() => {
+                      const latest = getLatestSelectedAppDate(item.selectedAppDates);
+                      const status = latest?.status;
+                      const scheme = status === "Confirmed" ? "green" : status === "Pending" ? "yellow" : "gray";
+                      return (
+                        <Tag colorScheme={scheme} mr={1}>
+                          {latest ? formatDateWS(latest as any) : "No appointment"}
+                        </Tag>
+                      );
+                    })()}
                   </Td>
 
 
@@ -333,7 +341,17 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                       {item.priority?.name || "No Assigned"}
                     </Tag>
                     <Tooltip label={item.treatment?.name} placement="top" fontSize="sm" hasArrow>
-                      <Icon as={iconMap[item.treatment?.minIcon]} color={`${item.treatment?.color}.500`} fontSize="24px" />
+                      {(() => {
+                        const key = item.treatment?.minIcon;
+                        const Comp = getIconComponent(key) || getIconComponent('md:MdHealthAndSafety');
+                        if (!Comp && process.env.NODE_ENV !== 'production') {
+                          // eslint-disable-next-line no-console
+                          console.warn('[icons] CustomTableApp unresolved key:', key, 'for', item.treatment?.name);
+                        }
+                        return (
+                          <Icon as={Comp} color={`${item.treatment?.color}.500`} fontSize="24px" />
+                        );
+                      })()}
                     </Tooltip>
                   </Td>
 

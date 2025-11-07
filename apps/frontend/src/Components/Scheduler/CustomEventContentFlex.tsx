@@ -37,6 +37,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import ShowTemplateButton from "../Chat/CustomMessages/ShowTemplateButton";
 import CreateMessageModal from "../Chat/CustomMessages/CreateCustomMessageModal";
 import { MdOutlinePostAdd } from "react-icons/md";
+import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
 
 const MotionBox = motion(Box);
 const FadeInBox = motion(Box);
@@ -103,19 +104,32 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     };
   }, []);
 
-  const handleClick = async (id: string, start: Date, end: Date) => {
+  const handleClick = async (
+    item: (AppointmentGroup["priorities"][number]["appointments"][number]),
+    start: Date,
+    end: Date
+  ) => {
+    const id = item._id;
     setRescheduleButton(id);
+
+    // Build a new slot entry instead of overwriting index 0
+    const newSlot = {
+      startDate: start,
+      endDate: end,
+      status: "Pending" as const,
+      rescheduleRequested: false,
+    };
+
+    const current = Array.isArray(item.selectedAppDates) ? item.selectedAppDates : [];
+    const nextArray = [...current, newSlot];
 
     const payload = [
       {
         table: "Appointment",
         id_field: "_id",
         id_value: id ?? "",
-
         data: {
-          "selectedAppDates.0.proposed.startDate": start,
-          "selectedAppDates.0.proposed.endDate": end,
-          "selectedAppDates.0.status": "Pending",
+          selectedAppDates: nextArray,
         },
       },
     ];
@@ -374,11 +388,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                                 colorScheme="green"
                                 isDisabled={!tooltipForThisPatient}
                                 onClick={() =>
-                                  handleClick(
-                                    item._id,
-                                    group.dateRange.startDate,
-                                    group.dateRange.endDate
-                                  )
+                                  handleClick(item, group.dateRange.startDate, group.dateRange.endDate)
                                 }
                                 leftIcon={
                                   isPending && rescheduleButton === item._id ? (

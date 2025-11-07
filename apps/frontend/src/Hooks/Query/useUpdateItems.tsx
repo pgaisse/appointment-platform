@@ -31,7 +31,16 @@ const updateItems = async ({
   token: string;
   endpoint: string; // ← ahora es dinámico
 }) => {
-  const url = joinURL(import.meta.env.VITE_BASE_URL as string, endpoint);
+  // Resolve API base from runtime window.__ENV__ first, then VITE, then fallback to "/api"
+  const winAny = globalThis as unknown as { __ENV__?: { API_URL?: string } };
+  const runtimeBase = winAny?.__ENV__?.API_URL;
+  const envBase = (import.meta as any)?.env?.VITE_BASE_URL as string | undefined;
+  const base = runtimeBase || envBase || "/api";
+
+  // Accept endpoints with or without leading slash
+  const safeEndpoint = endpoint?.trim() || "update-items";
+  const url = joinURL(base, safeEndpoint);
+
   const res = await axios.patch(url, payload, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -44,7 +53,7 @@ const updateItems = async ({
  * @param options  Config para cache (queryKey que optimizamos/invalida).
  */
 export const useUpdateItems = (
-  endpoint: string = "/update-items",
+  endpoint: string = "update-items",
   options?: {
     optimisticKey?: unknown[];        // key a optimizar (por defecto ["items"])
     invalidateKeys?: unknown[][];     // keys a invalidar al terminar

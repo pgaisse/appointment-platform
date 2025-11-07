@@ -5,12 +5,13 @@ import { Box, Button, Circle, Flex, Grid, GridItem, Modal, ModalBody, ModalClose
 import { AnimatePresence, motion } from 'framer-motion';
 import React, { useEffect, useState } from 'react';
 import { DateRange, EventProps } from 'react-big-calendar'; // Import EventProps
-import { CustomDatesMatched, CustomOrder, CustomPriority, CustomScore } from '../CustomIcons/customCircle';
+import { CustomOrder, CustomPriority, CustomScore } from '../CustomIcons/customCircle';
 import AvailabilityDates from '../CustomTemplates/AvailabilityDates';
 import { RiCalendarScheduleFill } from "react-icons/ri";
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { LiaSmsSolid } from "react-icons/lia";
 import { CiCalendarDate } from "react-icons/ci";
+import { getLatestSelectedAppDate, getSlotStart, getSlotEnd } from "@/Functions/getLatestSelectedAppDate";
 
 
 
@@ -29,18 +30,30 @@ const CustomEventContent: React.FC<EventProps<MarkedEvent>> = ({ event }) => {
 
   const toast = useToast();
 
-  const handleClick = (id: string, start: Date, end: Date) => {
+  // Append a new slot instead of overwriting the entire array
+  const handleClick = (item: any, start: Date, end: Date) => {
+    const id = item?._id as string;
+
+    // Build the new slot to append
+    const newSlot = {
+      startDate: start,
+      endDate: end,
+      status: "Pending" as const,
+      rescheduleRequested: false,
+    };
+
+    // Current array (fallback to empty)
+    const current = Array.isArray(item?.selectedAppDates)
+      ? item.selectedAppDates
+      : [];
+    const nextArray = [...current, newSlot];
 
     mutate(
       {
         id,
         data: {
-          reschedule: true, selectedAppDates: [
-            {
-              startDate: start,
-              endDate: end,
-            }
-          ]
+          reschedule: true,
+          selectedAppDates: nextArray,
         }, // solo este campo se actualizará
       },
       {
@@ -82,13 +95,13 @@ const CustomEventContent: React.FC<EventProps<MarkedEvent>> = ({ event }) => {
     setIsOpenModal(false);
     setSelectedItem(null);
   };
-  const appointmentDate =
-    selectedItem?.selectedAppDates?.[0]?.startDate
-      ? formatDateWS({
-        startDate: selectedItem.selectedAppDates[0].startDate,
-        endDate: selectedItem.selectedAppDates[0].endDate,
+  const latestSlot = getLatestSelectedAppDate(selectedItem?.selectedAppDates);
+  const appointmentDate = latestSlot && getSlotStart(latestSlot) && getSlotEnd(latestSlot)
+    ? formatDateWS({
+        startDate: getSlotStart(latestSlot) as Date,
+        endDate: getSlotEnd(latestSlot) as Date,
       })
-      : "No date available";
+    : "No date available";
 
   return (
     <><Box
@@ -138,14 +151,7 @@ const CustomEventContent: React.FC<EventProps<MarkedEvent>> = ({ event }) => {
                         Array.isArray(event.data) ? event.data.map((field: Record<string, any>, index: number) => {
 
                           const item = field._doc;
-                          const fitScoreArray = Array.isArray(field.fitScore)
-                            ? field.fitScore.filter((score: { score: number }) => score.score >= 0.85)
-                            : [];
-
-
-                          const fScore = fitScoreArray.length > 0
-                            ? parseFloat(fitScoreArray[0].score.toFixed(2))
-                            : 0;
+                          // fitScore filtering available if needed for future UI use
                           const initials = `${item.nameInput} ${item.lastNameInput}`
                             .split(" ")
                             .filter(Boolean)
@@ -225,7 +231,7 @@ const CustomEventContent: React.FC<EventProps<MarkedEvent>> = ({ event }) => {
                                   <Tooltip label={"Re-Schedule"} bg="gray.300" color="black" hasArrow>
                                     <Button variant="ghost"
                                       colorScheme="gray"
-                                      onClick={() => handleClick(item._id, event.start, event.end)}
+                                      onClick={() => handleClick(item, event.start, event.end)}
                                     > <RiCalendarScheduleFill /> </Button></Tooltip>
 
                                   <Tooltip label={"SMS"} bg="gray.300" color="black" hasArrow>
