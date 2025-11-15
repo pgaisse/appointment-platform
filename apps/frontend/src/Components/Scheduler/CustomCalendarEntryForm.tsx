@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import {
   Calendar as BaseCalendar,
   Views,
-  NavigateAction,
   SlotInfo,
   View,
   DateLocalizer,
@@ -21,7 +20,7 @@ import { CalendarEvent, EventResizeDoneArg } from "@/types";
 import eventStyleGetter from "./eventStyleGetter";
 import { DateRange } from "@/Hooks/Handles/useSlotSelection";
 import { UseFormSetValue, UseFormTrigger } from "react-hook-form";
-import { Box } from "@chakra-ui/react";
+import { Box, useToast } from "@chakra-ui/react";
 import { AppointmentForm } from "@/schemas/AppointmentsSchema";
 
 // Locales para date-fns
@@ -64,8 +63,6 @@ const coerceRange = (r: DateRange): DateRange | null => {
 // 🔹 Helper para armar el título: "{min} min (hh:mm a–hh:mm a)"
 const makeEventTitle = (start: Date, end: Date) => {
   const mins = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
-  const s = format(start, "h:mm a");
-  const e = format(end, "h:mm a");
   return `${mins} min`;
 };
 
@@ -82,8 +79,10 @@ type Props = {
   onClose?: () => void;
 };
 
+const MAX_SLOTS = 10;
+
 function CustomCalendarEntryForm({
-  onClose,
+  onClose: _onClose,
   setValue,
   trigger,
   setSelectedAppDates,
@@ -96,7 +95,7 @@ function CustomCalendarEntryForm({
 }: Props) {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentView, setCurrentView] = useState<View>(Views.WEEK);
-  const [selectedDate] = useState<Date>(new Date(2025, 4, 3));
+  // removed unused selectedDate state
 
   // ✅ Normaliza de entrada lo que venga por props
   const initialRange: DateRange[] | null =
@@ -118,16 +117,45 @@ function CustomCalendarEntryForm({
   const dayMax = new Date(currentDate);
   dayMax.setHours(18, 0, 0, 0);
 
-  const handleNavigate = (newDate: Date, view: View, action: NavigateAction): void => {
+  // mark onClose consumed to avoid unused warnings
+  void _onClose;
+
+  const handleNavigate = (newDate: Date): void => {
     setCurrentDate(newDate);
   };
+
+  const toast = useToast();
 
   const handleSelectSlot = (slotInfo: SlotInfo): void => {
     const start = toDate(slotInfo.start);
     if (!start) return;
     const end = new Date(start.getTime() + offset * 60 * 60 * 1000);
-    const newRange = [{ startDate: start, endDate: end }];
-    setRange(newRange);
+
+    setRange((prev) => {
+      const list = prev ?? [];
+      if (list.length >= MAX_SLOTS) {
+        toast({
+          title: `Maximum of ${MAX_SLOTS} appointment slots reached`,
+          status: "warning",
+          duration: 2500,
+          isClosable: true,
+        });
+        return list; // no change
+      }
+      const exists = list.some(
+        (r) => r.startDate.getTime() === start.getTime() && r.endDate.getTime() === end.getTime()
+      );
+      if (exists) {
+        toast({
+          title: "Slot already added",
+          status: "info",
+          duration: 1800,
+          isClosable: true,
+        });
+        return list;
+      }
+      return [...list, { startDate: start, endDate: end }];
+    });
   };
 
   const handleSelectEvent = (ev: CalendarEvent): void => {

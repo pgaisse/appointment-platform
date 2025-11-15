@@ -7,6 +7,7 @@ import {
   HStack,
   SkeletonText,
 } from "@chakra-ui/react";
+import { } from "date-fns";
 import { useEffect, useState } from "react";
 import { WeekDay } from "./AvailabilityDates";
 import { Appointment, GroupedAppointment, TimeBlock } from "@/types";
@@ -14,6 +15,7 @@ import DraggableCards from "./DraggableCards";
 import DateRangeSelector from "../searchBar/DateRangeSelector";
 import { useDraggableCards } from "@/Hooks/Query/useDraggableCards";
 import { filterAppointmentsByRange, RangeOption } from "@/Functions/filterAppointmentsByRage";
+// (range helpers for priority columns retained elsewhere)
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import AppointmentModal from "../Modal/AppointmentModal";
 import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext"; // 👈 Provider para modal index
@@ -39,28 +41,33 @@ const CustomTableAppColumnV = () => {
   });
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
+  // Pending/Declined panels show all items irrespective of date range; we derive them from the raw queries.
+  // Contacts: appointments without any scheduled slots (no selectedAppDates) – keep logic
   const query = {
     $and: [
-      { unknown: false },           // ← obligatorio
+      { unknown: false },
       {
         $or: [
           { selectedAppDates: { $exists: false } },
           { selectedAppDates: null },
           { selectedAppDates: { $size: 0 } },
-          { selectedDates: { $exists: false } },
-          // (opcional) si también quieres selectedDates vacío:
-          // { selectedDates: { $size: 0 } },
         ],
       },
     ],
   };
 
+  // Pending Approvals: we now fetch any appointment having at least one slot with status Pending;
+  // client-side we will refine by ensuring the latest slot (by insertion) is actually Pending.
   const query2 = {
-    $and: [{ unknown: false },      {"selectedAppDates.status": "Pending" }    ],
+    $and: [
+      { unknown: false },
+      { selectedAppDates: { $elemMatch: { status: { $regex: "^pending$", $options: "i" } } } },
+    ],
   };
 
+  // Archived: unchanged (those with position -1)
   const query3 = {
-    $and: [{ unknown: false }, { position: -1 }],
+    $and: [ { unknown: false }, { position: -1 } ],
   };
 
   const limit = 100;
@@ -69,8 +76,22 @@ const CustomTableAppColumnV = () => {
     limit,
   });
 
-  const { data: dataPending } = useGetCollection<Appointment>("Appointment", {
+  const { data: pendingRaw } = useGetCollection<Appointment>("Appointment", {
     mongoQuery: query2,
+    limit,
+  });
+  console.log("pendingRaw",pendingRaw)
+
+  // Declined: any appointment with at least one slot marked Declined
+  const query4 = {
+    $and: [
+      { unknown: false },
+      { selectedAppDates: { $elemMatch: { status: { $regex: "^declined$", $options: "i" } } } },
+    ],
+  };
+
+  const { data: declinedRaw } = useGetCollection<Appointment>("Appointment", {
+    mongoQuery: query4,
     limit,
   });
 
@@ -78,7 +99,23 @@ const CustomTableAppColumnV = () => {
     mongoQuery: query3,
     limit,
   });
-  console.log("dataPending",dataPending)
+  // Refina Pending/Declined por último slot (inserción) para evitar falsos positivos antiguos
+  const latestStatus = (slots: any[]): string | undefined => {
+    if (!Array.isArray(slots) || !slots.length) return undefined;
+    // sort by ObjectId timestamp DESC then by original index DESC
+    const withIndex = slots.map((s, idx) => ({ s, idx }));
+    withIndex.sort((a, b) => {
+      const ta = String(a.s?._id || '').slice(0,8);
+      const tb = String(b.s?._id || '').slice(0,8);
+      const sa = parseInt(ta,16) || 0;
+      const sb = parseInt(tb,16) || 0;
+      if (sb !== sa) return sb - sa;
+      return b.idx - a.idx;
+    });
+    return String((withIndex[0].s as any)?.status || '').toLowerCase();
+  };
+  const dataPending = (pendingRaw ?? []).filter((apt) => latestStatus(apt.selectedAppDates as any[]) === 'pending');
+  const dataDeclined = (declinedRaw ?? []).filter((apt) => latestStatus(apt.selectedAppDates as any[]) === 'declined');
   const handleRangeChange = (
     range: RangeOption,
     customStart?: Date,
@@ -91,7 +128,7 @@ const CustomTableAppColumnV = () => {
       customEnd
     );
     setFilteredData(result);
-
+    // Nota: Pending y Declined NO se filtran por rango; siempre muestran el último estado por inserción
   };
 
   const templateCoumns = {
@@ -102,9 +139,9 @@ const CustomTableAppColumnV = () => {
     "2xl": "repeat(4, minmax(150px, 1fr))",
     "5xl": "repeat(4, minmax(150px, 1fr))",
   };
-  // ✅ Al montar, aplicar automáticamente el rango "2weeks"
+  // ✅ Al montar, aplicar automáticamente el rango "week" (This Week default)
   useEffect(() => {
-    handleRangeChange("2weeks");
+    handleRangeChange("week");
   }, [dataAP2]); // <-- importante: asegúrate de que 'data' esté cargada
 
   const handleCardClick = (item: Appointment) => {
@@ -200,7 +237,8 @@ const CustomTableAppColumnV = () => {
               isPlaceholderData={isPlaceholderData}
               dataAP2={filteredData ? filteredData : []}
               dataContacts={dataContacts ? dataContacts : []}
-              dataPending={dataPending ? dataPending : []}
+              dataPending={dataPending ?? []}
+              dataDeclined={dataDeclined ?? []}
               dataArchived={dataArchived ? dataArchived : []}
               onCardClick={handleCardClick}
             />

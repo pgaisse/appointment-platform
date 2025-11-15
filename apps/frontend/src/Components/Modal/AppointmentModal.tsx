@@ -29,18 +29,20 @@ import {
   useDisclosure,
 } from "@chakra-ui/react";
 import { FiCalendar, FiClock, FiClipboard, FiInfo } from "react-icons/fi";
+import { useQueryClient } from "@tanstack/react-query";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { Appointment, ContactAppointment, Provider } from "@/types";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { GrContact } from "react-icons/gr";
 import { CiUser } from "react-icons/ci";
-import { getLatestSelectedAppDate, getSlotStart, getSlotEnd } from "@/Functions/getLatestSelectedAppDate";
+import { getLatestSelectedAppDate, getSlotStart, getSlotEnd, pickDisplaySlot, getDisplaySlotRange } from "@/Functions/getLatestSelectedAppDate";
 
 // 🚀 Chat: componente reutilizable (lazy) + icono
 import ChatLauncher from "@/Components/Chat/ChatLauncher";
 import { FaCommentSms } from "react-icons/fa6";
 import { to12Hour } from "@/Functions/to12Hour";
 import { useModalIndex } from "../ModalStack/ModalStackContext";
+import { useSocket } from "@/Hooks/Query/useSocket";
 
 // — Lazy load del ProviderSummaryModal —
 const ProviderSummaryModalLazy = React.lazy(
@@ -96,6 +98,42 @@ export interface Priority {
   durationHours?: number;
   name: string;
   color: string;
+}
+
+// -----------------------------
+// Tipado adicional para slots y logs de contacto (reduce uso de any)
+// -----------------------------
+export interface AppointmentSlotConfirmation {
+  askMessageSid?: string;
+  sentAt?: string | Date;
+  decidedAt?: string | Date;
+  lateResponse?: boolean;
+  status?: string;
+}
+export interface AppointmentSlotProposed {
+  startDate?: string | Date;
+  endDate?: string | Date;
+  createdAt?: string | Date;
+  reason?: string;
+}
+export interface AppointmentSlot {
+  _id?: string;
+  startDate?: string | Date;
+  endDate?: string | Date;
+  proposed?: AppointmentSlotProposed;
+  confirmation?: AppointmentSlotConfirmation;
+  status?: string;
+  rescheduleRequested?: boolean;
+}
+
+export interface ContactAppointmentSlim extends ContactAppointment {
+  selectedAppDate?: string | AppointmentSlot; // puede venir poblado con el objeto del slot
+  askMessageSid?: string;
+  proposedStartDate?: string | Date;
+  proposedEndDate?: string | Date;
+  appointment?: {
+    selectedAppDates?: AppointmentSlot[]; // lista recortada (solo slot relacionado)
+  };
 }
 
 export interface ContactLog {
@@ -180,6 +218,14 @@ function enrichAvatarColor(color?: string): { bg: string; color: string; borderC
     borderColor: textColor === "white" ? "blackAlpha.400" : "blackAlpha.600",
   };
 }
+
+// Normaliza status para comparaciones case-insensitive
+const statusKey = (s?: string) => String(s || '').trim().toLowerCase();
+const capStatus = (s?: string) => {
+  const k = statusKey(s);
+  if (!k) return 'Unknown';
+  return k.replace(/^[a-z]/, c => c.toUpperCase());
+};
 
 const SectionCard: React.FC<{
   title: React.ReactNode;
@@ -342,8 +388,13 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     { mongoQuery: safeQuery, limit, populate: populateFields }
   );
 
+  // 👉 Contact logs population: bring only minimal slot fields to reduce payload.
+  // NOTE: Mongoose populate 'select' can't deep-filter array elements; we still project only needed keys.
+  // For tighter backend filtering (single selectedAppDate), we'd need a custom endpoint or aggregation ($filter).
   const populateFieldsContacted = [
     { path: "user", select: "auth0_id name email" },
+    { path: "appointment", select: "selectedAppDates._id selectedAppDates.startDate selectedAppDates.endDate selectedAppDates.proposed selectedAppDates.confirmation" },
+    // selectedAppDate es un ObjectId a subdocumento embebido: no se puede hacer populate directo
   ] as const;
 
   const { data: contacted } = useGetCollection<ContactAppointment>(
@@ -351,10 +402,79 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     { mongoQuery: safeQuery2, limit, populate: populateFieldsContacted }
   );
 
+  console.log("contacted", contacted)
+  // Enriquecemos cada log con el objeto del slot relacionado y recortamos la lista poblada a solo ese slot
+  const contactedSlim = React.useMemo<ContactAppointmentSlim[]>(() => {
+    if (!contacted) return [];
+    return (contacted as ContactAppointmentSlim[]).map((log) => {
+      const rawSel = log?.selectedAppDate as string | AppointmentSlot | undefined;
+      const selId = typeof rawSel === 'string' ? rawSel : (rawSel as AppointmentSlot | undefined)?. _id ? String((rawSel as AppointmentSlot)._id) : "";
+      const populatedApp = log?.appointment as { selectedAppDates?: AppointmentSlot[] } | undefined;
+      const list: AppointmentSlot[] = Array.isArray(populatedApp?.selectedAppDates)
+        ? populatedApp!.selectedAppDates!
+        : [];
+
+      let matched: AppointmentSlot | null = null;
+      if (selId) {
+        matched = list.find((s) => String(s?._id) === selId) || null;
+      }
+      if (!matched && log?.askMessageSid) {
+        const askSid = String(log.askMessageSid);
+        matched = list.find((s) => String(s?.confirmation?.askMessageSid || "") === askSid) || null;
+      }
+      if (!matched && log?.startDate && log?.endDate) {
+        const st = new Date(log.startDate).getTime();
+        const et = new Date(log.endDate).getTime();
+        if (!Number.isNaN(st) && !Number.isNaN(et)) {
+          matched = list.find((s) => {
+            const t1 = s?.startDate ? new Date(s.startDate).getTime() : NaN;
+            const t2 = s?.endDate ? new Date(s.endDate).getTime() : NaN;
+            const p1 = s?.proposed?.startDate ? new Date(s.proposed.startDate).getTime() : NaN;
+            const p2 = s?.proposed?.endDate ? new Date(s.proposed.endDate).getTime() : NaN;
+            return (t1 === st && t2 === et) || (p1 === st && p2 === et);
+          }) || null;
+        }
+      }
+
+      const slim: ContactAppointmentSlim = { ...log };
+      if (matched) {
+        // Poblar el propio campo selectedAppDate con el objeto completo
+        slim.selectedAppDate = matched;
+        if (populatedApp) {
+          slim.appointment = { ...populatedApp, selectedAppDates: [matched] };
+        }
+      }
+      return slim;
+    });
+  }, [contacted]);
+  console.log("contactedSlim", contactedSlim);
   const appointment = data?.[0] ?? null;
   const fullName =
     `${appointment?.nameInput ?? ""} ${appointment?.lastNameInput ?? ""}`.trim() ||
     "Unnamed";
+
+  // 🔄 Live refresh: ensure modal always shows the freshest appointment after server-side updates
+  const queryClient = useQueryClient();
+  const { socket, connected } = useSocket();
+
+  React.useEffect(() => {
+    if (!socket || !connected || !id) return;
+    // When a confirmation resolves, refetch this specific appointment + general lists
+    const handleConfirm = (evt: any) => {
+      // evt.conversationId matches appointment.sid (conversation) or we fallback to always refetch
+      if (!appointment || evt?.conversationId === appointment.sid) {
+        queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+        queryClient.refetchQueries({ queryKey: ["Appointment"] });
+        queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
+        queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+      }
+    };
+    socket.on("confirmationResolved", handleConfirm);
+    return () => {
+      socket.off("confirmationResolved", handleConfirm);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, connected, id, appointment?.sid]);
 
   // Handler de click en provider
   const openProvider = (p: Provider) => {
@@ -569,17 +689,31 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                         <Text>Contact History</Text>
                       </HStack>
                     }
-                    right={
-                      <Badge rounded="full" colorScheme="blue">
-                        {contacted?.length} entries
-                      </Badge>
-                    }
+                    right={(() => {
+                      console.log("contacted",contacted)
+                      const list = (contactedSlim ?? []) as any[];
+                      const total = list.length;
+                      const confirmed = list.filter((l) => statusKey((l as any).status) === "confirmed").length;
+                      const declined = list.filter((l) => {
+                        const sk = statusKey((l as any).status);
+                        return sk === "rejected" || sk === "declined";
+                      }).length;
+                      const pending = list.filter((l) => statusKey((l as any).status) === "pending").length;
+                      return (
+                        <HStack spacing={2}>
+                          <Badge rounded="full" colorScheme="blue">{total} attempts</Badge>
+                          <Badge rounded="full" colorScheme="green">{confirmed} confirmed</Badge>
+                          <Badge rounded="full" colorScheme="red">{declined} declined</Badge>
+                          <Badge rounded="full" colorScheme="purple">{pending} pending</Badge>
+                        </HStack>
+                      );
+                    })()}
                   >
-                    {contacted?.length === 0 ? (
+                    {contactedSlim?.length === 0 ? (
                       <Text>—</Text>
                     ) : (
                       <VStack align="stretch" spacing={3}>
-                        {contacted?.map((log, idx) => (
+                        {contactedSlim?.map((log, idx) => (
                           <HStack
                             key={log._id ?? idx}
                             align="flex-start"
@@ -593,9 +727,10 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                               <HStack spacing={2}>
                                 {(() => {
                                   const status = (log as any).status as string | undefined;
-                                  const isConfirmed = status === "Confirmed";
-                                  const isPending = status === "Pending";
-                                  const isRejected = status === "Rejected" || status === "Declined";
+                                  const sk = statusKey(status);
+                                  const isConfirmed = sk === "confirmed";
+                                  const isPending = sk === "pending";
+                                  const isRejected = sk === "rejected" || sk === "declined";
                                   const bg = isConfirmed
                                     ? "green.100"
                                     : isPending
@@ -612,7 +747,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                                     : "gray.800";
                                   return (
                                     <Badge rounded="xl" px={2} py={1} bg={bg} color={color} fontSize="xs" fontWeight="bold" textTransform="uppercase">
-                                      {status ?? "Unknown"}
+                                        {capStatus(status)}
                                     </Badge>
                                   );
                                 })()}
@@ -632,28 +767,112 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                                 <LabeledRow
                                   icon={GrContact}
                                   label="Contacted"
-                                  value={fmtDateTime((log as any).createdAt)}
+                                  value={fmtDateTime((log as any).sentAt || (log as any).createdAt)}
                                 />
                                 <LabeledRow
                                   icon={FiClock}
                                   label="Responded"
                                   value={
-                                    (log as any).status && (log as any).status !== "Pending"
-                                      ? fmtDateTime((log as any).updatedAt)
+                                    (log as any).status && statusKey((log as any).status) !== "pending"
+                                      ? fmtDateTime((log as any).respondedAt || (log as any).updatedAt)
                                       : "—"
                                   }
                                 />
                                 {(() => {
-                                  const s = (log as any).startDate ? new Date((log as any).startDate) : null;
-                                  const e = (log as any).endDate ? new Date((log as any).endDate) : null;
-                                  const valid = s && e && !isNaN(s.getTime()) && !isNaN(e.getTime());
-                                  return valid ? (
-                                    <LabeledRow
-                                      icon={FiClock}
-                                      label="Appointment"
-                                      value={formatDateWS({ startDate: s as Date, endDate: e as Date })}
-                                    />
-                                  ) : null;
+                                  // Resolver slot usando primero la version poblada dentro del propio log (appointment.selectedAppDates)
+                                  const populatedApp = (log as any).appointment as any | undefined;
+                                  const localList = Array.isArray(populatedApp?.selectedAppDates) ? populatedApp.selectedAppDates : [];
+                                  const globalList = (appointment?.selectedAppDates ?? []) as any[];
+                                  const list = localList.length ? localList : globalList;
+
+                                  // selectedAppDate puede venir poblado (objeto) o como id (string)
+                                  const rawSel = (log as any).selectedAppDate as string | AppointmentSlot | undefined;
+                                  const selId = typeof rawSel === 'string' ? rawSel : '';
+                                  let slot: AppointmentSlot | null = null;
+                                  let linkSource: string = ""; // debug metadata
+
+                                  // Preferimos el objeto ya poblado dentro de selectedAppDate
+                                  if (rawSel && typeof rawSel === 'object') {
+                                    slot = rawSel as AppointmentSlot;
+                                    linkSource = '';
+                                  }
+                                  if (selId) {
+                                    if (!slot) {
+                                      slot = (list as AppointmentSlot[]).find((s: AppointmentSlot) => String(s?._id) === selId) || null;
+                                      if (slot) linkSource = "selectedAppDate";
+                                    }
+                                  }
+                                  if (!slot) {
+                                    const askSid = (log as any).askMessageSid ? String((log as any).askMessageSid) : "";
+                                    if (askSid) {
+                                      slot = (list as AppointmentSlot[]).find((sd: AppointmentSlot) => String(sd?.confirmation?.askMessageSid || "") === askSid) || null;
+                                      if (slot) linkSource = "askMessageSid";
+                                    }
+                                  }
+                                  if (!slot) {
+                                    const s = (log as any).startDate ? new Date((log as any).startDate) : null;
+                                    const e = (log as any).endDate ? new Date((log as any).endDate) : null;
+                                    const st = s && !isNaN(s.getTime()) ? s.getTime() : NaN;
+                                    const et = e && !isNaN(e.getTime()) ? e.getTime() : NaN;
+                                    if (!Number.isNaN(st) && !Number.isNaN(et)) {
+                                      slot = (list as AppointmentSlot[]).find((sd: AppointmentSlot) => {
+                                        const t1 = sd?.startDate ? new Date(sd.startDate as any).getTime() : NaN;
+                                        const t2 = sd?.endDate ? new Date(sd.endDate as any).getTime() : NaN;
+                                        const p1 = sd?.proposed?.startDate ? new Date(sd.proposed.startDate as any).getTime() : NaN;
+                                        const p2 = sd?.proposed?.endDate ? new Date(sd.proposed.endDate as any).getTime() : NaN;
+                                        return (t1 === st && t2 === et) || (p1 === st && p2 === et);
+                                      }) || null;
+                                      if (slot) linkSource = "dates";
+                                    }
+                                  }
+
+                                  let proposedStr: string | null = null;
+                                  let currentStr: string | null = null;
+
+                                  // Proposed priority: use persisted log fields first, then fallback to slot
+                                  if ((log as any).proposedStartDate && (log as any).proposedEndDate) {
+                                    const logProposedStart = new Date((log as any).proposedStartDate);
+                                    const logProposedEnd = new Date((log as any).proposedEndDate);
+                                    if (!isNaN(logProposedStart.getTime()) && !isNaN(logProposedEnd.getTime())) {
+                                      proposedStr = formatDateWS({ startDate: logProposedStart, endDate: logProposedEnd });
+                                    }
+                                  } else if (slot?.proposed?.startDate && slot?.proposed?.endDate) {
+                                    proposedStr = formatDateWS({
+                                      startDate: new Date(slot.proposed.startDate),
+                                      endDate: new Date(slot.proposed.endDate)
+                                    });
+                                  } else if (slot?.proposed && slot?.startDate && slot?.endDate) {
+                                    // proposed object exists but missing explicit proposed dates: treat slot dates as proposed
+                                    proposedStr = formatDateWS({
+                                      startDate: new Date(slot.startDate),
+                                      endDate: new Date(slot.endDate)
+                                    });
+                                  }
+
+                                  // Current always from actual slot top-level
+                                  if (slot?.startDate && slot?.endDate) {
+                                    currentStr = formatDateWS({
+                                      startDate: new Date(slot.startDate),
+                                      endDate: new Date(slot.endDate)
+                                    });
+                                  } else {
+                                    const s = (log as any).startDate ? new Date((log as any).startDate) : null;
+                                    const e = (log as any).endDate ? new Date((log as any).endDate) : null;
+                                    if (s && e && !isNaN(s.getTime()) && !isNaN(e.getTime())) {
+                                      currentStr = formatDateWS({ startDate: s as Date, endDate: e as Date });
+                                    }
+                                  }
+
+                                  return (
+                                    <>
+                                      <LabeledRow icon={FiClock} label="Proposed" value={proposedStr ?? "—"} />
+                                      <LabeledRow icon={FiClock} label="Current" value={currentStr ?? "—"} />
+                                      {/* Optional debug badge showing link source (remove in prod) */}
+                                      {process.env.NODE_ENV === 'development' && linkSource && (
+                                        <Badge colorScheme="blue" rounded="full">{linkSource}</Badge>
+                                      )}
+                                    </>
+                                  );
                                 })()}
                               </HStack>
                             </VStack>
@@ -687,56 +906,89 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                         <Text>—</Text>
                       ) : (
                         <>
-                          {/* Latest summary */}
-                          {(() => {
-                            const latest = getLatestSelectedAppDate(appointment?.selectedAppDates ?? []);
-                            const ls = latest ? getSlotStart(latest) : null;
-                            const le = latest ? getSlotEnd(latest) : null;
-                            const status = (latest as any)?.status ?? "Unknown";
-                            const colorScheme = ({
-                              Confirmed: "green",
-                              Declined: "red",
-                              Reschedule: "orange",
-                              Pending: "purple",
-                              Unknown: "gray",
-                            } as Record<string, string>)[status] ?? "gray";
-                            return latest && ls && le ? (
-                              <HStack justify="space-between" border="1px solid" borderColor={border} rounded="lg" p={2}>
-                                <Text fontWeight="semibold">Latest:</Text>
-                                <Text>{formatDateWS({ startDate: ls, endDate: le })}</Text>
-                                <Badge rounded="full" colorScheme={colorScheme}>{status}</Badge>
-                              </HStack>
-                            ) : null;
-                          })()}
-
-                          {/* Timeline list */}
+                          {/* Timeline list: Latest is indicated inline with a blue badge, same style as others */}
                           <Box maxH="320px" overflowY="auto" pr={1}
                             sx={{ "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-thumb": { backgroundColor: "#a0aec0", borderRadius: "4px" }, "&::-webkit-scrollbar-track": { backgroundColor: "#edf2f7" } }}
                           >
                             <VStack align="stretch" spacing={2}>
-                              {[...(appointment?.selectedAppDates ?? [])]
-                                .sort((a: any, b: any) => {
-                                  const as = getSlotStart(a)?.getTime() ?? 0;
-                                  const bs = getSlotStart(b)?.getTime() ?? 0;
-                                  return bs - as; // latest first
-                                })
+                              {(() => {
+                                const display = pickDisplaySlot(appointment?.selectedAppDates ?? []);
+                                const displayId = display ? String((display as any)?._id ?? "") : "";
+                                const oidTime = (val: any): number => {
+                                  const hex = String(val ?? '').trim();
+                                  // ObjectId: first 8 hex chars are seconds since epoch
+                                  if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+                                    const secs = parseInt(hex.slice(0, 8), 16);
+                                    if (!Number.isNaN(secs)) return secs * 1000;
+                                  }
+                                  return 0;
+                                };
+
+                                // 1) Ordenar SOLO por updatedAt (más reciente primero). Si falta updatedAt, tratamos como 0.
+                                const updatedAtTs = (s: any): number => {
+                                  if (s?.updatedAt) {
+                                    const t = new Date(s.updatedAt).getTime();
+                                    return Number.isFinite(t) ? t : 0;
+                                  }
+                                  return 0;
+                                };
+
+                                const sorted = [...(appointment?.selectedAppDates ?? [])]
+                                  .sort((a: any, b: any) => updatedAtTs(b) - updatedAtTs(a));
+
+                                // 2) Deduplicar por rango top-level (startDate-endDate) conservando el más reciente
+                                const seen = new Set<string>();
+                                const deduped = [] as any[];
+                                for (const s of sorted) {
+                                  const hasTopDates = s?.startDate && s?.endDate;
+                                  const key = hasTopDates
+                                    ? `${new Date(s.startDate as any).getTime()}|${new Date(s.endDate as any).getTime()}`
+                                    : `__unique__${String((s as any)?._id ?? Math.random())}`; // si no hay ambas fechas, no deduplicamos
+                                  if (seen.has(key)) continue;
+                                  seen.add(key);
+                                  deduped.push(s);
+                                }
+
+                                // 3) Asegurar orden final: más reciente arriba
+                                const finalList = deduped.sort((a: any, b: any) => updatedAtTs(b) - updatedAtTs(a));
+
+                                return finalList
                                 .map((it: any, idx: number) => {
                                   const s = getSlotStart(it);
                                   const e = getSlotEnd(it);
-                                  const status = it?.status ?? "Unknown";
-                                  const colorScheme = ({
-                                    Confirmed: "green",
-                                    Declined: "red",
-                                    Reschedule: "orange",
-                                    Pending: "purple",
-                                    Unknown: "gray",
-                                  } as Record<string, string>)[status] ?? "gray";
-                                  const isLatest = idx === 0; // because sorted desc
+                                  // Determinar un status efectivo si falta el campo
+                                  const rawStatusOriginal = it?.status;
+                                  let effectiveStatus = rawStatusOriginal;
+                                  if (!effectiveStatus || !String(effectiveStatus).trim()) {
+                                    // Si tiene propuesta y aún no hay confirmación => Pending
+                                    if (it?.proposed && !it?.confirmation) {
+                                      effectiveStatus = 'Pending';
+                                    } else if (it?.confirmation?.status) {
+                                      effectiveStatus = it.confirmation.status;
+                                    } else {
+                                      effectiveStatus = 'Unknown';
+                                    }
+                                  }
+                                  const rawStatus = effectiveStatus ?? 'Unknown';
+                                  const sk = statusKey(rawStatus);
+                                  const colorSchemeMap: Record<string, string> = {
+                                    confirmed: 'green',
+                                    declined: 'red',
+                                    rejected: 'red',
+                                    reschedule: 'orange',
+                                    pending: 'purple',
+                                    nocontacted: 'gray',
+                                    'no contacted': 'gray',
+                                    unknown: 'gray',
+                                  };
+                                  const colorScheme = colorSchemeMap[sk] ?? 'gray';
+                                  console.log("it",it)
+                                  const isLatest = String(it?._id ?? '') === displayId; // mark display slot as Latest
                                   return (
                                     <Box key={it?._id ?? idx} border="1px solid" borderColor={border} rounded="xl" p={3}>
                                       <HStack justify="space-between" align="center" mb={1}>
                                         <HStack spacing={2}>
-                                          <Badge rounded="full" colorScheme={colorScheme}>{status}</Badge>
+                                          <Tooltip  label={`Create at ${fmtDateTime(it?.updatedAt)}`}   ><Badge rounded="full" colorScheme={colorScheme}>{capStatus(rawStatus)}</Badge></Tooltip>
                                           {it?.rescheduleRequested ? (
                                             <Badge colorScheme="orange" rounded="full">Reschedule requested</Badge>
                                           ) : null}
@@ -744,20 +996,31 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                                             <Badge colorScheme="blue" variant="subtle" rounded="full">Latest</Badge>
                                           ) : null}
                                         </HStack>
-                                        <Text fontSize="sm" color={sub}>
-                                          {s && e ? formatDateWS({ startDate: s, endDate: e }) : "—"}
-                                        </Text>
+                       
                                       </HStack>
-                                      <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={3}>
-                                        <LabeledRow icon={FiClock} label="Start" value={fmtDateTime(s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate)} />
-                                        <LabeledRow icon={FiClock} label="End" value={fmtDateTime(e ?? it?.endDate ?? it?.propEndDate ?? it?.proposed?.endDate)} />
-                                        <LabeledRow icon={FiCalendar} label="Proposed Start" value={fmtDateTime(it?.proposed?.startDate)} />
-                                        <LabeledRow icon={FiCalendar} label="Proposed End" value={fmtDateTime(it?.proposed?.endDate)} />
-                                      </Grid>
+                                      <VStack align="stretch" spacing={2}>
+                                        <LabeledRow
+                                          icon={FiClock}
+                                          label="Range"
+                                          value={(() => {
+                                            const startVal = s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate;
+                                            const endVal = e ?? it?.endDate ?? it?.propEndDate ?? it?.proposed?.endDate;
+                                            if (startVal && endVal) {
+                                              try {
+                                                return formatDateWS({ startDate: new Date(startVal), endDate: new Date(endVal) });
+                                              } catch {
+                                                return "—";
+                                              }
+                                            }
+                                            return "—";
+                                          })()}
+                                        />
+                                       
+                                      </VStack>
                                       {it?.proposed && (
                                         <Box mt={2}>
                                           <Text fontSize="xs" color={sub}>
-                                          
+                                            {it?.confirmation?.sentAt ? `Sent at: ${fmtDateTime(it?.confirmation?.sentAt)}` : ""}
                                             {it?.proposed?.createdAt ? ` · ${fmtDateTime(it?.proposed.createdAt)}` : ""}
                                           </Text>
                                           {it?.proposed?.reason && (
@@ -771,14 +1034,13 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                                             Decided at: {fmtDateTime(it?.confirmation.decidedAt)}
                                             {it?.confirmation.lateResponse ? " · Late response" : ""}
                                           </Text>
-                                          {it?.confirmation.byMessageSid && (
-                                            <Text fontSize="xs" color={sub}>By Msg SID: {it?.confirmation.byMessageSid}</Text>
-                                          )}
+                                         
                                         </Box>
                                       )}
                                     </Box>
                                   );
-                                })}
+                                })
+                              })()}
                             </VStack>
                           </Box>
                         </>
@@ -795,16 +1057,18 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                     }
                   >
                     <VStack align="stretch" spacing={3}>
-                      <Grid templateColumns={{ base: "1fr", sm: "1fr 1fr" }} gap={4}>
+                      <VStack align="stretch" spacing={2}>
                         <LabeledRow
-                          label="From"
-                          value={fmtDateTime(appointment?.selectedDates?.startDate)}
+                          label="Range"
+                          value={(() => {
+                            const s = appointment?.selectedDates?.startDate;
+                            const e = appointment?.selectedDates?.endDate;
+                            return s && e
+                              ? formatDateWS({ startDate: new Date(s as any), endDate: new Date(e as any) })
+                              : "—";
+                          })()}
                         />
-                        <LabeledRow
-                          label="To"
-                          value={fmtDateTime(appointment?.selectedDates?.endDate)}
-                        />
-                      </Grid>
+                      </VStack>
                       <VStack align="stretch" spacing={2}>
                         {(appointment?.selectedDates?.days ?? []).map((d, idx) => (
                           <HStack

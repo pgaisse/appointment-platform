@@ -43,6 +43,10 @@ const ConfirmationSchema = new Schema({
   decidedAt: { type: Date },
   byMessageSid: { type: String },
   lateResponse: { type: Boolean, default: false },
+  // Timestamps y trazabilidad de la solicitud
+  sentAt: { type: Date },           // hora exacta de envío de la notificación
+  askMessageSid: { type: String },  // SID del mensaje de “ask”
+  deliveredAt: { type: Date },      // opcional: cuando Twilio reporta delivered
 }, { _id: false });
 
 const ReminderSchema = new Schema({
@@ -61,6 +65,21 @@ const SelectedAppDateSchema = new Schema({
   endDate: { type: Date },
   status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NoContacted },
   rescheduleRequested: { type: Boolean, default: false },
+  // Sentinel para conservar la ventana ORIGINAL sobre la cual se generó la propuesta
+  origin: {
+    startDate: { type: Date }, // copia inmutable de startDate previo a la primera propuesta
+    endDate: { type: Date },   // copia inmutable de endDate previo a la primera propuesta
+    capturedAt: { type: Date }, // cuándo se tomó el snapshot
+  },
+  // Historial mínimo de cambios de start/end (solo últimos valores previos) para auditoría ligera
+  history: [
+    {
+      startDate: { type: Date },
+      endDate: { type: Date },
+      changedAt: { type: Date },
+      reason: { type: String },
+    }
+  ],
   proposed: {
     startDate: { type: Date },
     endDate: { type: Date },
@@ -70,7 +89,7 @@ const SelectedAppDateSchema = new Schema({
   },
   confirmation: ConfirmationSchema,
   reminder: { type: ReminderSchema, default: {} },
-}, { _id: true });
+}, { _id: true, timestamps: true });
 
 /* ======================= Appointment (principal) ======================= */
 
@@ -125,12 +144,29 @@ const AppointmentsSchema = new Schema({
 
   selectedAppDates: { type: [SelectedAppDateSchema], default: [] },
 
+  // DEPRECATED: Per-slot provider assignments (now handled by AppointmentProvider collection)
+  // providersAssignments: [{
+  //   slotId: { type: Schema.Types.ObjectId }, // _id of SelectedAppDate subdocument (filled when available)
+  //   provider: { type: Schema.Types.ObjectId, ref: 'Provider', required: true },
+  //   startDate: { type: Date }, // snapshot of slot start at assignment time
+  //   endDate: { type: Date },   // snapshot of slot end at assignment time
+  //   createdAt: { type: Date, default: Date.now },
+  //   updatedAt: { type: Date, default: Date.now },
+  // }],
+
   providers: [{ type: Schema.Types.ObjectId, ref: 'Provider', default: [] }],
   providerNotes: { type: String, default: '' },
   isProviderLocked: { type: Boolean, default: false },
   location: { type: Schema.Types.ObjectId, ref: 'Location', default: null },
   chair: { type: Schema.Types.ObjectId, ref: 'Chair', default: null },
 }, { timestamps: true });
+
+/* ---------- Virtual: provider assignments via AppointmentProvider collection ---------- */
+AppointmentsSchema.virtual('providersAssignments', {
+  ref: 'AppointmentProvider',
+  localField: '_id',
+  foreignField: 'appointment'
+});
 
 /* ---------- Virtual: dependents (representante con múltiples niños) ---------- */
 AppointmentsSchema.virtual('dependents', {
@@ -212,8 +248,14 @@ AppointmentsSchema.pre('validate', function (next) {
   if (!Array.isArray(this.providers)) this.providers = [];
   if (this.provider && !this.providers.length) this.providers = [this.provider];
 
+  // DEPRECATED: providersAssignments normalization (now handled by AppointmentProvider collection)
+  // Legacy code commented out - providers array will be auto-populated from AppointmentProvider refs
+
   next();
 });
+
+// DEPRECATED: Sync providers hooks (now handled by AppointmentProvider collection)
+// Legacy hooks commented out - providers will be managed through AppointmentProvider collection
 
 /* ---------- Helpers para ruteo de comunicación ---------- */
 AppointmentsSchema.methods.getEffectiveContact = async function () {
@@ -310,6 +352,11 @@ AppointmentsSchema.index({
 // Contact Appointment
 const ContactSchema = new Schema({
   appointment: { type: Schema.Types.ObjectId, ref: 'Appointment', required: true, index: true },
+  // Subdocument id de Appointment.selectedAppDates (para enlazar el intento con una ventana concreta)
+  selectedAppDate: { type: Schema.Types.ObjectId, default: null },
+  // Fechas propuestas (persistidas en el log para no perderlas si el slot cambia)
+  proposedStartDate: { type: Date, default: null },
+  proposedEndDate: { type: Date, default: null },
   org_id: String,
   status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NotStarted },
   startDate: { type: Date },
@@ -318,7 +365,91 @@ const ContactSchema = new Schema({
   cSid: String,
   pSid: String,
   user: { type: Schema.Types.ObjectId, ref: 'User' },
+  // Campos para diferenciar “contacted” vs “responded”
+  sentAt: { type: Date },                 // hora exacta en que se envió el intento
+  deliveredAt: { type: Date },            // opcional
+  respondedAt: { type: Date },            // hora exacta de la respuesta
+  askMessageSid: { type: String },        // correlación con el mensaje outbound
+  responseMessageSid: { type: String },   // correlación con el mensaje inbound
 }, { timestamps: true });
+
+// Índice compuesto útil para ubicar intentos por appointment + subdocumento de fecha concreta
+ContactSchema.index({ appointment: 1, selectedAppDate: 1 });
+
+// Auto-asociar selectedAppDate priorizando askMessageSid y luego coincidencia por fechas (top-level o proposed)
+ContactSchema.pre('save', async function (next) {
+  try {
+    const contact = this; // documento ContactAppointment
+    if (!contact.appointment) return next();
+    // Si ya está seteado, no forzamos re-asignación (evita sobreescribir manual)
+    if (contact.selectedAppDate) {
+      // Completar proposedStart/End si faltan y el slot tiene proposed
+      try {
+        const AppointmentModel = contact.model('Appointment');
+        const apptLite = await AppointmentModel.findById(contact.appointment).select('selectedAppDates').lean();
+        const slotLite = apptLite?.selectedAppDates?.find((sd) => String(sd._id) === String(contact.selectedAppDate));
+        if (slotLite) {
+          if (!contact.proposedStartDate && slotLite.proposed?.startDate) contact.proposedStartDate = slotLite.proposed.startDate;
+          if (!contact.proposedEndDate && slotLite.proposed?.endDate) contact.proposedEndDate = slotLite.proposed.endDate;
+        }
+      } catch {}
+      return next();
+    }
+
+    const AppointmentModel = contact.model('Appointment');
+    const appt = await AppointmentModel
+      .findById(contact.appointment)
+      .select('selectedAppDates')
+      .lean();
+
+    if (!appt || !Array.isArray(appt.selectedAppDates) || appt.selectedAppDates.length === 0) return next();
+
+    let matched = null;
+
+    // 1) askMessageSid → slot.confirmation.askMessageSid
+    if (contact.askMessageSid) {
+      matched = appt.selectedAppDates.find((sd) => String(sd?.confirmation?.askMessageSid || '') === String(contact.askMessageSid)) || null;
+    }
+
+    // 2) Coincidencia por fechas (si tenemos start/end en el log)
+    const hasDates = contact.startDate instanceof Date && contact.endDate instanceof Date;
+    if (!matched && hasDates) {
+      const sTs = contact.startDate.getTime();
+      const eTs = contact.endDate.getTime();
+      if (!Number.isNaN(sTs) && !Number.isNaN(eTs)) {
+        // a) top-level start/end
+        matched = appt.selectedAppDates.find((sd) => {
+          const sdS = sd?.startDate ? new Date(sd.startDate).getTime() : NaN;
+          const sdE = sd?.endDate ? new Date(sd.endDate).getTime() : NaN;
+          return sdS === sTs && sdE === eTs;
+        }) || null;
+        // b) proposed start/end
+        if (!matched) {
+          matched = appt.selectedAppDates.find((sd) => {
+            const ps = sd?.proposed?.startDate ? new Date(sd.proposed.startDate).getTime() : NaN;
+            const pe = sd?.proposed?.endDate ? new Date(sd.proposed.endDate).getTime() : NaN;
+            return ps === sTs && pe === eTs;
+          }) || null;
+        }
+      }
+    }
+
+    // 3) Si aún no hay match pero hay sólo un slot → asumir ese (caso trivial)
+    if (!matched && appt.selectedAppDates.length === 1) {
+      matched = appt.selectedAppDates[0];
+    }
+
+    if (matched && matched._id) {
+      contact.selectedAppDate = matched._id;
+      // Completar proposedStart/End si no vienen seteados
+      if (!contact.proposedStartDate && matched.proposed?.startDate) contact.proposedStartDate = matched.proposed.startDate;
+      if (!contact.proposedEndDate && matched.proposed?.endDate) contact.proposedEndDate = matched.proposed.endDate;
+    }
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // Categories
 const CategoriesSchema = new Schema({

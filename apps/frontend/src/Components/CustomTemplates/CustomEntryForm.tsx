@@ -7,6 +7,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+import ProviderPerDate, { type PendingAssignment } from "./ProviderPerDate";
+import { useCreateAppointmentProvider, type CreateAppointmentProviderData } from "@/Hooks/Query/useAppointmentProviders";
 
 import DOMPurify from "dompurify";
 import CustomHeading from "../Form/CustomHeading";
@@ -36,17 +38,16 @@ import {
   ModalFooter,
   ModalHeader,
   ModalOverlay,
+  Tooltip,
   RadioGroup,
   SimpleGrid,
   Spinner,
   Tag,
   TagLabel,
-  TagCloseButton,
   InputGroup,
   InputLeftElement,
   Text,
   VStack,
-  Kbd,
   Skeleton,
   Radio as ChakraRadio,
   Switch,
@@ -86,6 +87,7 @@ import { DateRange } from "./CustomBestApp";
 import {
   Appointment,
   ContactPreference,
+  ContactStatus,
   Priority,
   Provider,
   Representative,
@@ -100,20 +102,13 @@ import { useInsertToCollection } from "@/Hooks/Query/useInsertToCollection";
 import { TreatmentSelector } from "../Treatments/TreatmentSelector";
 import PhoneInput from "../Form/PhoneInput";
 import { ContactForm, contactsSchema } from "@/schemas/ContactSchema";
-import { appointmentsKey, appointmentsSearchKey } from "@/lib/queryKeys";
-import { PageResp } from "@/Hooks/Query/useAppointmentsPaginated";
 import { useProvidersList } from "@/Hooks/Query/useProviders";
-import {
-  useProviderAppointments,
-  useProviderTimeOff,
-} from "@/Hooks/Query/useProviderAppointments";
-import {
-  SuggestItem,
-  useSuggestProviders,
-} from "@/Hooks/Query/useSuggestProviders";
+// Provider availability hooks removed (now handled inside ProviderPerDate)
+// Server-side suggest types no longer used (multi-window handled client-side)
 import CustomCalendarEntryForm from "../Scheduler/CustomCalendarEntryForm";
-import type { Weekly } from "@/Hooks/Query/useProviders";
-import { useProviderSchedule } from "@/Hooks/Query/useProviderSchedule";
+// Weekly type no longer needed (schedule helpers removed)
+import { PageResp } from "@/Hooks/Query/useAppointmentsPaginated";
+// useProviderSchedule removed (encapsulated in ProviderPerDate)
 import { useCheckPhoneUnique } from "@/Hooks/Query/useCheckPhoneUnique";
 import { toE164AU } from "@/utils/phoneAU";
 
@@ -131,8 +126,21 @@ import ShowTemplateButtonWithData from "../Chat/CustomMessages/ShowTemplateButto
 dayjs.extend(utc);
 dayjs.extend(timezone);
 import customParseFormat from "dayjs/plugin/customParseFormat";
-import { getLatestSelectedAppDate, getLatestSelectedAppDateRange } from "@/Functions/getLatestSelectedAppDate";
+import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
 const SYD_TZ = "Australia/Sydney";
+
+// Status → color scheme mapping for appointment slot tags
+const SLOT_STATUS_COLOR: Record<string, string> = {
+  confirmed: 'green',
+  pending: 'yellow',
+  nocontacted: 'gray',
+  contacted: 'blue',
+  declined: 'red',
+  reschedule: 'purple',
+  cancelled: 'red',
+  unknown: 'gray',
+  new: 'blue', // Para slots nuevos en modo CREATION
+};
 
 /* ----------------- helpers ----------------- */
 function useDebounced<T>(value: T, delay = 250) {
@@ -174,100 +182,7 @@ function normalizeId(v: any): string | undefined {
 }
 
 /* ----------------- util fechas y schedule ----------------- */
-type DayKey = keyof Weekly;
-const IDX_TO_DAYKEY: DayKey[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-const HHMMtoMin = (hhmm: string) => {
-  const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10) || 0);
-  return h * 60 + m;
-};
-function splitRangeByLocalDays(
-  fromTs: number,
-  toTs: number,
-  tz = SYD_TZ
-): Array<{
-  day: DayKey;
-  startMin: number;
-  endMin: number;
-}> {
-  if (toTs <= fromTs) return [];
-  const out: Array<{ day: DayKey; startMin: number; endMin: number }> = [];
-  let cursor = fromTs;
-  const end = toTs;
-  const endLocal = dayjs.utc(end).tz(tz);
-  const endLocalYMD = endLocal.format("YYYY-MM-DD");
-
-  while (cursor < end) {
-    const cLocal = dayjs.utc(cursor).tz(tz);
-    const dayKey = IDX_TO_DAYKEY[cLocal.day()] as DayKey;
-    const startMin = cLocal.hour() * 60 + cLocal.minute();
-
-    const endOfDayLocal = cLocal.endOf("day");
-    const segmentEnd = Math.min(end, endOfDayLocal.valueOf() + 1);
-    const sameDayAsEnd = cLocal.format("YYYY-MM-DD") === endLocalYMD;
-    const endMin = sameDayAsEnd
-      ? endLocal.hour() * 60 + endLocal.minute()
-      : 24 * 60;
-
-    out.push({ day: dayKey, startMin, endMin });
-
-    const nextStartLocal = cLocal.add(1, "day").startOf("day");
-    cursor = Math.max(segmentEnd, nextStartLocal.valueOf());
-  }
-
-  return out;
-}
-function fitsSchedule(weekly: Weekly, tz: string, fromTs: number, toTs: number) {
-  const segs = splitRangeByLocalDays(fromTs, toTs, tz);
-  if (!segs.length) return false;
-  return segs.every((seg) => {
-    const blocks = (weekly?.[seg.day] ?? []) as { start: string; end: string }[];
-    return blocks.some(
-      (b) => HHMMtoMin(b.start) <= seg.startMin && HHMMtoMin(b.end) >= seg.endMin
-    );
-  });
-}
-function partialSchedule(
-  weekly: Weekly,
-  tz: string,
-  fromTs: number,
-  toTs: number
-) {
-  const segs = splitRangeByLocalDays(fromTs, toTs, tz);
-  return segs.some((seg) => {
-    const blocks = (weekly?.[seg.day] ?? []) as { start: string; end: string }[];
-    return blocks.some((b) => {
-      const bs = HHMMtoMin(b.start);
-      const be = HHMMtoMin(b.end);
-      return (
-        Math.max(0, Math.min(be, seg.endMin) - Math.max(bs, seg.startMin)) > 0
-      );
-    });
-  });
-}
-function overlaps(a0: number, a1: number, b0: number, b1: number) {
-  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0)) > 0;
-}
-function appointmentRanges(a: any): Array<[number, number]> {
-  const out: Array<[number, number]> = [];
-  if (Array.isArray(a?.selectedAppDates)) {
-    for (const r of a.selectedAppDates) {
-      const s = r?.startDate ?? r?.propStartDate;
-      const e = r?.endDate ?? r?.propEndDate;
-      if (s && e) out.push([new Date(s).getTime(), new Date(e).getTime()]);
-    }
-  }
-  if (a?.selectedDates?.startDate && a?.selectedDates?.endDate) {
-    out.push([
-      new Date(a.selectedDates.startDate).getTime(),
-      new Date(a.selectedDates.endDate).getTime(),
-    ]);
-  }
-  if (a?.startUtc && a?.endUtc)
-    out.push([new Date(a.startUtc).getTime(), new Date(a.endUtc).getTime()]);
-  if (a?.start && a?.end)
-    out.push([new Date(a.start).getTime(), new Date(a.end).getTime()]);
-  return out.filter(([s, e]) => e > s);
-}
+// Local schedule helper functions removed (encapsulated within ProviderPerDate component now)
 
 /* ===================== Representative search (soft) ===================== */
 type AppointmentHit = {
@@ -441,6 +356,7 @@ type Props = {
   contactPreference?: ContactPreference;
   providers?: Provider[];
   representative?: Representative;
+  // REMOVED: providersAssignments - now handled by AppointmentProvider collection
 };
 
 function CustomEntryForm({
@@ -470,6 +386,7 @@ function CustomEntryForm({
   phoneFieldReadOnly = false,
   conversationId,
   providers,
+  // REMOVED: providersAssignments: providersAssignmentsProp,
 }: Props) {
   const { data: allProviders = [] } = useProvidersList({ active: true });
   const { onOpen: onOpenApp, onClose: onCloseApp, isOpen: isOpenApp } =
@@ -489,10 +406,40 @@ function CustomEntryForm({
   );
   const { mutateAsync: sendSMSAsync, isPending: isSending } =
     useSendAppointmentSMS();
+  const { mutateAsync: createProviderAssignment } = useCreateAppointmentProvider();
   const [uiBusy, setUiBusy] = useState(false);
   const formBusy = isPending || editIsPending || isSending || uiBusy;
   const queryClient = useQueryClient();
   const toast = useToast();
+  
+  // State for pending provider assignments in CREATION mode
+  const [pendingProviderAssignments, setPendingProviderAssignments] = useState<PendingAssignment[]>([]);
+  
+  // Stabilize the callback to prevent infinite re-renders
+  const handlePendingAssignmentsChange = useCallback((assignments: PendingAssignment[]) => {
+    setPendingProviderAssignments(assignments);
+  }, []);
+
+  // Cancel any in-flight queries that depend on appointments
+  const cancelAppointmentDependentQueries = useCallback(async () => {
+    try {
+      await queryClient.cancelQueries({
+        predicate: (q) => {
+          const key = q.queryKey as unknown as any[];
+          const head = Array.isArray(key) ? key[0] : undefined;
+          // Known appointment-related roots
+          return (
+            head === 'appointments' ||
+            head === 'appointments-search' ||
+            head === 'DraggableCards' ||
+            head === 'Appointment'
+          );
+        },
+      });
+    } catch (e) {
+      // No-op: cancellation is best-effort
+    }
+  }, [queryClient]);
 
   // checkUnique (servidor) solo en CREATION
   const checkPhoneUnique = useCheckPhoneUnique();
@@ -556,6 +503,7 @@ function CustomEntryForm({
       id: mode === "EDITION" ? idVal || "" : "",
       reschedule: !!reschedule,
       providers: providerIdsFromProps,
+      // REMOVED: providersAssignments: [],
       representative:
         normalizedRepresentative ??
         ({
@@ -876,6 +824,7 @@ function CustomEntryForm({
   const [selectedAppDates, setSelectedAppDates] = useState<DateRange[]>(
     datesAppSelected || []
   );
+  // REMOVED: providersAssignments state - now handled by AppointmentProvider collection
   const [selectedDays, setSelectedDays] = useState<
     Partial<Record<WeekDay, TimeBlock[]>>
   >(() => {
@@ -888,14 +837,7 @@ function CustomEntryForm({
     return {};
   });
 
-  // Appointment window y start
-  const appointmentWindow = useMemo(() => {
-    const latest = getLatestSelectedAppDateRange(selectedAppDates as any);
-    if (!latest) return null;
-    const fromIso = dayjs.utc(latest.start).toDate().toISOString();
-    const toIso = dayjs.utc(latest.end).toDate().toISOString();
-    return { fromIso, toIso };
-  }, [selectedAppDates]);
+  // Appointment window (single) deprecated: we now compute allAppointmentWindows instead
 
   const appointmentStartLocal = useMemo(() => {
     const latest = getLatestSelectedAppDate(selectedAppDates as any);
@@ -996,6 +938,8 @@ function CustomEntryForm({
   // Snapshot ligero de campos para plantillas, sólo cuando el panel está abierto
   const [tokensSnapshot, setTokensSnapshot] = useState<Record<string, any>>({});
   const tokensTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // REMOVED: providersAssignments prefill useEffect - now handled by AppointmentProvider collection
 
   useEffect(() => {
     if (!messagingOpen) return;
@@ -1114,28 +1058,12 @@ function CustomEntryForm({
     return v;
   })();
 
-  const suggestParams = useMemo(() => {
-    if (!appointmentWindow || !selectedTreatmentId) return undefined;
-    return {
-      from: appointmentWindow.fromIso,
-      to: appointmentWindow.toIso,
-      treatmentIds: [selectedTreatmentId],
-      durationMin: duration ? duration * 60 : undefined,
-    };
-  }, [appointmentWindow, selectedTreatmentId, duration]);
+  // Multi-window suggestion support was moved into the ProviderPerDate component
 
-  const { data: suggestResp = [], isFetching: isSuggesting } =
-    useSuggestProviders(suggestParams);
+  // REMOVED: providersAssignments sync - now handled by AppointmentProvider collection
 
-  // ⚡ OPTIMIZACIÓN: Observar providers una sola vez para suggestedProviders
-  const currentProviderIds = watch("providers");
-  
-  const suggestedProviders = useMemo<Provider[]>(() => {
-    const selectedSet = new Set((currentProviderIds as string[]) || []);
-    return (suggestResp as SuggestItem[])
-      .map((r: SuggestItem) => r.provider)
-      .filter((p: Provider) => !selectedSet.has(String(p._id)));
-  }, [suggestResp, currentProviderIds]);
+  // ⚡ OPTIMIZACIÓN: Observar providers una sola vez para suggested list (we'll filter client-side by availability across all windows)
+  // const currentProviderIds = watch("providers"); // unused after refactor
 
   /* —— submit helpers —— */
   const sanitize = (data: any) => {
@@ -1198,12 +1126,27 @@ function CustomEntryForm({
         : undefined,
     };
 
+    // Ensure selectedAppDates status handling
+        const statusNoContacted:ContactStatus= "NoContacted";
+    // Ensure selectedAppDates status handling
+    if (Array.isArray(data?.selectedAppDates)) {
+      // In CREATION mode, force status to Confirmed for each entry
+      const forceConfirmed = mode === "CREATION";
+      cleaned.selectedAppDates = (data.selectedAppDates as any[]).map((it) => {
+        const next: any = { ...it };
+        if (forceConfirmed) next.status =statusNoContacted ;
+        return next;
+      });
+    }
+
     if (repObj) {
       cleaned.representative = repObj;
       if (!cleaned.phoneInput) cleaned.phoneInput = "";
     } else {
       delete cleaned.representative;
     }
+
+    // REMOVED: providersAssignments - now handled by AppointmentProvider collection
     return cleaned;
   };
 
@@ -1298,6 +1241,71 @@ function CustomEntryForm({
     normalizeId(resp?.id) ??
     normalizeId(resp?.result?.insertedId);
 
+  // Function to create provider assignments after appointment creation
+  const createPendingProviderAssignments = useCallback(async (appointmentId: string, selectedAppDates: any[]) => {
+    if (!pendingProviderAssignments.length) return;
+
+    try {
+      console.log('Creating provider assignments:', { 
+        appointmentId, 
+        pendingProviderAssignments, 
+        selectedAppDates: selectedAppDates.map((slot, idx) => ({ 
+          index: idx, 
+          _id: slot._id, 
+          slotId: slot.slotId, 
+          startDate: slot.startDate, 
+          endDate: slot.endDate 
+        }))
+      });
+
+      // Create assignments for each pending assignment
+      const promises = pendingProviderAssignments.map(async (assignment) => {
+        const slotData = selectedAppDates[assignment.slotIndex];
+        if (!slotData) return;
+
+        // Use the actual slot data's ID if it exists and is a valid ObjectId
+        const slotId = slotData._id || slotData.slotId;
+
+        const assignmentData: CreateAppointmentProviderData = {
+          appointment: appointmentId,
+          provider: assignment.providerId,
+          startDate: assignment.startDate,
+          endDate: assignment.endDate,
+        };
+
+        // Only include slotId if it's a valid ObjectId format (24 hex characters)
+        if (slotId && /^[0-9a-fA-F]{24}$/.test(String(slotId))) {
+          assignmentData.slotId = String(slotId);
+        }
+        // If no valid slotId, let the server generate one or handle it appropriately
+
+        return createProviderAssignment(assignmentData);
+      });
+
+      await Promise.all(promises.filter(Boolean));
+
+      toast({
+        title: "Provider assignments created",
+        description: `Successfully assigned ${pendingProviderAssignments.length} provider(s)`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Clear pending assignments after successful creation
+      setPendingProviderAssignments([]);
+    } catch (error) {
+      console.error('Error creating provider assignments:', error);
+      toast({
+        title: "Error creating provider assignments",
+        description: "Some provider assignments may not have been saved correctly.",
+        status: "warning",
+        duration: 4000,
+        isClosable: true,
+      });
+    }
+  }, [pendingProviderAssignments, createProviderAssignment, toast]);
+
   /* —— submit —— */
   const onSubmit = (data: AppointmentForm | ContactForm) => {
     if (inFlightRef.current) return;
@@ -1332,6 +1340,9 @@ function CustomEntryForm({
           });
 
           if (isAnAppointment && createdId) {
+            // Create provider assignments before sending notifications
+            await createPendingProviderAssignments(createdId, cleanedData.selectedAppDates || []);
+            
             await sendNotificationsFlow(createdId);
           }
 
@@ -1343,7 +1354,10 @@ function CustomEntryForm({
           reset();
           setRepQuery("");
           setIsChild(false);
+          setPendingProviderAssignments([]); // Clear pending assignments
 
+          // Ensure in-flight appointment-related queries are stopped before invalidation/refetch
+          await cancelAppointmentDependentQueries();
           await queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["Appointment"] });
@@ -1396,8 +1410,7 @@ function CustomEntryForm({
           if (refetch_list) refetch_list();
           if (rfetchPl) rfetchPl();
           if (onClose_1) onClose_1();
-          await queryClient.cancelQueries({ queryKey: appointmentsKey.base });
-          await queryClient.cancelQueries({ queryKey: appointmentsSearchKey.base });
+          await cancelAppointmentDependentQueries();
           if (refetchPage) refetchPage();
           queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
@@ -1446,60 +1459,7 @@ function CustomEntryForm({
   };
   const onError = () => setHasSubmitted(true);
 
-  // chips seleccionados horizontales
-  const renderSelectedProviderTags = (
-    providersList: Provider[],
-    values: string[],
-    removeById: (id: string) => void
-  ) => {
-    const byId = new Map(providersList.map((p) => [String(p._id), p]));
-    const chips = values
-      .map((id) => byId.get(String(id)))
-      .filter(Boolean) as Provider[];
-    return (
-      <Box
-        role="list"
-        aria-label="Selected providers"
-        mb={2}
-        px={2}
-        py={1}
-        borderWidth="1px"
-        borderRadius="md"
-        bg="blackAlpha.50"
-        overflowX="auto"
-        overflowY="hidden"
-        whiteSpace="nowrap"
-      >
-        {chips.length === 0 ? (
-          <Tag size="sm" colorScheme="gray" mr={2}>
-            No providers selected
-          </Tag>
-        ) : (
-          chips.map((p) => (
-            <Tag
-              key={String(p._id)}
-              size="xs"
-              variant="subtle"
-              borderRadius="md"
-              mr={2}
-            >
-              <Box
-                w="8px"
-                h="8px"
-                borderRadius="full"
-                bg={p.color || "gray.300"}
-                mr={2}
-              />
-              <TagLabel maxW="140px" isTruncated textTransform="capitalize">
-                {p.firstName} {p.lastName}
-              </TagLabel>
-              <TagCloseButton onClick={() => removeById(String(p._id))} />
-            </Tag>
-          ))
-        )}
-      </Box>
-    );
-  };
+  // Removed legacy inline provider chips/tag rendering (moved to ProviderPerDate)
 
   /* =================== UI =================== */
   return (
@@ -1627,7 +1587,6 @@ function CustomEntryForm({
                       </InputLeftElement>
                       <input
                         style={{
-                          width: "100%",
                           border: "1px solid var(--chakra-colors-gray-200)",
                           borderRadius: 6,
                           padding: "8px 12px 8px 36px",
@@ -1895,22 +1854,38 @@ function CustomEntryForm({
               control={control}
               render={({ field }) => (
                 <FormControl isInvalid={!!appointmentErrors?.selectedAppDates}>
-                  <FormLabel>Appointment Date</FormLabel>
-                  <Flex wrap="wrap" gap={3}>
-                    {field.value?.map((item: DateRange, index: number) => {
+                  <FormLabel>
+                    Appointment Date
+                    <Tag ml={2} size="sm" colorScheme="gray" variant="subtle">
+                      {((field.value as any[]) || []).length || 0}/10
+                    </Tag>
+                  </FormLabel>
+                  <Flex wrap="wrap" gap={2}>
+                    {((field.value as any[]) || [])?.map((item: DateRange & { status?: string }, index: number) => {
                       const start = dayjs.utc(item.startDate).tz(SYD_TZ);
                       const end = dayjs.utc(item.endDate).tz(SYD_TZ);
+                      const sameDay = start.format("YYYY-MM-DD") === end.format("YYYY-MM-DD");
+                      const display = sameDay
+                        ? `${start.format("ddd, DD MMM • h:mm A")} – ${end.format("h:mm A")}`
+                        : `${start.format("ddd, DD MMM • h:mm A")} → ${end.format("ddd, DD MMM • h:mm A")}`;
+                      const full = sameDay
+                        ? `${start.format("ddd, DD MMM YYYY • h:mm A")} – ${end.format("h:mm A")}`
+                        : `${start.format("ddd, DD MMM YYYY • h:mm A")} → ${end.format("ddd, DD MMM YYYY • h:mm A")}`;
+                      
+                      // En modo CREATION, usar fondo azul y no mostrar status
+                      const statusRaw = mode === "CREATION" ? "new" : String(item.status || '').toLowerCase();
+                      const colorScheme = SLOT_STATUS_COLOR[statusRaw] || (mode === "CREATION" ? 'blue' : 'gray');
+                      const statusLabel = mode === "CREATION" ? "" : (item.status || 'Unknown');
+                      
                       return (
-                        <Button
-                          key={`${start.toISOString()}-${index}`}
-                          fontSize="xs"
-                          isDisabled={formBusy}
-                          colorScheme="blue"
-                          type="button"
-                        >
-                          {start.format("YYYY/MM/DD hh:mm A")} —{" "}
-                          {end.format("hh:mm A")}
-                        </Button>
+                        <Tooltip key={`${start.toISOString()}-${index}`} label={full} hasArrow>
+                          <Tag size="sm" colorScheme={colorScheme} borderRadius="md" maxW="260px" display="flex" alignItems="center" gap={1}>
+                            <TagLabel isTruncated>{display}</TagLabel>
+                            {statusLabel && (
+                              <Box as="span" fontSize="0.65rem" opacity={0.85}>{statusLabel}</Box>
+                            )}
+                          </Tag>
+                        </Tooltip>
                       );
                     })}
                   </Flex>
@@ -1923,11 +1898,34 @@ function CustomEntryForm({
             />
 
             <FormControl pt={4}>
-              {selected > 0 ? (
+              {mode === "EDITION" ? (
+                <Alert status="info" rounded="10px" mt={2}>
+                  <AlertIcon />
+                  Appointment date is read-only in edit mode.
+                </Alert>
+              ) : selected > 0 ? (
                 <>
-                  <Button type="button" onClick={onOpenApp} isDisabled={formBusy}>
-                    Add Appointment
-                  </Button>
+                  {(() => {
+                    const values = (getValues("selectedAppDates") as any[]) || [];
+                    // In creation mode count all selected slots; in edit mode selectedAppDates is read-only (already confirmed)
+                    const count = values.length;
+                    const atLimit = count >= 10;
+                    return (
+                      <Tooltip
+                        isDisabled={!atLimit}
+                        label={atLimit ? "You can add up to 10 appointment slots" : ""}
+                        hasArrow
+                      >
+                        <Button
+                          type="button"
+                          onClick={onOpenApp}
+                          isDisabled={formBusy || atLimit}
+                        >
+                          Add Appointment ({count}/10)
+                        </Button>
+                      </Tooltip>
+                    );
+                  })()}
                   <Modal
                     isOpen={isOpenApp}
                     onClose={onCloseApp}
@@ -1976,6 +1974,17 @@ function CustomEntryForm({
             </FormControl>
           </Box>
         </SimpleGrid>
+
+        {/* Per-date Provider Assignment */}
+        <ProviderPerDate
+          mode={mode}
+          tz={SYD_TZ}
+          selectedAppDates={selectedAppDates}
+          allProviders={allProviders as any}
+          selectedTreatmentId={selectedTreatmentId}
+          appointmentId={(getValues("id") as any) || (idVal as any)}
+          onPendingAssignmentsChange={handlePendingAssignmentsChange}
+        />
 
         {/* Reminder Section */}
         <Box mt={4} p={3} borderWidth="1px" borderRadius="md" bg="blackAlpha.50">
@@ -2092,101 +2101,8 @@ function CustomEntryForm({
 
         <Divider my={5} />
 
-        {/* Providers */}
-        <FormControl isInvalid={!!(appointmentErrors as any)?.providers}>
-          <FormLabel>
-            Providers <Tag ml={2} size="sm" colorScheme="gray">Optional</Tag>
-          </FormLabel>
-          <Controller
-            name="providers"
-            control={control}
-            render={({ field }) => {
-              const values = (field.value as string[]) || [];
-
-              const addProvider = (p: Provider) => {
-                if (values.includes(String(p._id))) return;
-                field.onChange([...values, String(p._id)]);
-                trigger("providers");
-              };
-
-              const removeById = (id: string) => {
-                const next = values.filter((x) => x !== id);
-                field.onChange(next);
-                trigger("providers");
-              };
-
-              const gateMissingInputs = !appointmentWindow || !selectedTreatmentId;
-
-              return (
-                <VStack align="stretch" spacing={3}>
-                  {/* Chips */}
-                  <Box>
-                    {renderSelectedProviderTags(allProviders, values, removeById)}
-                  </Box>
-
-                  {gateMissingInputs ? (
-                    <Alert status="info" borderRadius="md">
-                      <AlertIcon />
-                      Select a <b style={{ margin: "0 4px" }}>treatment</b> and an{" "}
-                      <b style={{ margin: "0 4px" }}>appointment date</b> so I can suggest providers by schedule.
-                    </Alert>
-                  ) : (
-                    <>
-                      {/* Sugeridos */}
-                      {isSuggesting ? (
-                        <Skeleton h="28px" borderRadius="md" />
-                      ) : suggestedProviders.length > 0 ? (
-                        <Box>
-                          <Text fontWeight="semibold" fontSize="sm" mb={1}>
-                            Suggested
-                          </Text>
-                          <Box
-                            borderWidth="1px"
-                            borderRadius="md"
-                            maxH="180px"
-                            overflowY="auto"
-                            px={1}
-                            py={1}
-                          >
-                            {suggestedProviders.map((p) => (
-                              <ProviderRowScheduleAvailability
-                                key={`sugg-${p._id}`}
-                                p={p}
-                                windowIso={appointmentWindow}
-                                skillId={selectedTreatmentId}
-                                onAdd={addProvider}
-                                minMatch="partialOrBetter"
-                                hideIfBusy={false}
-                                hideIfTimeOff={false}
-                              />
-                            ))}
-                          </Box>
-                        </Box>
-                      ) : null}
-
-                      {/* Fallback manual */}
-                      <Text fontWeight="semibold" fontSize="sm" mt={2}>
-                        All providers (manual search)
-                      </Text>
-                      <ProviderFinderInline
-                        providers={allProviders}
-                        skillId={selectedTreatmentId}
-                        selectedIds={values}
-                        onAdd={addProvider}
-                        windowIso={appointmentWindow}
-                      />
-                    </>
-                  )}
-
-                  <FormErrorMessage>
-                    <FormErrorIcon mr="1" />
-                    {errMsg((appointmentErrors as any)?.providers)}
-                  </FormErrorMessage>
-                </VStack>
-              );
-            }}
-          />
-        </FormControl>
+        {/* Providers (global, optional; auto-synced with per-date assignments) */}
+        
 
         <Divider my={5} />
 
@@ -2223,13 +2139,14 @@ function CustomEntryForm({
           <Box
             borderWidth="1px"
             rounded="lg"
+            p={2}
             shadow="1px 1px 3px rgba(0,0,0,0.1)"
             py={2}
           >
             <CustomCheckbox
               name="reschedule"
               isPending={formBusy}
-              anotherName="Re-Schedule"
+              anotherName="Rebooked"
               register={register}
               error={asFieldError((appointmentErrors as any)?.reschedule)}
             />
@@ -2264,308 +2181,7 @@ function CustomEntryForm({
 }
 
 /* ----------------- Subcomponentes ----------------- */
-function ProviderRow({
-  p,
-  highlight,
-  onAdd,
-  rightAdornment,
-}: {
-  p: Provider;
-  highlight?: string;
-  onAdd: (p: Provider) => void;
-  rightAdornment?: React.ReactNode;
-}) {
-  const label = `${p.firstName} ${p.lastName}`.trim();
-  const renderHighlighted = (text: string, q?: string) => {
-    if (!q) return text;
-    const parts = text.split(new RegExp(`(${q})`, "i"));
-    return (
-      <>
-        {parts.map((part, i) =>
-          part.toLowerCase() === q.toLowerCase() ? (
-            <mark
-              key={i}
-              style={{ background: "transparent", color: "inherit", fontWeight: 700 }}
-            >
-              {part}
-            </mark>
-          ) : (
-            <React.Fragment key={i}>{part}</React.Fragment>
-          )
-        )}
-      </>
-    );
-  };
 
-  return (
-    <HStack
-      as="div"
-      role="button"
-      tabIndex={0}
-      w="100%"
-      justify="space-between"
-      px={2}
-      py={2}
-      borderRadius="md"
-      _hover={{ bg: "blackAlpha.50" }}
-      onClick={() => onAdd(p)}
-      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onAdd(p)}
-    >
-      <HStack overflow="hidden">
-        <Box w="8px" h="8px" borderRadius="full" bg={p.color || "gray.300"} />
-        <Text noOfLines={1} textTransform="capitalize">
-          {renderHighlighted(label, highlight)}
-        </Text>
-      </HStack>
-      {rightAdornment}
-    </HStack>
-  );
-}
-
-function ProviderRowScheduleAvailability({
-  p,
-  windowIso,
-  skillId,
-  onAdd,
-  qHighlight,
-  minMatch = "partialOrBetter",
-  hideIfBusy = false,
-  hideIfTimeOff = false,
-}: {
-  p: Provider;
-  windowIso: { fromIso: string; toIso: string } | null;
-  skillId?: string;
-  onAdd: (p: Provider) => void;
-  qHighlight?: string;
-  minMatch?: "fit" | "partialOrBetter";
-  hideIfBusy?: boolean;
-  hideIfTimeOff?: boolean;
-}) {
-  const toast = useToast();
-
-  if (!windowIso) {
-    return (
-      <ProviderRow
-        p={p}
-        onAdd={(prov) => {
-          if (!skillId) {
-            toast({
-              title: "Select a treatment first",
-              status: "warning",
-              duration: 2500,
-              isClosable: true,
-            });
-            return;
-          }
-          const hasSkill = (p.skills || []).map(String).includes(String(skillId));
-          if (!hasSkill) {
-            toast({
-              title: "Provider doesn’t perform the selected treatment",
-              status: "error",
-              duration: 3500,
-              isClosable: true,
-            });
-            return;
-          }
-          onAdd(prov);
-        }}
-        highlight={qHighlight}
-        rightAdornment={<Tag size="sm">Schedule unknown</Tag>}
-      />
-    );
-  }
-
-  const { data: sched, isFetching: isFetchingSched } = useProviderSchedule(p._id);
-  const { data: busyEvents = [], isFetching: isFetchingApps } =
-    useProviderAppointments(p._id, {
-      from: windowIso.fromIso,
-      to: windowIso.toIso,
-    });
-  const { data: timeOff = [], isFetching: isFetchingTO } = useProviderTimeOff(p._id, {
-    from: windowIso.fromIso,
-    to: windowIso.toIso,
-  });
-
-  const tz = sched?.timezone || SYD_TZ;
-  const from = new Date(windowIso.fromIso).getTime();
-  const to = new Date(windowIso.toIso).getTime();
-
-  const hasBusyOverlap = useMemo(() => {
-    if (!busyEvents?.length) return false;
-    return busyEvents.some((ev: any) =>
-      appointmentRanges(ev).some(([s, e]) => overlaps(from, to, s, e))
-    );
-  }, [busyEvents, from, to]);
-
-  const hasPTOOverlap = useMemo(() => {
-    if (!timeOff.length) return false;
-    return timeOff.some((t) =>
-      overlaps(from, to, new Date(t.start).getTime(), new Date(t.end).getTime())
-    );
-  }, [timeOff, from, to]);
-
-  const fitBySchedule = useMemo(
-    () => fitsSchedule(sched?.weekly ?? ({} as Weekly), tz, from, to),
-    [sched, tz, from, to]
-  );
-  const partialBySchedule = useMemo(
-    () => !fitBySchedule && partialSchedule(sched?.weekly ?? ({} as Weekly), tz, from, to),
-    [sched, tz, from, to, fitBySchedule]
-  );
-
-  const loading = isFetchingSched || isFetchingApps || isFetchingTO;
-  if (loading) return <Skeleton height="28px" borderRadius="md" />;
-
-  if (minMatch === "fit" && !fitBySchedule) return null;
-  if (!fitBySchedule && !partialBySchedule) return null;
-  if (hideIfBusy && hasBusyOverlap) return null;
-  if (hideIfTimeOff && hasPTOOverlap) return null;
-
-  const handleAdd = () => {
-    if (skillId) {
-      const hasSkill = (p.skills || []).map(String).includes(String(skillId));
-      if (!hasSkill) {
-        toast({
-          title: "Provider doesn’t perform the selected treatment",
-          status: "error",
-          duration: 3500,
-          isClosable: true,
-        });
-        return;
-      }
-    }
-    if (hasBusyOverlap) {
-      toast({
-        title: "Provider already has an appointment in that window",
-        status: "error",
-        duration: 3500,
-        isClosable: true,
-      });
-      return;
-    }
-    if (hasPTOOverlap) {
-      toast({
-        title: "Provider is on time off in that window",
-        status: "error",
-        duration: 3500,
-        isClosable: true,
-      });
-      return;
-    }
-    onAdd(p);
-  };
-
-  return (
-    <ProviderRow
-      p={p}
-      onAdd={handleAdd}
-      highlight={qHighlight}
-      rightAdornment={
-        hasBusyOverlap ? (
-          <Tag size="sm" colorScheme="red">
-            Booked
-          </Tag>
-        ) : hasPTOOverlap ? (
-          <Tag size="sm" colorScheme="red">
-            Time off
-          </Tag>
-        ) : fitBySchedule ? (
-          <Tag size="sm" colorScheme="green">
-            Fits
-          </Tag>
-        ) : (
-          <Tag size="sm" colorScheme="yellow">
-            Partial
-          </Tag>
-        )
-      }
-    />
-  );
-}
-
-function ProviderFinderInline({
-  providers,
-  skillId,
-  selectedIds,
-  onAdd,
-  windowIso,
-}: {
-  providers: Provider[];
-  skillId?: string;
-  selectedIds: string[];
-  onAdd: (p: Provider) => void;
-  windowIso: { fromIso: string; toIso: string } | null;
-}) {
-  const [query, setQuery] = useState("");
-  const q = useDebounced(query, 200);
-
-  const baseFiltered = useMemo(() => {
-    let arr = providers.filter((p) => !selectedIds.includes(String(p._id)));
-    if (skillId) {
-      const sid = String(skillId);
-      arr = arr.filter((p) => (p.skills || []).map(String).includes(sid));
-    }
-    if (q) {
-      const qq = q.trim().toLowerCase();
-      arr = arr.filter((p) =>
-        `${p.firstName} ${p.lastName}`.toLowerCase().includes(qq)
-      );
-    }
-    return arr;
-  }, [providers, selectedIds, q, skillId]);
-
-  return (
-    <VStack align="stretch" spacing={2}>
-      <InputGroup>
-        <InputLeftElement pointerEvents="none">
-          <FiSearch />
-        </InputLeftElement>
-        <input
-          style={{
-            width: "100%",
-            border: "1px solid var(--chakra-colors-gray-200)",
-            borderRadius: 6,
-            padding: "8px 12px 8px 36px",
-            fontSize: "0.875rem",
-          }}
-          placeholder="Search provider by name"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </InputGroup>
-
-      <Box
-        borderWidth="1px"
-        borderRadius="md"
-        maxH="240px"
-        overflowY="auto"
-        px={1}
-        py={1}
-      >
-        {baseFiltered.length === 0 ? (
-          <Box p={3} color="gray.500">
-            No providers found.
-          </Box>
-        ) : (
-          baseFiltered.map((p) => (
-            <ProviderRowScheduleAvailability
-              key={p._id as any}
-              p={p}
-              windowIso={windowIso}
-              skillId={skillId}
-              onAdd={onAdd}
-              qHighlight={q}
-              minMatch="partialOrBetter"
-            />
-          ))
-        )}
-      </Box>
-
-      <HStack color="gray.500" fontSize="xs">
-        <Kbd>Enter</Kbd> / click to add · <Kbd>Esc</Kbd> to clear
-      </HStack>
-    </VStack>
-  );
-}
+// Removed legacy ProviderFinderInline (replaced by ProviderPerDate component)
 
 export default CustomEntryForm;

@@ -425,6 +425,61 @@ router.get('/appointments/week', jwtCheck, ensureUser, attachUserInfo, async (re
   }
 });
 
+// GET /api/dashboard/appointments/month - Get detailed this month's created appointments (new patients)
+router.get('/appointments/month', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) return res.status(403).json({ error: 'Missing organization scope.' });
+
+    const now = dayjs().tz(TZ);
+    const monthStart = now.startOf('month').toDate();
+    const monthEnd = now.endOf('month').toDate();
+
+    const appointments = await Appointment.find({
+      org_id,
+      createdAt: { $gte: monthStart, $lte: monthEnd },
+    })
+      .populate('representative', 'nameInput lastNameInput phoneInput')
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean();
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Dashboard month appointments error:', error);
+    res.status(500).json({ error: 'Failed to fetch month appointments', message: error.message });
+  }
+});
+
+// GET /api/dashboard/appointments/range - Get detailed appointments created in a custom range
+// Query params: start=YYYY-MM-DD, end=YYYY-MM-DD
+router.get('/appointments/range', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) return res.status(403).json({ error: 'Missing organization scope.' });
+
+    const { start, end } = req.query;
+    if (!start || !end) return res.status(400).json({ error: "Both 'start' and 'end' query parameters are required (YYYY-MM-DD)" });
+
+    const startDate = dayjs.tz(String(start), TZ).startOf('day').toDate();
+    const endDate = dayjs.tz(String(end), TZ).endOf('day').toDate();
+
+    const appointments = await Appointment.find({
+      org_id,
+      createdAt: { $gte: startDate, $lte: endDate },
+    })
+      .populate('representative', 'nameInput lastNameInput phoneInput')
+      .sort({ createdAt: -1 })
+      .limit(1000)
+      .lean();
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Dashboard appointments range error:', error);
+    res.status(500).json({ error: 'Failed to fetch appointments range', message: error.message });
+  }
+});
+
 // GET /api/dashboard/appointments/pending - Get detailed pending appointments
 router.get('/appointments/pending', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
   try {

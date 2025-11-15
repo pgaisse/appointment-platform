@@ -14,6 +14,27 @@ import {
   AlertTitle,
   AlertDescription,
   useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
+  HStack,
+  Button,
+  Input,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
 } from "@chakra-ui/react";
 import {
   FiCalendar,
@@ -36,13 +57,36 @@ import {
   usePendingAppointments,
   useTodayMessages,
   useMonthMessages,
+  useMonthNewPatients,
+  useAppointmentsRange,
 } from "@/Hooks/Query/useDashboardDetails";
+import dayjs from 'dayjs';
 import { useProfile } from "@/Hooks/Query/useProfile";
 
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError, error } = useDashboardStats();
+  const { data: monthNewPatients = [], isLoading: isLoadingMonthNew } = useMonthNewPatients();
   const { data: profile } = useProfile();
   const navigate = useNavigate();
+
+  // Patients modal state and view selection
+  const { isOpen: isPatientsOpen, onOpen: onPatientsOpen, onClose: onPatientsClose } = useDisclosure();
+  const [patientsView, setPatientsView] = useState<'today' | 'week' | 'month' | 'range'>('month');
+  const [rangeStart, setRangeStart] = useState<string>('');
+  const [rangeEnd, setRangeEnd] = useState<string>('');
+
+  // compute ranges
+  const todayStart = dayjs().startOf('day').format('YYYY-MM-DD');
+  const todayEnd = dayjs().endOf('day').format('YYYY-MM-DD');
+  const weekStart = dayjs().startOf('week').format('YYYY-MM-DD');
+  const weekEnd = dayjs().endOf('week').format('YYYY-MM-DD');
+
+  // Fetch patients (appointments created) for selected ranges — enabled only when the view is active
+  const { data: todayNewPatients = [], isLoading: isLoadingTodayNew } = useAppointmentsRange(todayStart, todayEnd, patientsView === 'today');
+  const { data: weekNewPatients = [], isLoading: isLoadingWeekNew } = useAppointmentsRange(weekStart, weekEnd, patientsView === 'week');
+  const { data: rangePatients = [], isLoading: isLoadingRange } = useAppointmentsRange(rangeStart, rangeEnd, patientsView === 'range' && !!rangeStart && !!rangeEnd);
+  const monthNew = monthNewPatients;
+  const isLoadingPatients = patientsView === 'today' ? isLoadingTodayNew : patientsView === 'week' ? isLoadingWeekNew : patientsView === 'month' ? isLoadingMonthNew : isLoadingRange;
 
   // Modals state
   const { isOpen: isTodayOpen, onOpen: onTodayOpen, onClose: onTodayClose } = useDisclosure();
@@ -178,6 +222,16 @@ const Dashboard: React.FC = () => {
               isLoading={isLoading}
             />
             <StatCard
+              title="New Patients"
+              value={stats?.contacts.new || 0}
+              icon={FiUsers}
+              color="cyan"
+              subtitle="Added this month"
+              isLoading={isLoading}
+              onClick={() => onPatientsOpen()}
+              isClickable
+            />
+            <StatCard
               title="Pending"
               value={stats?.pending.total || 0}
               icon={FiClock}
@@ -287,6 +341,135 @@ const Dashboard: React.FC = () => {
           direction={messageDirection}
           onDirectionChange={setMessageDirection}
         />
+
+        {/* New Patients modal (custom) */}
+        <Modal isOpen={isPatientsOpen} onClose={onPatientsClose} size="xl">
+          <ModalOverlay />
+          <ModalContent>
+            <ModalHeader>New patients</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody>
+              <Tabs index={['today','week','month','range'].indexOf(patientsView)} onChange={(i) => {
+                const map: any = ['today','week','month','range'];
+                setPatientsView(map[i]);
+              }}>
+                <TabList>
+                  <Tab>Today</Tab>
+                  <Tab>This week</Tab>
+                  <Tab>This month</Tab>
+                  <Tab>Custom range</Tab>
+                </TabList>
+
+                <TabPanels>
+                  <TabPanel>
+                    {/* Today */}
+                    <Table size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>Name</Th>
+                          <Th>Phone</Th>
+                          <Th>Created</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {(todayNewPatients || []).map((a: any) => (
+                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
+                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                          </Tr>
+                        ))}
+                        {(todayNewPatients || []).length === 0 && (
+                          <Tr><Td colSpan={3}><Text color="gray.500">No patients added today.</Text></Td></Tr>
+                        )}
+                      </Tbody>
+                    </Table>
+                  </TabPanel>
+                  <TabPanel>
+                    {/* Week */}
+                    <Table size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>Name</Th>
+                          <Th>Phone</Th>
+                          <Th>Created</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {(weekNewPatients || []).map((a: any) => (
+                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
+                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                          </Tr>
+                        ))}
+                        {(weekNewPatients || []).length === 0 && (
+                          <Tr><Td colSpan={3}><Text color="gray.500">No patients added this week.</Text></Td></Tr>
+                        )}
+                      </Tbody>
+                    </Table>
+                  </TabPanel>
+                  <TabPanel>
+                    {/* Month */}
+                    <Table size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>Name</Th>
+                          <Th>Phone</Th>
+                          <Th>Created</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {(monthNew || []).map((a: any) => (
+                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
+                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                          </Tr>
+                        ))}
+                        {(monthNew || []).length === 0 && (
+                          <Tr><Td colSpan={3}><Text color="gray.500">No patients added this month.</Text></Td></Tr>
+                        )}
+                      </Tbody>
+                    </Table>
+                  </TabPanel>
+                  <TabPanel>
+                    {/* Range */}
+                    <HStack mb={3} spacing={3}>
+                      <Input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
+                      <Input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
+                      <Button colorScheme="teal" onClick={() => setPatientsView('range')}>Load</Button>
+                    </HStack>
+                    <Table size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>Name</Th>
+                          <Th>Phone</Th>
+                          <Th>Created</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {(rangePatients || []).map((a: any) => (
+                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
+                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                          </Tr>
+                        ))}
+                        {(rangePatients || []).length === 0 && (
+                          <Tr><Td colSpan={3}><Text color="gray.500">No patients in the selected range.</Text></Td></Tr>
+                        )}
+                      </Tbody>
+                    </Table>
+                  </TabPanel>
+                </TabPanels>
+              </Tabs>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="ghost" onClick={onPatientsClose}>Close</Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
 
         {/* Appointment Detail Modal */}
         {selectedAppointmentId && (

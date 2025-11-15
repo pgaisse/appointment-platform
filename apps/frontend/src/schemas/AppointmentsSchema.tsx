@@ -112,12 +112,13 @@ function buildBaseSchema() {
         })
       )
       .min(1, "At least one date must be selected")
-      .max(1, "Only a single date is allowed.")
       .refine((dates) => dates.every((d) => d.startDate < d.endDate), {
         message: "Start date must be before end date",
       }),
 
     reschedule: z.boolean().optional(),
+
+    // REMOVED: providersAssignments - now handled by AppointmentProvider collection
 
     // Base: providers requeridos (tu variante opcional en factory)
     providers: z.array(z.string()).min(1, "At least one provider is required"),

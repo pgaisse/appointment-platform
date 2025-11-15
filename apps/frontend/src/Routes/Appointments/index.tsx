@@ -44,7 +44,7 @@ export default function Multistep() {
         mode={"CREATION"}
         datesApp={selectedAppDates}
         setDatesApp={setSelectedAppDates}
-        onlyPatient={false} 
+        onlyPatient={false}
 
       >
       </CustomEntryForm>

@@ -33,6 +33,7 @@ const populateFields = [
   { path: 'priority', select: 'id description notes durationHours name color' },
   { path: 'treatment', select: '_id name notes duration icon color minIcon' },
   { path: 'providers' },
+  // REMOVED: { path: 'providersAssignments.provider' }, // Now handled by AppointmentProvider collection
   {
     path: 'representative.appointment',
     select: 'phoneInput phoneE164 emailLower nameInput lastNameInput sid proxyAddress', // pon aquí lo que necesites

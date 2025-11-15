@@ -50,6 +50,7 @@ import {
   useUpdateProviderTimeOff,
   useDeleteProviderTimeOff,
 } from "@/Hooks/Query/useProviders";
+import { useProviderAppointments } from "@/Hooks/Query/useProviderAppointments";
 import { useMeta, Treatment } from "@/Hooks/Query/useMeta";
 import { Provider } from "@/types";
 
@@ -305,6 +306,12 @@ export default function ProviderManager() {
                   </Td>
                   <Td>{p.defaultSlotMinutes} min</Td>
                   <Td>
+                    <VStack align="start" spacing={0}>
+                      <Box>{p.defaultSlotMinutes} min</Box>
+                      <ProviderAppointmentsInline providerId={p._id} />
+                    </VStack>
+                  </Td>
+                  <Td>
                     {p.bufferBefore}/{p.bufferAfter} min
                   </Td>
                   <Td>
@@ -348,6 +355,29 @@ export default function ProviderManager() {
           </ModalStackProvider>
         )}
       </Suspense>
+    </Box>
+  );
+}
+
+// Inline small component to show upcoming appointments count and next date for a provider
+function ProviderAppointmentsInline({ providerId }: { providerId: string }) {
+  const now = new Date();
+  const from = now.toISOString();
+  const to = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(); // next 7 days
+
+  const { data: events = [] } = useProviderAppointments(providerId, { from, to });
+
+  if (!events || events.length === 0) {
+    return <Box fontSize="xs" color="gray.500">0 appointments</Box>;
+  }
+
+  // events are normalized with start property as Date
+  const sorted = [...events].sort((a: any, b: any) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  const next = sorted[0];
+  return (
+    <Box fontSize="xs" color="gray.600">
+      <Badge colorScheme="teal" mr={2}>{events.length}</Badge>
+      next: {formatSydneyLabel(new Date(next.start).toISOString())}
     </Box>
   );
 }
@@ -556,7 +586,7 @@ function ProviderDrawer({
               <TabPanel>
                 {provider ? (
                   <WeeklyScheduleEditor
-                    key={refreshKey} // ensure refresh on save if needed
+                    key={`${provider._id}-${refreshKey}`} // ensure refresh on save and provider change
                     providerId={provider._id}
                     initialWeekly={initialWeekly}
                     initialTimezone={initialTimezone}
@@ -618,11 +648,16 @@ function WeeklyScheduleEditor({
   // editor state
   const [weekly, setWeekly] = React.useState<Weekly>(currentWeekly);
   const [timezone, setTimezone] = React.useState(currentTZ);
+  const [hasLocalChanges, setHasLocalChanges] = React.useState(false);
 
+  // Solo actualizar desde el servidor si no hay cambios locales pendientes
   React.useEffect(() => {
-    setWeekly(currentWeekly);
-    setTimezone(currentTZ);
-  }, [currentWeekly, currentTZ]);
+    console.log('WeeklyScheduleEditor useEffect triggered:', { currentWeekly, currentTZ, hasLocalChanges });
+    if (!hasLocalChanges) {
+      setWeekly(currentWeekly);
+      setTimezone(currentTZ);
+    }
+  }, [currentWeekly, currentTZ, hasLocalChanges]);
 
   // helpers
   const LABEL_COL_PX = 60;
@@ -654,19 +689,37 @@ function WeeklyScheduleEditor({
   };
 
   const addBlock = (day: DayKey) => {
-    setWeekly((prev) => ({ ...prev, [day]: [...(prev[day] || []), { start: "09:00", end: "17:00" }] }));
+    console.log('Adding block to:', day, 'Current weekly:', weekly);
+    setHasLocalChanges(true);
+    setWeekly((prev) => {
+      const newWeekly = { ...prev, [day]: [...(prev[day] || []), { start: "09:00", end: "17:00" }] };
+      console.log('New weekly:', newWeekly);
+      return newWeekly;
+    });
   };
   const updateBlock = (day: DayKey, idx: number, patch: Partial<DayBlock>) => {
+    console.log('Updating block:', day, idx, patch);
+    setHasLocalChanges(true);
     setWeekly((prev) => ({
       ...prev,
       [day]: (prev[day] || []).map((b, i) => (i === idx ? { ...b, ...patch } : b)),
     }));
   };
   const removeBlock = (day: DayKey, idx: number) => {
+    console.log('Removing block:', day, idx);
+    setHasLocalChanges(true);
     setWeekly((prev) => ({ ...prev, [day]: (prev[day] || []).filter((_, i) => i !== idx) }));
   };
-  const clearDay = (day: DayKey) => setWeekly((prev) => ({ ...prev, [day]: [] }));
-  const clearAll = () => setWeekly({ mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] });
+  const clearDay = (day: DayKey) => {
+    console.log('Clearing day:', day);
+    setHasLocalChanges(true);
+    setWeekly((prev) => ({ ...prev, [day]: [] }));
+  };
+  const clearAll = () => {
+    console.log('Clearing all days');
+    setHasLocalChanges(true);
+    setWeekly({ mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] });
+  };
 
   const save = async () => {
     const key = ["provider-schedule", providerId] as const;
@@ -678,6 +731,7 @@ function WeeklyScheduleEditor({
 
     try {
       await upsert.mutateAsync({ id: providerId, payload: { weekly, timezone } });
+      setHasLocalChanges(false); // Limpiar flag de cambios locales después de guardar
       toast({ title: "Schedule saved", status: "success" });
       // refresca consumidores relacionados (schedule y availability que dependan de esto)
       queryClient.invalidateQueries({ queryKey: key, exact: false });
@@ -694,6 +748,8 @@ function WeeklyScheduleEditor({
   const border = useColorModeValue("gray.200", "whiteAlpha.300");
   const trackBg = useColorModeValue("gray.50", "whiteAlpha.100");
   const labelColor = useColorModeValue("gray.600", "gray.300");
+
+  console.log('WeeklyScheduleEditor render - weekly state:', weekly);
 
   return (
     <VStack align="stretch" spacing={4}>
@@ -812,7 +868,7 @@ function WeeklyScheduleEditor({
       <HStack wrap="wrap" gap={3}>
         <FormControl maxW="sm">
           <FormLabel>Timezone</FormLabel>
-          <Select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+          <Select value={timezone} onChange={(e) => { setTimezone(e.target.value); setHasLocalChanges(true); }}>
             <option value="Australia/Sydney">Australia/Sydney</option>
           </Select>
         </FormControl>
@@ -821,7 +877,7 @@ function WeeklyScheduleEditor({
           <Button leftIcon={<CalendarIcon />} colorScheme="teal" onClick={save} isLoading={upsert.isPending}>
             Save schedule
           </Button>
-          <Button variant="ghost" onClick={() => { setWeekly(currentWeekly); setTimezone(currentTZ); }}>
+          <Button variant="ghost" onClick={() => { setWeekly(currentWeekly); setTimezone(currentTZ); setHasLocalChanges(false); }}>
             Reset to current
           </Button>
         </HStack>
@@ -841,7 +897,7 @@ function WeeklyScheduleEditor({
           </CardHeader>
           <CardBody>
             <VStack align="stretch" spacing={3}>
-              {(weekly[day] && weekly[day].length > 0) ? null : <Box color="gray.500">No blocks</Box>}
+              {(!weekly[day] || weekly[day].length === 0) && <Box color="gray.500">No blocks</Box>}
               {(weekly[day] || []).map((b, idx) => (
                 <HStack key={`${day}-${idx}`} align="end">
                   <FormControl maxW="xs">
@@ -851,7 +907,7 @@ function WeeklyScheduleEditor({
                       <Input
                         type="time"
                         value={b.start}
-                        onChange={(e) => updateBlock(day, idx, { start: e.target.value as any })}
+                        onChange={(e) => updateBlock(day, idx, { start: e.target.value as `${number}${number}:${number}${number}` })}
                       />
                     </InputGroup>
                     <Text mt={1} fontSize="xs" color={labelColor}>
@@ -865,7 +921,7 @@ function WeeklyScheduleEditor({
                       <Input
                         type="time"
                         value={b.end}
-                        onChange={(e) => updateBlock(day, idx, { end: e.target.value as any })}
+                        onChange={(e) => updateBlock(day, idx, { end: e.target.value as `${number}${number}:${number}${number}` })}
                       />
                     </InputGroup>
                     <Text mt={1} fontSize="xs" color={labelColor}>

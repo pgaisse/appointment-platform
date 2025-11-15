@@ -8,7 +8,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "TZ='Australia/Sydney' nodemon ./src/index.js"
+    "dev": "TZ='Australia/Sydney' nodemon ./src/index.js",
+    "backfill:proposed": "node ./scripts/backfillProposedContactAppointments.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.862.0",

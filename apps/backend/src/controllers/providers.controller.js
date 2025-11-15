@@ -3,6 +3,7 @@ const Provider = require('../models/Provider/Provider');
 const ProviderSchedule = require('../models/Provider/ProviderSchedule');
 const ProviderTimeOff = require('../models/Provider/ProviderTimeOff');
 const { Appointment } = require('../models/Appointments');
+const AppointmentProvider = require('../models/AppointmentProvider');
 const { getAvailability } = require('../services/scheduling.service');
 const { validateObjectId } = require('../helpers/validateObjectId');
 const { badRequest, notFound } = require('../helpers/httpErrors');
@@ -55,64 +56,71 @@ async function getProvider(req, res, next) {
 
 async function getProviderAppointments(req, res, next) {
   try {
-   
-
+    // Nuevo enfoque: buscamos las asignaciones en AppointmentProvider
+    // y devolvemos sólo las que tengan un appointment poblado (no huérfanas).
     const providerOid = validateObjectId(req.params.id, 'provider');
-    //console.log('[getProviderAppointments] providerOid', String(providerOid));
 
-    // Filtro simple: trae TODOS los appointments donde el provider esté en el array `providers`
-    const filter = { providers: providerOid };
+    const { from, to } = req.query || {};
+    const filter = { provider: providerOid };
+    if (from && to) {
+      const fromD = new Date(from);
+      const toD = new Date(to);
+      filter.$and = [{ startDate: { $lt: toD } }, { endDate: { $gt: fromD } }];
+    } else if (from) {
+      filter.endDate = { $gt: new Date(from) };
+    } else if (to) {
+      filter.startDate = { $lt: new Date(to) };
+    }
 
-    // Proyección mínima útil; incluye selectedAppDates/selectedDates para que el frontend pueda normalizar
-    const projection = {
-      _id: 1,
-      providers: 1,
-
-      // rangos "clásicos" si existen
-      startUtc: 1,
-      endUtc: 1,
-      start: 1,
-      end: 1,
-
-      // rangos según tu esquema actual
-      selectedAppDates: 1,        // [{ startDate, endDate }]
-      selectedDates: 1,           // { startDate, endDate, ... }
-
-      // metadata opcional que el normalizador puede usar
-      title: 1,
-      notes: 1,
-      patient: 1,
-      patientName: 1,
-      nameInput: 1,
-      lastNameInput: 1,
-      treatmentName: 1,
-      color: 1,
-      colorScheme: 1,
-
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    // Ordena si existen campos de fecha; si no, Mongo igual permite el sort sin romper
-    const items = await Appointment.find(filter, projection)
-      .sort({ startUtc: 1, start: 1 })
+    // Seleccionamos la asignación y poblamos appointment (con prioridad)
+    const assignments = await AppointmentProvider.find(filter)
+      .sort({ startDate: 1 })
       .populate({
-        path: 'priority',
-        select: 'name color durationHours order isActive', // ajusta a tu esquema
-        options: { lean: true },
+        path: 'appointment',
+        select: {
+          _id: 1,
+          providers: 1,
+          startUtc: 1,
+          endUtc: 1,
+          start: 1,
+          end: 1,
+          selectedAppDates: 1,
+          selectedDates: 1,
+          title: 1,
+          notes: 1,
+          patient: 1,
+          patientName: 1,
+          nameInput: 1,
+          lastNameInput: 1,
+          treatmentName: 1,
+          color: 1,
+          colorScheme: 1,
+          priority: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        populate: {
+          path: 'priority',
+          select: 'name color durationHours order isActive',
+        },
       })
       .lean();
 
-    const mapped = items.map(a => ({
-      ...a,
-      priorityId: a.priority?._id ?? null,
-      priorityName: a.priority?.name ?? null,
-      priorityColor: a.priority?.color ?? a.color ?? null,
-      priorityDurationHours: a.priority?.durationHours ?? null,
-    }));
+    // Filtramos asignaciones cuyo appointment no existe (referencia huérfana)
+    const valid = (assignments || []).filter((ap) => ap && ap.appointment);
 
-    //console.log('[getProviderAppointments] items count', mapped.length);
-    //if (mapped.length) console.log('[getProviderAppointments] sample[0]', mapped[0]);
+    // Mapeamos a la forma que el frontend espera: devolvemos por cada
+    // appointment-provider una entrada con selectedAppDates usando las fechas de la asignación.
+    const mapped = valid.map((ap) => {
+      const a = ap.appointment;
+      return {
+        ...a,
+        // los rangos del provider para esa cita concreta
+        selectedAppDates: [{ startDate: ap.startDate, endDate: ap.endDate }],
+        // para rastrear el origen si hace falta
+        _appointmentProviderId: ap._id,
+      };
+    });
 
     res.json({ data: mapped, total: mapped.length });
   } catch (err) {
@@ -159,8 +167,28 @@ async function upsertSchedule(req, res, next) {
     next(err);
   }
 }
+// Availability (provider-level): devuelve slots del servicio de scheduling
+async function providerAvailability(req, res, next) {
+  try {
+    const id = validateObjectId(req.params.id, 'provider');
+    const { from, to, treatmentId, location, chair } = req.query || {};
+    if (!from || !to) throw badRequest('from and to are required');
 
-// Time off
+    const slots = await getAvailability({
+      providerId: id,
+      fromUtc: new Date(from),
+      toUtc: new Date(to),
+      treatmentId: treatmentId ? validateObjectId(treatmentId, 'treatmentId') : undefined,
+      locationId: location ? validateObjectId(location, 'location') : undefined,
+      chairId: chair ? validateObjectId(chair, 'chair') : undefined,
+    });
+
+    res.json(slots);
+  } catch (err) {
+    next(err);
+  }
+}
+// Crear time off genérico (POST /providers/:id/timeoff)
 async function createTimeOff(req, res, next) {
   try {
     const id = validateObjectId(req.params.id);
@@ -172,30 +200,10 @@ async function createTimeOff(req, res, next) {
       start: new Date(start),
       end: new Date(end),
       reason: reason || '',
-      location: location || null,
-      chair: chair || null,
+      location: location ? validateObjectId(location, 'location') : null,
+      chair: chair ? validateObjectId(chair, 'chair') : null,
     });
-    res.status(201).json(doc);
-  } catch (err) {
-    next(err);
-  }
-}
-
-// Availability
-async function providerAvailability(req, res, next) {
-  try {
-    const id = validateObjectId(req.params.id);
-    const { from, to, treatmentId, location, chair } = req.query;
-    if (!from || !to) throw badRequest('from and to are required');
-    const slots = await getAvailability({
-      providerId: id,
-      fromUtc: new Date(from),
-      toUtc: new Date(to),
-      treatmentId: treatmentId ? validateObjectId(treatmentId, 'treatmentId') : undefined,
-      locationId: location ? validateObjectId(location, 'location') : undefined,
-      chairId: chair ? validateObjectId(chair, 'chair') : undefined,
-    });
-    res.json(slots);
+    res.status(201).json({ data: doc });
   } catch (err) {
     next(err);
   }

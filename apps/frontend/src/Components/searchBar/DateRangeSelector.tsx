@@ -52,7 +52,7 @@ type Props = {
 };
 
 const DateRangeSelector = ({ onFilterRange }: Props) => {
-  const [selected, setSelected] = useState<RangeOption>("2weeks");
+  const [selected, setSelected] = useState<RangeOption>("week");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);

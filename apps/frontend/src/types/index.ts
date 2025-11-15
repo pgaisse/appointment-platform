@@ -431,7 +431,8 @@ export interface Appointment {
 
 
   }>;
-  providers: [],
+  providers: [];
+  // REMOVED: providersAssignments - now handled by AppointmentProvider collection
 }
 
 

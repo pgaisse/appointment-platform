@@ -28,7 +28,6 @@ async function findMatchingAppointments(start, end) {
   const appointments = await models.Appointment.aggregate([
     {
       $match: {
-        reschedule: false,
         "selectedDates.startDate": { $lte: endDate },
         $or: [
           { "selectedDates.endDate": { $gte: startDate } },

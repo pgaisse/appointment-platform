@@ -605,12 +605,6 @@ router.post('/add', jwtCheck, async (req, res) => {
     const proxyAddress = process.env.TWILIO_FROM_MAIN;
     const isAppointment = modelName === models.Appointment.modelName;
 
-    // --- Asignar color aleatorio si es Appointment y no tiene color ---
-    if (isAppointment && !data.color) {
-      const colors = ["gray", "red", "orange", "yellow", "green", "teal", "blue", "cyan", "purple", "pink"];
-      data.color = colors[Math.floor(Math.random() * colors.length)];
-    }
-
     // --- Detecta si es niño/dependiente (representative presente) ---
     const isChild = !!(data?.representative && data.representative.appointment);
 

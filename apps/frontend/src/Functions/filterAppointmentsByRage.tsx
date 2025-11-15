@@ -8,6 +8,7 @@ import {
   addMonths,
 } from "date-fns";
 import { GroupedAppointment } from "@/types";
+import { getSlotStart, getSlotEnd } from "./getLatestSelectedAppDate";
 
 export type RangeOption = "week" | "2weeks" | "month" | "custom";
 
@@ -57,20 +58,11 @@ export function filterAppointmentsByRange(
     endLocal: end.toLocaleString(),
   });
 
-  const overlapsWindow = (a?: { startDate?: Date | string; endDate?: Date | string }) => {
-    if (!a?.startDate) return false;
-    const s = new Date(a.startDate);
-    const e = a.endDate ? new Date(a.endDate) : s;
-    if (isNaN(s.getTime())) return false;
-    
-    // Solapamiento: la cita debe terminar después del inicio del rango Y empezar antes del final del rango
-    // Esto incluye:
-    // - Citas que empiezan dentro del rango
-    // - Citas que terminan dentro del rango
-    // - Citas que cubren todo el rango
-    const overlaps = s <= end && e >= start;
-    
-    return overlaps;
+  const overlapsWindow = (slot: any) => {
+    const s = getSlotStart(slot);
+    const e = getSlotEnd(slot) || s;
+    if (!s) return false;
+    return s <= end && (e ?? s) >= start;
   };
 
   let totalBeforeFilter = 0;
@@ -81,8 +73,11 @@ export function filterAppointmentsByRange(
     
     const filteredPatients = (group.patients ?? []).filter((p) => {
       const slots = Array.isArray(p.selectedAppDates) ? p.selectedAppDates : [];
-      // Mantén al paciente si CUALQUIER rango seleccionado solapa la ventana
-      return slots.some(overlapsWindow);
+      // Mantén al paciente si tiene AL MENOS un slot Confirmed o NoContacted que solape la ventana
+      return slots.some((slot: any) => {
+        const st = String(slot?.status || "");
+        return (st === "Confirmed" || st === "NoContacted") && overlapsWindow(slot);
+      });
     });
 
     totalAfterFilter += filteredPatients.length;

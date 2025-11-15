@@ -112,8 +112,44 @@ async function pickActiveSlotId({ Appointment, conversationId, now = new Date() 
   return String(arr[0]._id);
 }
 
+/**
+ * Selecciona el slot Pending más recientemente modificado (por proposed.createdAt o updatedAt).
+ * En el nuevo modelo de rebooking ya no se crean slots adicionales; se edita uno existente y se pone en status Pending.
+ * Para confirmar la respuesta del paciente queremos EXACTAMENTE ese slot.
+ * Reglas:
+ * 1) Filtrar slots con status === 'Pending'
+ * 2) Ordenar por (slot.proposed.createdAt || slot.updatedAt || slot.startDate) DESC
+ * 3) Tomar el primero.
+ * 4) Si no hay Pending, devolver null (el caller hará fallback a heurística previa).
+ */
+async function pickLastModifiedPendingSlotId({ Appointment, conversationId }) {
+  const appt = await Appointment.findOne(
+    { sid: conversationId, unknown: { $ne: true } },
+    { selectedAppDates: 1 }
+  ).lean();
+
+  const arr = appt?.selectedAppDates || [];
+  if (!arr.length) return null;
+
+  const pendings = arr.filter(s => s.status === 'Pending');
+  if (!pendings.length) return null;
+
+  // map with sort key
+  const scored = pendings.map(s => {
+    const proposedAt = s?.proposed?.createdAt ? new Date(s.proposed.createdAt).getTime() : 0;
+    const updatedAt = s?.updatedAt ? new Date(s.updatedAt).getTime() : 0;
+    const startAt = s?.startDate ? new Date(s.startDate).getTime() : 0;
+    // prioridad: proposed.createdAt > updatedAt > startDate
+    const score = proposedAt || updatedAt || startAt;
+    return { slot: s, score };
+  }).sort((a,b) => b.score - a.score);
+
+  return scored.length ? String(scored[0].slot._id) : null;
+}
+
 module.exports = {
   decideFromBody,
   findPrevOutboundConfirmation,
   pickActiveSlotId,
+  pickLastModifiedPendingSlotId,
 };

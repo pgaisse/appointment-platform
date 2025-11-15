@@ -29,6 +29,9 @@ const ProviderSchema = new mongoose.Schema({
   acceptingNewPatients: { type: Boolean, default: true },
   notes: { type: String, default: '' },
   isActive: { type: Boolean, default: true },
+
+  // NEW: calendar links to AppointmentProvider documents
+  appointmentsCalendar: [{ type: mongoose.Schema.Types.ObjectId, ref: 'AppointmentProvider' }],
 }, { timestamps: true });
 
 ProviderSchema.index({ org_id: 1, isActive: 1, lastName: 1, firstName: 1 });

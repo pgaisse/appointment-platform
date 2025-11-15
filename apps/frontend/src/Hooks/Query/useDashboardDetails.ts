@@ -150,3 +150,39 @@ export const useMessagesRange = (start?: string, end?: string, enabledParam?: bo
     staleTime: 30_000,
   });
 };
+
+// Hook for new patients (appointments created this month)
+export const useMonthNewPatients = () => {
+  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+
+  return useQuery({
+    queryKey: ['dashboard-month-new-patients'],
+    enabled: isAuthenticated,
+    queryFn: async () => {
+      const token = await getAccessTokenSilently({ authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE } });
+      const url = `${import.meta.env.VITE_BASE_URL}/dashboard/appointments/month`;
+      const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+      return res.data as Appointment[];
+    },
+    staleTime: 60_000,
+  });
+};
+
+// Hook for appointments created in a custom range
+export const useAppointmentsRange = (start?: string, end?: string, enabledParam: boolean = true) => {
+  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const enabled = Boolean(isAuthenticated && !!start && !!end && enabledParam);
+
+  return useQuery({
+    queryKey: ['dashboard-appointments-range', start, end],
+    enabled,
+    queryFn: async () => {
+      const token = await getAccessTokenSilently({ authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE } });
+      const params = new URLSearchParams({ start: String(start), end: String(end) });
+      const url = `${import.meta.env.VITE_BASE_URL}/dashboard/appointments/range?${params.toString()}`;
+      const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+      return res.data as Appointment[];
+    },
+    staleTime: 30_000,
+  });
+};

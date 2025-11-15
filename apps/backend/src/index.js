@@ -79,6 +79,7 @@ app.use("/api/message-templates", require("./routes/message-templates"));
 app.use('/api',  require('./routes/appointments-range'));
 app.use('/api/priorities/meta',  require('./routes/categories-priorities-manager'));
 app.use('/api/providers', require('./routes/providers'));
+app.use('/api/appointment-providers', require('./routes/appointmentProviders'));
 app.use('/api/validate', require('./routes/validate'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 

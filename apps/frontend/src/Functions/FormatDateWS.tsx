@@ -1,34 +1,26 @@
 import { DateRange } from "@/Hooks/Handles/useSlotSelection";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const TZ = "Australia/Sydney";
 
-const formatYMD = (d: Date) => {
-  // en-CA da YYYY-MM-DD (fijo), lo convertimos a YYYY/MM/DD
-  const ymd = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-  const [y, m, day] = ymd.split("-");
-  return `${y}/${m}/${day}`;
-};
-
-const formatTime12h = (d: Date) =>
-  new Intl.DateTimeFormat("en-AU", {
-    timeZone: TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  }).format(d); // Ej: "07:05 am"
-
+/**
+ * Formats a date range like providers:
+ *  Wed, 12 Nov • 3:45 PM – 4:15 PM
+ * If different days:
+ *  Wed, 12 Nov • 3:45 PM → Thu, 13 Nov • 4:15 PM
+ */
 export const formatDateWS = ({ startDate, endDate }: DateRange): string => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const s = dayjs.utc(startDate).tz(TZ);
+  const e = dayjs.utc(endDate).tz(TZ);
 
-  const dateStr = formatYMD(start);
-  const startTime = formatTime12h(start);
-  const endTime = formatTime12h(end);
-
-  return `${dateStr} ${startTime} – ${endTime}`;
+  const sameDay = s.format("YYYY-MM-DD") === e.format("YYYY-MM-DD");
+  if (sameDay) {
+    return `${s.format("ddd, DD MMM • h:mm A")} – ${e.format("h:mm A")}`;
+  }
+  return `${s.format("ddd, DD MMM • h:mm A")} → ${e.format("ddd, DD MMM • h:mm A")}`;
 };

@@ -19,6 +19,7 @@ import { getIconComponent } from "../CustomIcons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppointmentEditor } from "@/Hooks/Handles/useAppointmentEditor";
 import { useInfoModal } from "@/Hooks/Handles/useInfoModal";
+import AddAppointmentSlotButton from "./AddAppointmentSlotButton";
 import { appointmentsKeys, useAppointmentsPaginated } from "@/Hooks/Query/useAppointmentsPaginated";
 import { useAppointmentSearch } from "@/Hooks/Query/useAppointmentSearch";
 import { LiaSmsSolid } from "react-icons/lia";
@@ -381,6 +382,7 @@ function CustomTableApp({ pageSize = 20 }: Props) {
 
                         }}
                       />
+                      <AddAppointmentSlotButton appointment={item} onSaved={hardRefresh} />
                       <IconButton
                         aria-label="Delete"
                         icon={<ImBin />}

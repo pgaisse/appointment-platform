@@ -12,6 +12,7 @@ type SendAppointmentSMSPayload = {
   scheduleWithTwilio?: boolean;
   whenISO?: string;           // e.g. "2025-10-21T10:00:00"
   tz?: string;                // default "Australia/Sydney"
+  slotId?: string;            // opcional: slot al que corresponde el SMS (para evitar duplicados)
 };
 
 type SendAppointmentSMSResponse = {
@@ -46,7 +47,7 @@ export const useSendAppointmentSMS = () => {
 
       const res: AxiosResponse<SendAppointmentSMSResponse> = await axios.post(
         `${import.meta.env.VITE_BASE_URL}/sendMessageAsk`,
-        { ...payload, source: "frontend" }, // conservas tu "source"
+        { ...payload, source: "frontend" }, // incluimos slotId si viene
         {
           headers: {
             Authorization: `Bearer ${token}`,

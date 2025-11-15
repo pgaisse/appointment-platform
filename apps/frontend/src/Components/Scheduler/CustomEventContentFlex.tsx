@@ -21,6 +21,18 @@ import {
   WrapItem,
   Divider,
   Badge,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalCloseButton,
+  ModalBody,
+  ModalFooter,
+  RadioGroup,
+  Radio,
+  Stack,
+  useColorModeValue,
+  Kbd,
 } from "@chakra-ui/react";
 import { useState, useRef, useEffect } from "react";
 import { AppointmentGroup } from "@/types";
@@ -33,11 +45,13 @@ import { motion } from "framer-motion";
 import { getMatchLevelIcon } from "@/Functions/getMatchLevelIcon";
 import { useNavigate } from "react-router-dom";
 import { useSendAppointmentSMS } from "@/Hooks/Query/useSendAppointmentSMS";
+import { useProposeAppointmentDates } from "@/Hooks/Query/useProposeAppointmentDates";
 import { useAuth0 } from "@auth0/auth0-react";
 import ShowTemplateButton from "../Chat/CustomMessages/ShowTemplateButton";
 import CreateMessageModal from "../Chat/CustomMessages/CreateCustomMessageModal";
 import { MdOutlinePostAdd } from "react-icons/md";
-import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
+import { getLatestSelectedAppDate, getSlotStart, getSlotEnd } from "@/Functions/getLatestSelectedAppDate";
+import { formatDateWS } from "@/Functions/FormatDateWS";
 
 const MotionBox = motion(Box);
 const FadeInBox = motion(Box);
@@ -53,6 +67,7 @@ interface Props {
 const CustomEventContent: React.FC<Props> = ({ event }) => {
   const [templateTextByPatient, setTemplateTextByPatient] = useState<Record<string, string>>({});
   const { mutate, isPending } = useUpdateItems();
+  const { mutate: proposeDates, isPending: isProposing } = useProposeAppointmentDates();
   const { mutate: sendSMS } = useSendAppointmentSMS();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -64,6 +79,11 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
   const [rescheduleButton, setRescheduleButton] = useState<string>("");
   const { user } = useAuth0();
   const navigate = useNavigate();
+  // Slot selection modal state for patients with multiple dates
+  const [slotSelectOpen, setSlotSelectOpen] = useState(false);
+  const [slotSelectItem, setSlotSelectItem] = useState<AppointmentGroup["priorities"][number]["appointments"][number] | null>(null);
+  const [slotSelectProposed, setSlotSelectProposed] = useState<{ start: Date; end: Date } | null>(null);
+  const [selectedBaseSlotId, setSelectedBaseSlotId] = useState<string>("");
 
   const handleScroll = () => {
     const el = containerRef.current;
@@ -104,80 +124,82 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     };
   }, []);
 
+  // Nuevo flujo: 1) Crear slot + ContactAppointment vía endpoint transactional /appointments/:id/propose
+  //              2) Enviar SMS de confirmación usando sendMessageAsk (ya existente)
+  //              3) Invalidar queries y navegar
   const handleClick = async (
     item: (AppointmentGroup["priorities"][number]["appointments"][number]),
-    start: Date,
-    end: Date
+    proposedStart: Date,
+    proposedEnd: Date,
+    baseSlotId?: string
   ) => {
     const id = item._id;
     setRescheduleButton(id);
+    let baseSlot: any = null;
+    if (baseSlotId) {
+      baseSlot = (item.selectedAppDates || []).find((s: any) => String(s._id) === String(baseSlotId));
+    }
+    if (!baseSlot) {
+      baseSlot = getLatestSelectedAppDate(item.selectedAppDates);
+    }
+    const currentStart = baseSlot?.startDate ? new Date(baseSlot.startDate) : proposedStart;
+    const currentEnd = baseSlot?.endDate ? new Date(baseSlot.endDate) : proposedEnd;
 
-    // Build a new slot entry instead of overwriting index 0
-    const newSlot = {
-      startDate: start,
-      endDate: end,
-      status: "Pending" as const,
-      rescheduleRequested: false,
-    };
+    // Ensure all dates are Date objects before calling toISOString
+    const safeProposedStart = proposedStart instanceof Date ? proposedStart : new Date(proposedStart);
+    const safeProposedEnd = proposedEnd instanceof Date ? proposedEnd : new Date(proposedEnd);
+    const safeCurrentStart = currentStart instanceof Date ? currentStart : new Date(currentStart);
+    const safeCurrentEnd = currentEnd instanceof Date ? currentEnd : new Date(currentEnd);
 
-    const current = Array.isArray(item.selectedAppDates) ? item.selectedAppDates : [];
-    const nextArray = [...current, newSlot];
-
-    const payload = [
+    proposeDates(
       {
-        table: "Appointment",
-        id_field: "_id",
-        id_value: id ?? "",
-        data: {
-          selectedAppDates: nextArray,
+        appointmentId: id,
+        proposedStartDate: safeProposedStart.toISOString(),
+        proposedEndDate: safeProposedEnd.toISOString(),
+        currentStartDate: safeCurrentStart.toISOString(),
+        currentEndDate: safeCurrentEnd.toISOString(),
+        reason: "Rebooking",
+        baseSlotId: baseSlotId,
+      },
+      {
+        onSuccess: async (resp) => {
+          const slotId = resp?.slotId;
+          try {
+            sendSMS({ appointmentId: id, msg: templateTextByPatient[id], slotId });
+            toast({
+              title: "Proposal & SMS Sent",
+              description: "Slot proposed and confirmation SMS dispatched.",
+              status: "info",
+              duration: 3000,
+              isClosable: true,
+            });
+          } catch (err: any) {
+            toast({
+              title: "Slot created but SMS failed",
+              description: err.message || "Could not send SMS to the patient.",
+              status: "warning",
+              duration: 4000,
+              isClosable: true,
+            });
+          }
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
+            queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
+            queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+          ]);
+          navigate("/appointments/priority-list");
         },
-      },
-    ];
-
-    mutate(payload, {
-      onSuccess: async () => {
-        try {
-          sendSMS({ appointmentId: id, msg: templateTextByPatient[id] });
+        onError: (error: any) => {
           toast({
-            title: "Confirmation SMS Sent",
-            description: "The patient has been notified via SMS.",
-            status: "info",
-            duration: 3000,
+            title: "Error proposing slot",
+            description: error?.message || "An error occurred while proposing dates.",
+            status: "error",
+            duration: 3200,
             isClosable: true,
           });
-        } catch (err: any) {
-          toast({
-            title: "Failed to Send SMS",
-            description: err.message || "Could not send SMS to the patient.",
-            status: "warning",
-            duration: 4000,
-            isClosable: true,
-          });
-        }
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
-          queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
-          queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
-        ]);
-
-        navigate("/appointments/priority-list");
-      },
-      onError: (error: any) => {
-        toast({
-          title: "Error Rescheduling Appointment",
-          description:
-            error?.message || "An error occurred while rescheduling the appointment.",
-          status: "error",
-          duration: 3000,
-          isClosable: true,
-        });
-      },
-      onSettled: () => {
-        queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-        queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
-        queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
-      },
-    });
+        },
+      }
+    );
   };
 
   if (!group || !group.dateRange || !group.priorities?.length) {
@@ -354,6 +376,31 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                               </Text>
                             )}
 
+                            {/* Proposed rebooking dates indicator */}
+                            {(() => {
+                              const latestSlot = getLatestSelectedAppDate(item.selectedAppDates);
+                              const proposedStart = latestSlot?.proposed?.startDate;
+                              const proposedEnd = latestSlot?.proposed?.endDate;
+                              
+                              if (proposedStart && proposedEnd) {
+                                const start = new Date(proposedStart);
+                                const end = new Date(proposedEnd);
+                                const formattedDate = formatDateWS({ startDate: start, endDate: end });
+                                
+                                return (
+                                  <VStack spacing={1} align="start" fontSize="xs">
+                                    <Text color="blue.600" fontWeight="semibold">
+                                      Proposed rebooking:
+                                    </Text>
+                                    <Text color="blue.500">
+                                      {formattedDate}
+                                    </Text>
+                                  </VStack>
+                                );
+                              }
+                              return null;
+                            })()}
+
                             <Divider />
 
                             {/* Footer de acciones */}
@@ -387,18 +434,68 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                                 size="sm"
                                 colorScheme="green"
                                 isDisabled={!tooltipForThisPatient}
-                                onClick={() =>
-                                  handleClick(item, group.dateRange.startDate, group.dateRange.endDate)
-                                }
+                                onClick={() => {
+                                  // Get proposed dates from the latest slot, fallback to group dates
+                                  const latestSlot = getLatestSelectedAppDate(item.selectedAppDates);
+                                  const proposedStart = latestSlot?.proposed?.startDate 
+                                    ? new Date(latestSlot.proposed.startDate) 
+                                    : group.dateRange.startDate;
+                                  const proposedEnd = latestSlot?.proposed?.endDate 
+                                    ? new Date(latestSlot.proposed.endDate) 
+                                    : group.dateRange.endDate;
+                                  
+                                  // If multiple slots exist, open selection modal first
+                                  const slots = item.selectedAppDates || [];
+                                  if (Array.isArray(slots) && slots.length > 1) {
+                                    setSlotSelectItem(item);
+                                    setSlotSelectProposed({ start: proposedStart, end: proposedEnd });
+                                    // Default to the slot closest to the previously selected calendar date (use proposedStart as anchor)
+                                    const targetTs = proposedStart instanceof Date ? proposedStart.getTime() : new Date(proposedStart).getTime();
+                                    const repTs = (s: any): number => {
+                                      const candidates: number[] = [];
+                                      if (s?.startDate) {
+                                        const t = new Date(s.startDate).getTime();
+                                        if (Number.isFinite(t)) candidates.push(t);
+                                      }
+                                      if (s?.proposed?.startDate) {
+                                        const t = new Date(s.proposed.startDate).getTime();
+                                        if (Number.isFinite(t)) candidates.push(t);
+                                      }
+                                      // Tie-breaker: updatedAt proximity if no date fields
+                                      if (s?.updatedAt) {
+                                        const t = new Date(s.updatedAt).getTime();
+                                        if (Number.isFinite(t)) candidates.push(t);
+                                      }
+                                      return candidates.length ? candidates[0] : Number.POSITIVE_INFINITY;
+                                    };
+                                    let closest = slots[0];
+                                    let bestDist = Math.abs(repTs(slots[0]) - targetTs);
+                                    for (let i = 1; i < slots.length; i++) {
+                                      const d = Math.abs(repTs(slots[i]) - targetTs);
+                                      if (d < bestDist) {
+                                        bestDist = d;
+                                        closest = slots[i];
+                                      }
+                                    }
+                                    setSelectedBaseSlotId(String((closest as any)?._id || ""));
+                                    setSlotSelectOpen(true);
+                                  } else {
+                                    handleClick(item, proposedStart, proposedEnd, slots[0]?._id);
+                                  }
+                                }}
                                 leftIcon={
-                                  isPending && rescheduleButton === item._id ? (
+                                  (isPending || isProposing) && rescheduleButton === item._id ? (
                                     <Spinner size="xs" color="white" />
                                   ) : (
                                     <RepeatIcon />
                                   )
                                 }
                               >
-                                Rebook
+                                {(() => {
+                                  const latestSlot = getLatestSelectedAppDate(item.selectedAppDates);
+                                  const hasProposed = latestSlot?.proposed?.startDate && latestSlot?.proposed?.endDate;
+                                  return hasProposed ? "Rebook Proposed" : "Rebook";
+                                })()}
                               </Button>
                             </Flex>
                           </MotionBox>
@@ -412,6 +509,111 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
           })}
         </MotionScrollBox>
       </Flex>
+      {/* Slot selection modal */}
+      <Modal isOpen={slotSelectOpen} onClose={() => setSlotSelectOpen(false)} isCentered size="lg" motionPreset="slideInBottom">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader pb={1}>
+            <HStack justify="space-between">
+              <Text fontSize="lg" fontWeight="bold">Select Base Slot</Text>
+              <Tag size="sm" colorScheme="purple" variant="subtle">Multi-slot patient</Tag>
+            </HStack>
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pt={2} pb={4}>
+            <VStack align="stretch" spacing={4} maxH="340px" overflowY="auto" pr={2}
+              sx={{ '&::-webkit-scrollbar': { width: '6px' }, '&::-webkit-scrollbar-thumb': { background: '#CBD5E0', borderRadius: '4px' } }}>
+              <Box bg={useColorModeValue('gray.50','gray.700')} px={4} py={3} borderRadius="md" fontSize="sm" lineHeight={1.3}>
+                Choose which existing scheduled window the new <Tag size="sm" colorScheme="blue" variant="solid">Proposed</Tag> dates should attach to.
+                If accepted later, this slot becomes the confirmed appointment.
+              </Box>
+              {slotSelectItem && (
+                <RadioGroup value={selectedBaseSlotId} onChange={(v) => setSelectedBaseSlotId(v)}>
+                  <VStack align="stretch" spacing={3}>
+                    {(slotSelectItem.selectedAppDates || []).map((s: any, idx: number) => {
+                      const isActive = String(s._id) === String(selectedBaseSlotId);
+                      const hasProposal = s.proposed?.startDate && s.proposed?.endDate;
+                      const baseRange = formatDateWS({ startDate: new Date(s.startDate), endDate: new Date(s.endDate) });
+                      const proposedRange = hasProposal ? formatDateWS({ startDate: new Date(s.proposed.startDate), endDate: new Date(s.proposed.endDate) }) : null;
+                      return (
+                        <Box
+                          key={s._id}
+                          position="relative"
+                          borderWidth="1px"
+                          borderRadius="lg"
+                          p={4}
+                          transition="all 0.18s ease"
+                          bg={isActive ? useColorModeValue('purple.50','purple.700') : useColorModeValue('white','gray.800')}
+                          borderColor={isActive ? 'purple.400' : useColorModeValue('gray.200','gray.600')}
+                          boxShadow={isActive ? '0 0 0 2px var(--chakra-colors-purple-200)' : 'sm'}
+                          _hover={{ borderColor: 'purple.300', cursor: 'pointer' }}
+                          onClick={() => setSelectedBaseSlotId(String(s._id))}
+                        >
+                          <HStack justify="space-between" align="start" mb={2} flexWrap="wrap">
+                            <Tag size="sm" colorScheme={hasProposal ? 'orange' : 'green'} variant={hasProposal ? 'subtle':'solid'}>{hasProposal ? 'Has Proposal' : 'Base Slot'}</Tag>
+                            <HStack spacing={2} fontSize="xs" color="gray.500">
+                              <Text># {idx + 1}</Text>
+                              {isActive && <Tag size="sm" colorScheme="purple">Selected</Tag>}
+                            </HStack>
+                          </HStack>
+                          <Radio value={s._id} size="sm">
+                            <VStack align="start" spacing={1} pl={1} fontSize="sm">
+                              <HStack>
+                                <Text fontWeight="medium">Current:</Text>
+                                <Text>{baseRange}</Text>
+                              </HStack>
+                              {proposedRange && (
+                                <HStack>
+                                  <Text fontWeight="medium" color="blue.600">Existing Proposed:</Text>
+                                  <Text color="blue.600">{proposedRange}</Text>
+                                </HStack>
+                              )}
+                            </VStack>
+                          </Radio>
+                        </Box>
+                      );
+                    })}
+                  </VStack>
+                </RadioGroup>
+              )}
+              {slotSelectProposed && (
+                <Box borderWidth="1px" borderRadius="md" p={3} fontSize="sm" bg={useColorModeValue('blue.50','blue.900')}>
+                  <Text fontWeight="semibold" mb={1}>New Proposed Dates</Text>
+                  <Tag colorScheme="blue" variant="solid" fontWeight="normal">
+                    {formatDateWS({ startDate: slotSelectProposed.start, endDate: slotSelectProposed.end })}
+                  </Tag>
+                </Box>
+              )}
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <HStack w="100%" justify="space-between">
+              <HStack spacing={3} color="gray.500" fontSize="xs">
+                <HStack><Kbd>⏎</Kbd><Text>Confirm</Text></HStack>
+                <HStack><Kbd>Esc</Kbd><Text>Close</Text></HStack>
+              </HStack>
+              <Flex gap={2}>
+                <Button variant="ghost" onClick={() => setSlotSelectOpen(false)}>Cancel</Button>
+                <Button
+                  colorScheme="purple"
+                  isDisabled={!slotSelectItem || !slotSelectProposed || !selectedBaseSlotId}
+                  onClick={() => {
+                    if (slotSelectItem && slotSelectProposed && selectedBaseSlotId) {
+                      handleClick(
+                        slotSelectItem,
+                        slotSelectProposed.start,
+                        slotSelectProposed.end,
+                        selectedBaseSlotId
+                      );
+                      setSlotSelectOpen(false);
+                    }
+                  }}
+                >Confirm</Button>
+              </Flex>
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </FadeInBox>
   );
 };

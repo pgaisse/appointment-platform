@@ -50,10 +50,12 @@ import { CSS } from '@dnd-kit/utilities';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Appointment, GroupedAppointment } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
+import { useSocket } from '@/Hooks/Query/useSocket';
 import { getIconComponent } from '../CustomIcons';
 import Pagination from '../Pagination';
 import AddPatientButton from '../DraggableCards/AddPatientButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
+import PendingDeclinedSearchBar, { PendingDeclinedSearchBarRef } from '../searchBar/PendingDeclinedSearchBar';
 import ArchiveItemButton from './ArchiveItemButton';
 import UnarchiveItemButton from './UnarchiveItemButton';
 import DeleteContactButton from './DeleteContactButton';
@@ -63,7 +65,7 @@ import ChatLauncher from '@/Components/Chat/ChatLauncher';
 import { FaCommentSms } from 'react-icons/fa6';
 import { CiPhone } from 'react-icons/ci';
 import { RiParentFill } from 'react-icons/ri';
-import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
+import { getDisplaySlotRange, pickDisplaySlot } from "@/Functions/getLatestSelectedAppDate";
 
 /* ───────────────────────────────────────────────────────────────
    Helpers de estilo premium
@@ -72,16 +74,18 @@ import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
 const statusColor = (s?: string) =>
   s === 'Confirmed' ? 'green'
     : s === 'Rejected' ? 'red'
-      : s === 'Pending' ? 'yellow'
-        : 'gray';
+      : s === 'Declined' ? 'red'
+        : s === 'Pending' ? 'yellow'
+          : 'gray';
 
 const StatusPill: React.FC<{ status?: string }> = ({ status }) => {
   const c = statusColor(status);
   const label =
     status === 'Confirmed' ? 'Confirmed'
       : status === 'Rejected' ? 'Rejected'
-        : status === 'Pending' ? 'Pending'
-          : 'Uncontacted';
+        : status === 'Declined' ? 'Declined'
+          : status === 'Pending' ? 'Pending'
+            : 'Uncontacted';
   return (
     <Tooltip label={`Status: ${label}`} placement="top" hasArrow>
       <Tag size="sm" variant="subtle" colorScheme={c}>
@@ -238,7 +242,8 @@ const AppointmentCard: React.FC<{
   priorityColor?: string;
   onCardClick?: (item: Appointment) => void;
   asOverlay?: boolean;       // cuando es overlay: sin eventos, pero misma apariencia
-}> = ({ item, priorityColor = 'gray', onCardClick, asOverlay }) => {
+  statusOverride?: string;   // permite forzar el status mostrado (p.ej., columnas Pending/Declined)
+}> = ({ item, priorityColor = 'gray', onCardClick, asOverlay, statusOverride }) => {
   const hasRep = Boolean((item as any).representative?.appointment);
   const rep = hasRep && typeof (item as any).representative.appointment === 'object'
     ? (item as any).representative.appointment as RepAppointmentLite
@@ -258,6 +263,8 @@ const AppointmentCard: React.FC<{
       borderRadius="2xl"
       border="1px solid"
       borderColor="gray.100"
+      borderLeftWidth="4px"
+      borderLeftColor={`${priorityColor}.300`}
       bg="white"
       boxShadow="xs"
       minW="260px"
@@ -303,10 +310,15 @@ const AppointmentCard: React.FC<{
         </HStack>
 
         <HStack gap={2}>
-          <Tooltip label={`Appointment Date: ${formatDateWS(getLatestSelectedAppDate(item.selectedAppDates) as any)}`} placement="top" hasArrow>
+          <Tooltip label={`Appointment Date: ${(() => { 
+            const r = getDisplaySlotRange(item.selectedAppDates); 
+            const slot = pickDisplaySlot(item.selectedAppDates); 
+            const slotId = slot && (slot as any)?._id ? String((slot as any)._id) : '—';
+            return (r ? formatDateWS({ startDate: r.start, endDate: r.end }) : '—') + ` | slot _id: ${slotId}`;
+          })()}`} placement="top" hasArrow>
             <Icon as={TimeIcon} />
           </Tooltip>
-          <StatusPill status={getLatestSelectedAppDate(item.selectedAppDates)?.status} />
+          <StatusPill status={statusOverride ?? pickDisplaySlot(item.selectedAppDates)?.status} />
           <PrefBadge pref={item.contactPreference as any} />
           {!asOverlay && (
             <ChatLauncher
@@ -550,6 +562,7 @@ type Props = {
   dataContacts: Appointment[];
   isPlaceholderData: boolean;
   dataPending: Appointment[];
+  dataDeclined: Appointment[];
   dataArchived: Appointment[];
 };
 
@@ -561,9 +574,11 @@ const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
   return null;
 };
 
-export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending, dataArchived }: Props) {
+export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending, dataDeclined, dataArchived }: Props) {
   const toast = useToast();
   const searchRef = useRef<SearchBarRef>(null);
+  const pendingSearchRef = useRef<PendingDeclinedSearchBarRef>(null);
+  const declinedSearchRef = useRef<PendingDeclinedSearchBarRef>(null);
   const { mutate: moveMutate } = useMovePriorityItems();
   const [activeItem, setActiveItem] = useState<Appointment | null>(null);
   const [overlayColor, setOverlayColor] = useState<string>('gray'); // color de la columna origen
@@ -571,17 +586,37 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const [sourceCol, setSourceCol] = useState<GroupedAppointment | undefined>();
   const [columnPages, setColumnPages] = useState<Record<string, number>>({});
   const queryClient = useQueryClient();
-
   const [lastColPainted, setLastColPainted] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const { socket, connected } = useSocket();
 
   useEffect(() => {
     setOptimisticData(dataAP2 ?? null);
   }, [dataAP2]);
 
+  // 🔄 Ensure board reflects backend updates immediately upon confirmation events
+  useEffect(() => {
+    if (!socket || !connected) return;
+    const onResolved = () => {
+      // Cancel in-flight queries before updating to avoid showing stale data in Pending/Declined
+      queryClient.cancelQueries({
+        predicate: (q) => {
+          const key = q.queryKey as any[];
+          const head = Array.isArray(key) ? key[0] : undefined;
+          return head === 'DraggableCards' || head === 'appointments' || head === 'appointments-search' || head === 'Appointment';
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+      queryClient.refetchQueries({ queryKey: ['DraggableCards'] });
+    };
+    socket.on('confirmationResolved', onResolved);
+    return () => { socket.off('confirmationResolved', onResolved); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, connected]);
+
   const cols = optimisticData ?? [];
-  const lastIndex = cols.length - 1;
+  // removed unused lastIndex
   useEffect(() => {
     setLastColPainted(false);
   }, [cols.length, isPlaceholderData]);
@@ -653,6 +688,15 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         });
       },
       onSettled: () => {
+        // Cancel queries related to Pending Approvals and Declined panels before refetch/invalidate
+        // We treat any appointment-related queries (board + base lists) to avoid race conditions
+        queryClient.cancelQueries({
+          predicate: (q) => {
+            const key = q.queryKey as any[];
+            const head = Array.isArray(key) ? key[0] : undefined;
+            return head === 'DraggableCards' || head === 'appointments' || head === 'appointments-search' || head === 'Appointment';
+          }
+        });
         setSourceCol(undefined);
         setActiveItem(null);
       },
@@ -664,6 +708,13 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           status: 'error',
           duration: 2500,
           isClosable: true,
+        });
+        queryClient.cancelQueries({
+          predicate: (q) => {
+            const key = q.queryKey as any[];
+            const head = Array.isArray(key) ? key[0] : undefined;
+            return head === 'DraggableCards' || head === 'appointments' || head === 'appointments-search' || head === 'Appointment';
+          }
         });
         queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
         setOptimisticData(null);
@@ -680,35 +731,27 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     setColumnPages((prev) => ({ ...prev, [colId]: page }));
   };
 
-  const pageSize = 10;
   const [filteredItems, setFilteredItems] = useState<Appointment[] | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const start = (currentPage - 1) * (pageSize ? pageSize : 0);
-  const end = start + (pageSize ? pageSize : 0);
-  const paginatedSource = filteredItems ?? dataContacts;
-  const currentItems = paginatedSource ? paginatedSource.slice(start, end) : [];
-  const totalPages = paginatedSource ? Math.ceil(paginatedSource.length / (pageSize || 1)) : 0;
+  // removed unused currentItems / totalPages (legacy pagination)
 
   const [filteredPending, setFilteredPending] = useState<Appointment[] | null>(null);
-  const [currentPagePending, setCurrentPagePending] = useState(1);
-  const startPending = (currentPagePending - 1) * (pageSize ? pageSize : 0);
-  const endPending = startPending + (pageSize ? pageSize : 0);
-  const paginatedPending = filteredPending ?? dataPending;
-  const currentPending = paginatedPending ? paginatedPending.slice(startPending, endPending) : [];
-  const totalPagesPending = paginatedPending ? Math.ceil(paginatedPending.length / (pageSize || 1)) : 0;
+  const [filteredDeclined, setFilteredDeclined] = useState<Appointment[] | null>(null);
+  // removed unused currentPending / totalPagesPending
 
   const [filteredArchived, setFilteredArchived] = useState<Appointment[] | null>(null);
-  const [currentPageArchived, setCurrentPageArchived] = useState(1);
-  const startArchived = (currentPageArchived - 1) * (pageSize ? pageSize : 0);
-  const endArchived = startArchived + (pageSize ? pageSize : 0);
-  const paginatedArchived = filteredArchived ?? dataArchived;
-  const currentArchived = paginatedArchived ? paginatedArchived.slice(startArchived, endArchived) : [];
-  const totalPagesArchived = paginatedArchived ? Math.ceil(paginatedArchived.length / (pageSize || 1)) : 0;
+  // removed unused currentArchived / totalPagesArchived
 
   const isLoadingColumns = !optimisticData || isPlaceholderData;
   const isLoadingContacts = isPlaceholderData && (!dataContacts || dataContacts.length === 0);
   const isLoadingPending = isPlaceholderData && (!dataPending || dataPending.length === 0);
+  const isLoadingDeclined = isPlaceholderData && (!dataDeclined || dataDeclined.length === 0);
   const isLoadingArchived = isPlaceholderData && (!dataArchived || dataArchived.length === 0);
+
+  // Derive data sources that gracefully fallback to base data when filters are empty arrays
+  const sourceContacts = (filteredItems && filteredItems.length > 0) ? filteredItems : dataContacts;
+  const sourcePending = (filteredPending && filteredPending.length > 0) ? filteredPending : dataPending;
+  const sourceDeclined = (filteredDeclined && filteredDeclined.length > 0) ? filteredDeclined : dataDeclined;
+  const sourceArchived = (filteredArchived && filteredArchived.length > 0) ? filteredArchived : dataArchived;
 
   // animación fluida de soltar
   const dropAnimation: DropAnimation = {
@@ -748,7 +791,12 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     >
       {(optimisticData ?? []).map((col, idx) => {
         const patients = Array.isArray(col.patients) ? col.patients : [];
-        const sorted = [...patients].sort((a, b) => Number(a.position) - Number(b.position));
+        const sorted = [...patients]
+          .filter(p => Array.isArray(p.selectedAppDates) && p.selectedAppDates.some(s => {
+            const st = String((s as any)?.status || "");
+            return st === "Confirmed" || st === "NoContacted";
+          }))
+          .sort((a, b) => Number(a.position) - Number(b.position));
 
         const perPage = 5;
         const colCurrentPage = columnPages[col._id || ''] || 1;
@@ -983,7 +1031,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   ))}
                 </Stack>
               ) : (
-                (filteredItems ?? dataContacts).map((item) => (
+                (sourceContacts).map((item) => (
                   <Box
                     key={`${item._id}-box`}
                     userSelect="none"
@@ -1106,10 +1154,19 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                 borderRadius="full"
                 width="fit-content"
                 boxShadow="xs"
-                gap={2}
+                gap={3}
               >
                 <Box w="10px" h="10px" borderRadius="full" bg="green.400" />
                 <Heading size="sm">Pending Approvals</Heading>
+                <Tooltip
+                  label={`Not filtered by date range. Showing all pending (${(sourcePending).length}/${dataPending.length})`}
+                  hasArrow
+                  placement="top"
+                >
+                  <Badge colorScheme="green" variant="solid" borderRadius="full" px={2} py={1} fontSize="0.7rem">
+                    {(sourcePending).length}
+                  </Badge>
+                </Tooltip>
               </HStack>
             </CardHeader>
 
@@ -1117,43 +1174,108 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               {isPlaceholderData ? (
                 <Skeleton height="38px" borderRadius="md" mb={3} />
               ) : (
-                <SearchBar ref={searchRef} data={dataPending || []} onFilter={setFilteredPending} who="contact" />
+                <PendingDeclinedSearchBar ref={pendingSearchRef} data={dataPending || []} onFilter={setFilteredPending} placeholder="Search pending by name or phone" />
               )}
 
-              {(filteredPending ?? dataPending).map((item) => (
-                <Box
-                  onClick={() => onCardClick?.(item)}
-                  key={`${item._id}-box`}
-                  userSelect="none"
-                  p={4}
-                  borderRadius="2xl"
-                  border="1px"
-                  borderColor="gray.100"
-                  w="full"
-                  my={2}
-                  cursor="pointer"
-                  boxShadow="xs"
-                  bg="white"
-                  _hover={{ borderColor: 'blackAlpha.300', transform: 'translateY(-1px)', boxShadow: 'md' }}
+              {(sourcePending)
+                .map((item) => (
+                  <Box key={`${item._id}-pending-card`} onClick={() => onCardClick?.(item)}>
+                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Pending" />
+                  </Box>
+                ))}
+            </CardBody>
+
+            <CardFooter minH="50px" maxH="56px" />
+          </Card>
+        </Fade>
+      )}
+
+      {/* Declined */}
+      {lastColPainted && (
+        <Fade in>
+          <Card
+            pb={2}
+            minW="280px"
+            flex="0 0 auto"
+            minHeight="300px"
+            height="520px"
+            maxHeight="620px"
+            borderRadius="2xl"
+            position="relative"
+            mr={4}
+            bg="white"
+            boxShadow="md"
+            border="1px solid"
+            borderColor="gray.200"
+            _before={{
+              content: '""',
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '2xl',
+              p: '1px',
+              bgGradient: 'linear(to-br, red.300, transparent)',
+              WebkitMask:
+                'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+              WebkitMaskComposite: 'xor',
+              pointerEvents: 'none',
+            }}
+          >
+            {isLoadingDeclined && (
+              <Box
+                position="absolute"
+                inset={0}
+                bg="whiteAlpha.60"
+                display="flex"
+                alignItems="center"
+                justifyContent="center"
+                zIndex={2}
+                pointerEvents="none"
+                borderRadius="2xl"
+              >
+                <Spinner thickness="3px" size="md" />
+              </Box>
+            )}
+
+            <CardHeader pb={0}>
+              <HStack
+                mb={2}
+                bg="red.50"
+                border="1px solid"
+                borderColor="red.100"
+                px={3}
+                py={2}
+                borderRadius="full"
+                width="fit-content"
+                boxShadow="xs"
+                gap={3}
+              >
+                <Box w="10px" h="10px" borderRadius="full" bg="red.400" />
+                <Heading size="sm">Declined</Heading>
+                <Tooltip
+                  label={`Not filtered by date range. Showing all declined (${(sourceDeclined).length}/${dataDeclined.length})`}
+                  hasArrow
+                  placement="top"
                 >
-                  <Grid templateColumns="1fr" templateRows="auto" w="100%">
-                    <GridItem />
-                    <GridItem>
-                      <HStack justify="space-between">
-                        <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
-                        <StatusPill status={getLatestSelectedAppDate(item.selectedAppDates)?.status} />
-                      </HStack>
-                    </GridItem>
-                    <GridItem mt={2}>
-                      <HStack color="gray.600">
-                        <Icon as={PhoneIcon} color="green.500" />
-                        <Text>{formatAusPhoneNumber(item.phoneInput || '')}</Text>
-                        <PrefBadge pref={item.contactPreference as any} />
-                      </HStack>
-                    </GridItem>
-                  </Grid>
-                </Box>
-              ))}
+                  <Badge colorScheme="red" variant="solid" borderRadius="full" px={2} py={1} fontSize="0.7rem">
+                    {(sourceDeclined).length}
+                  </Badge>
+                </Tooltip>
+              </HStack>
+            </CardHeader>
+
+            <CardBody p={3} overflowY="auto">
+              {isPlaceholderData ? (
+                <Skeleton height="38px" borderRadius="md" mb={3} />
+              ) : (
+                <PendingDeclinedSearchBar ref={declinedSearchRef} data={dataDeclined || []} onFilter={setFilteredDeclined} placeholder="Search declined by name or phone" />
+              )}
+
+              {(sourceDeclined)
+                .map((item) => (
+                  <Box key={`${item._id}-declined-card`} onClick={() => onCardClick?.(item)}>
+                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Declined" />
+                  </Box>
+                ))}
             </CardBody>
 
             <CardFooter minH="50px" maxH="56px" />
@@ -1232,7 +1354,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                 <SearchBar ref={searchRef} data={dataArchived || []} onFilter={setFilteredArchived} who="contact" />
               )}
 
-              {(filteredArchived ?? dataArchived).map((item) => (
+              {(sourceArchived).map((item) => (
                 <Box
                   onClick={() => onCardClick?.(item)}
                   key={`${item._id}-box`}

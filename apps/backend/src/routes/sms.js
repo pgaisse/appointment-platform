@@ -29,6 +29,7 @@ const {
   decideFromBody,
   findPrevOutboundConfirmation,
   pickActiveSlotId,
+  pickLastModifiedPendingSlotId,
 } = require("../helpers/webhookConfirmHelpers");
 
 const {
@@ -289,6 +290,12 @@ router.post('/sendMessageAsk', async (req, res) => {
       // ==============================
       const groupId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+      // Permitir que el frontend indique el slot al que corresponde este envío
+      let requestedSlotId = null;
+      if (req.body?.slotId && typeof req.body.slotId === 'string' && mongoose.Types.ObjectId.isValid(req.body.slotId)) {
+        requestedSlotId = new mongoose.Types.ObjectId(req.body.slotId);
+      }
+
       const twMsg = await client.conversations.v1
         .conversations(conversationId)
         .messages
@@ -320,27 +327,97 @@ router.post('/sendMessageAsk', async (req, res) => {
         console.error("Error saving message to DB:", err);
       }
 
-      // Registrar intento de contacto (ContactAppointment: Pending)
+      // Registrar intento de contacto (ContactAppointment: Pending) y sentAt/askMessageSid en el slot
       try {
-        const slots = (data?.selectedAppDates || [])
-          .map((s) => ({ slot: s, t: new Date(s?.proposed?.startDate || s?.startDate || 0).getTime() }))
-          .sort((a, b) => b.t - a.t);
-        const latest = slots.length ? slots[0].slot : null;
-        const startDate = latest?.proposed?.startDate || latest?.startDate || null;
-        const endDate = latest?.proposed?.endDate || latest?.endDate || null;
+        const sentAt = new Date();
+        // Elegir slot: preferir el slotId explícito; si no, usar heurística de "último" por fecha
+        let latest = null;
+        if (requestedSlotId) {
+          latest = (data?.selectedAppDates || []).find((s) => String(s?._id) === String(requestedSlotId)) || null;
+        }
+        if (!latest) {
+          const all = Array.isArray(data?.selectedAppDates) ? data.selectedAppDates : [];
+          const pendings = all.filter(s => s?.status === 'Pending');
+          const pickFrom = pendings.length ? pendings : all;
+          const slots = pickFrom
+            .map((s) => {
+              const t = new Date(
+                s?.proposed?.createdAt ||
+                s?.updatedAt ||
+                s?.proposed?.startDate ||
+                s?.startDate || 0
+              ).getTime();
+              return { slot: s, t };
+            })
+            .sort((a, b) => b.t - a.t);
+          latest = slots.length ? slots[0].slot : null;
+        }
+  // For the contact attempt, "proposed" should always reflect what we asked the patient:
+  // - Prefer explicit slot.proposed.* when present
+  // - Otherwise, fall back to the slot's own start/end (the window we are proposing)
+  const proposedStartDate = (latest?.proposed?.startDate) || (latest?.startDate) || null;
+  const proposedEndDate = (latest?.proposed?.endDate) || (latest?.endDate) || null;
+  // Current/actual dates for context (slot top-level)
+  const startDate = latest?.startDate || null;
+  const endDate = latest?.endDate || null;
 
-        await ContactAppointment.create([
-          {
-            user: req.dbUser?._id,
-            org_id,
-            appointment: data._id,
-            status: ContactStatus.Pending,
-            startDate,
-            endDate,
-            context: "Confirmation ask",
-            cSid: conversationId,
-          },
-        ]);
+        if (latest?._id) {
+          await Appointment.updateOne(
+            { _id: data._id },
+            {
+              $set: {
+                "selectedAppDates.$[slot].confirmation.sentAt": sentAt,
+                "selectedAppDates.$[slot].confirmation.askMessageSid": twMsg.sid,
+              },
+            },
+            { arrayFilters: [{ "slot._id": latest._id }] }
+          );
+        }
+
+        // Buscar si ya existe un ContactAppointment Pending para este slot (creado por /propose)
+        const existingContact = await ContactAppointment.findOne({
+          appointment: data._id,
+          selectedAppDate: latest?._id,
+          status: ContactStatus.Pending,
+        }).sort({ createdAt: -1 });
+
+        if (existingContact) {
+          // Actualizar el registro existente con los datos del SMS enviado
+          await ContactAppointment.updateOne(
+            { _id: existingContact._id },
+            {
+              $set: {
+                context: "Confirmation ask",
+                askMessageSid: twMsg.sid,
+                sentAt,
+                // Mantener las fechas propuestas originales si ya existen
+                ...(proposedStartDate && !existingContact.proposedStartDate && { proposedStartDate }),
+                ...(proposedEndDate && !existingContact.proposedEndDate && { proposedEndDate }),
+              },
+            }
+          );
+          console.log(`✅ Updated existing ContactAppointment ${existingContact._id} with SMS info`);
+        } else {
+          // Solo crear nuevo registro si no existe uno previo para este slot
+          await ContactAppointment.create([
+            {
+              user: req.dbUser?._id,
+              org_id,
+              appointment: data._id,
+              status: ContactStatus.Pending,
+              startDate,
+              endDate,
+              context: "Confirmation ask",
+              cSid: conversationId,
+              askMessageSid: twMsg.sid,
+              sentAt,
+              selectedAppDate: latest?._id || null,
+              proposedStartDate,
+              proposedEndDate,
+            },
+          ]);
+          console.log(`✅ Created new ContactAppointment for slot ${latest?._id}`);
+        }
       } catch (e) {
         console.warn("⚠️ Could not create Pending ContactAppointment:", e?.message || e);
       }
@@ -362,6 +439,119 @@ router.post('/sendMessageAsk', async (req, res) => {
       session.endSession();
     }
 
+  }
+});
+
+// =====================================================
+//  POST /appointments/:id/propose
+//  Actualiza un slot existente (seleccionado en el modal) con proposed.start/end y lo deja en Pending.
+//  Ya NO crea nuevos elementos en selectedAppDates; evita redundancias. Los logs los maneja ContactAppointment en /sendMessageAsk.
+// =====================================================
+router.post('/appointments/:id/propose', jwtCheck, attachUserInfo, ensureUser, async (req, res) => {
+  const session = await mongoose.startSession();
+  let committed = false;
+  try {
+    session.startTransaction();
+
+    const safeId = helpers.sanitizeInput(req.params.id);
+    if (!safeId || !mongoose.Types.ObjectId.isValid(safeId)) {
+      return res.status(400).json({ error: 'Invalid appointment id' });
+    }
+
+  // Body: proposed (obligatorio). current (opcional; si no viene, lo calculamos de último slot)
+  // baseSlotId (obligatorio): ID del slot a actualizar (seleccionado en el modal)
+    const rawProposedStart = req.body?.proposedStartDate;
+    const rawProposedEnd = req.body?.proposedEndDate;
+    const rawCurrentStart = req.body?.currentStartDate;
+    const rawCurrentEnd = req.body?.currentEndDate;
+  const rawBaseSlotId = req.body?.baseSlotId;
+    const reason = (req.body?.reason && helpers.sanitizeInput(req.body.reason)) || 'Rebooking';
+    const tz = (req.body?.tz && String(req.body.tz)) || 'Australia/Sydney';
+
+    if (!rawProposedStart || !rawProposedEnd) {
+      return res.status(400).json({ error: 'Missing proposedStartDate/proposedEndDate' });
+    }
+
+    const proposedStartDate = new Date(rawProposedStart);
+    const proposedEndDate = new Date(rawProposedEnd);
+    if (isNaN(+proposedStartDate) || isNaN(+proposedEndDate)) {
+      return res.status(400).json({ error: 'Invalid proposedStartDate/proposedEndDate' });
+    }
+
+    // Traer Appointment minimal
+    const appt = await Appointment.findOne(
+      { _id: safeId },
+      { selectedAppDates: 1, sid: 1, org_id: 1 }
+    ).session(session);
+    if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+
+    // Calcular ventana "current" si no vino desde el cliente
+    let currentStartDate;
+    let currentEndDate;
+    if (rawCurrentStart && rawCurrentEnd) {
+      const cs = new Date(rawCurrentStart);
+      const ce = new Date(rawCurrentEnd);
+      if (!isNaN(+cs) && !isNaN(+ce)) {
+        currentStartDate = cs;
+        currentEndDate = ce;
+      }
+    }
+    if (!currentStartDate || !currentEndDate) {
+      const slots = (appt?.selectedAppDates || [])
+        .map((s) => ({ slot: s, t: new Date(s?.proposed?.startDate || s?.startDate || 0).getTime() }))
+        .sort((a, b) => b.t - a.t);
+      const latest = slots.length ? slots[0].slot : null;
+      currentStartDate = latest?.startDate ? new Date(latest.startDate) : proposedStartDate;
+      currentEndDate = latest?.endDate ? new Date(latest.endDate) : proposedEndDate;
+    }
+
+    const { org_id } = appt;
+
+    // Si mandan baseSlotId válido y existe en el appointment -> actualizarlo
+    let targetSlotId = null;
+    if (rawBaseSlotId && mongoose.Types.ObjectId.isValid(rawBaseSlotId)) {
+      const baseSlot = (appt.selectedAppDates || []).find(s => String(s._id) === String(rawBaseSlotId));
+      if (baseSlot) {
+        targetSlotId = baseSlot._id;
+        // Actualizar proposed del slot existente y fijar origin si aún no existe
+        const setDoc = {
+          'selectedAppDates.$.proposed.startDate': proposedStartDate,
+          'selectedAppDates.$.proposed.endDate': proposedEndDate,
+          'selectedAppDates.$.proposed.proposedBy': 'clinic',
+          'selectedAppDates.$.proposed.reason': reason,
+          'selectedAppDates.$.proposed.createdAt': new Date(),
+          'selectedAppDates.$.status': 'Pending',
+        };
+        if (!baseSlot.origin || !baseSlot.origin.startDate) {
+          setDoc['selectedAppDates.$.origin.startDate'] = baseSlot.startDate || currentStartDate;
+          setDoc['selectedAppDates.$.origin.endDate'] = baseSlot.endDate || currentEndDate;
+          setDoc['selectedAppDates.$.origin.capturedAt'] = new Date();
+        }
+        await Appointment.updateOne(
+          { _id: appt._id, 'selectedAppDates._id': baseSlot._id },
+          { $set: setDoc },
+          { session }
+        );
+        await session.commitTransaction(); committed = true;
+        return res.status(200).json({
+          success: true,
+          appointmentId: String(appt._id),
+          slotId: String(baseSlot._id),
+          updatedExisting: true,
+        });
+      }
+    }
+    // Caso SIN baseSlotId: no crear nuevo slot — requerimos selección explícita
+    await session.abortTransaction();
+    return res.status(400).json({ error: 'baseSlotId is required to rebook an existing date. No new slots are created.' });
+  } catch (err) {
+    if (!committed) {
+      try { await session.abortTransaction(); } catch {}
+    }
+    console.error('❌ Error in POST /appointments/:id/propose:', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Internal Server Error' });
+  } finally {
+    session.endSession();
   }
 });
 
@@ -683,21 +873,53 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
           // Auto-unarchive
           await autoUnarchiveOnInbound(payload.ConversationSid);
 
-          // Elegir el slot activo dentro de selectedAppDates (array)
-          const slotId = await pickActiveSlotId({
-            Appointment,
-            conversationId: payload.ConversationSid,
-          });
+          // Elegir el slot activo dentro de selectedAppDates (array) de forma robusta
+          // 1) Intentar por askMessageSid (slot.confirmation.askMessageSid === prev.sid)
+          let slotId = (q.selectedAppDates || [])
+            .find((s) => String(s?.confirmation?.askMessageSid || '') === String(prev.sid))?._id || null;
+
+          // 2) Intentar por el slot con status Pending más recientemente MODIFICADO (proposed.createdAt / updatedAt)
+          if (!slotId) {
+            slotId = await pickLastModifiedPendingSlotId({
+              Appointment,
+              conversationId: payload.ConversationSid,
+            });
+          }
+
+          // 3) Intentar por ContactAppointment Pending más reciente (con selectedAppDate)
+          if (!slotId) {
+            const pending = await ContactAppointment.findOne({
+              appointment: q._id,
+              org_id: q.org_id,
+              cSid: payload.ConversationSid,
+              status: ContactStatus.Pending,
+            }).sort({ createdAt: -1 });
+            if (pending?.selectedAppDate) slotId = pending.selectedAppDate;
+          }
+
+          // 4) Fallback final: heurística previa
+          if (!slotId) {
+            slotId = await pickActiveSlotId({
+              Appointment,
+              conversationId: payload.ConversationSid,
+            });
+          }
 
             if (slotId) {
             const arrayFilters = [{ "slot._id": new mongoose.Types.ObjectId(slotId) }];
             if (decision === "confirmed") {
-              const startDate = q.selectedAppDates[0]?.proposed?.startDate;
-              const endDate = q.selectedAppDates[0]?.proposed?.endDate;
+              // Tomar datos del slot real seleccionado; evitar index 0
+              const startDate = undefined;
+              const endDate = undefined;
               const session = await mongoose.startSession();
               try {
                 await session.withTransaction(async () => {
                   // 1) Actualizar el último Pending ContactAppointment (o crear si no existe)
+                  // Recalcular start/end basados en el slot confirmado para robustez
+                  const confirmedSlot = q.selectedAppDates?.find((s) => String(s._id) === String(slotId)) || null;
+                  const slotStart = confirmedSlot?.proposed?.startDate || confirmedSlot?.startDate || null;
+                  const slotEnd = confirmedSlot?.proposed?.endDate || confirmedSlot?.endDate || null;
+
                   await ContactAppointment.findOneAndUpdate(
                     {
                       appointment: q._id,
@@ -708,10 +930,15 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                     {
                       $set: {
                         status: ContactStatus.Confirmed,
-                        startDate,
-                        endDate,
+                        startDate: slotStart,
+                        endDate: slotEnd,
+                        selectedAppDate: slotId, // ← garantizar referencia al subdocumento
+                        proposedStartDate: confirmedSlot?.proposed?.startDate || slotStart,
+                        proposedEndDate: confirmedSlot?.proposed?.endDate || slotEnd,
                         context: "Reschedule confirmation",
                         pSid: payload.ParticipantSid,
+                        respondedAt: now,
+                        responseMessageSid: payload.MessageSid,
                       },
                       $setOnInsert: { user: prev.user },
                     },
@@ -728,8 +955,15 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                         "selectedAppDates.$[slot].confirmation.decision": "confirmed",
                         "selectedAppDates.$[slot].confirmation.decidedAt": now,
                         "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
-                        "selectedAppDates.$[slot].startDate": startDate,
-                        "selectedAppDates.$[slot].endDate": endDate,
+                        // Establecer start/end del slot confirmado según la mejor fuente calculada
+                        "selectedAppDates.$[slot].startDate": slotStart,
+                        "selectedAppDates.$[slot].endDate": slotEnd,
+                        // Asegurar que updatedAt del subdocumento refleje el cambio
+                        "selectedAppDates.$[slot].updatedAt": now,
+                        // Origin snapshot si faltaba (caso legacy)
+                        "selectedAppDates.$[slot].origin.startDate": confirmedSlot?.origin?.startDate || slotStart,
+                        "selectedAppDates.$[slot].origin.endDate": confirmedSlot?.origin?.endDate || slotEnd,
+                        "selectedAppDates.$[slot].origin.capturedAt": confirmedSlot?.origin?.capturedAt || now,
                         reschedule: true,
                       },
                     },
@@ -835,8 +1069,10 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
               const session = await mongoose.startSession();
               try {
                 await session.withTransaction(async () => {
-                  const startDate = q.selectedAppDates[0]?.proposed?.startDate;
-                  const endDate = q.selectedAppDates[0]?.proposed?.endDate;
+                  // Recalcular datos del slot rechazado
+                  const declinedSlot = q.selectedAppDates?.find((s) => String(s._id) === String(slotId)) || null;
+                  const dStart = declinedSlot?.proposed?.startDate || declinedSlot?.startDate || null;
+                  const dEnd = declinedSlot?.proposed?.endDate || declinedSlot?.endDate || null;
 
                   await ContactAppointment.findOneAndUpdate(
                     {
@@ -848,10 +1084,15 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                     {
                       $set: {
                         status: ContactStatus.Rejected,
-                        startDate,
-                        endDate,
+                        startDate: dStart,
+                        endDate: dEnd,
+                        selectedAppDate: slotId,
+                        proposedStartDate: declinedSlot?.proposed?.startDate || dStart,
+                        proposedEndDate: declinedSlot?.proposed?.endDate || dEnd,
                         context: "Reschedule confirmation",
                         pSid: payload.ParticipantSid,
+                        respondedAt: now,
+                        responseMessageSid: payload.MessageSid,
                       },
                       $setOnInsert: { user: prev.user },
                     },
@@ -867,8 +1108,12 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
                         "selectedAppDates.$[slot].confirmation.decision": "declined",
                         "selectedAppDates.$[slot].confirmation.decidedAt": now,
                         "selectedAppDates.$[slot].confirmation.byMessageSid": saved.sid,
+                        // ⬇️ Retenemos 'proposed' para histórico, ya no se elimina
+                        "selectedAppDates.$[slot].updatedAt": now,
+                        "selectedAppDates.$[slot].origin.startDate": declinedSlot?.origin?.startDate || dStart,
+                        "selectedAppDates.$[slot].origin.endDate": declinedSlot?.origin?.endDate || dEnd,
+                        "selectedAppDates.$[slot].origin.capturedAt": declinedSlot?.origin?.capturedAt || now,
                       },
-                      $unset: { "selectedAppDates.$[slot].proposed": "" },
                     },
                     { arrayFilters }
                   );
@@ -880,8 +1125,24 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
 
           }
 
-          // Notificar a la UI
+          // Notificar a la UI con estructura completa del slot y el arreglo actualizado
           queueInvalidate(res, orgId, ["DraggableCards"]);
+          let selectedAppDatesFull = [];
+          let slotFull = null;
+          try {
+            const fresh = await Appointment.findOne(
+              { sid: payload.ConversationSid, unknown: { $ne: true } },
+              { selectedAppDates: 1 }
+            ).lean();
+            selectedAppDatesFull = Array.isArray(fresh?.selectedAppDates) ? fresh.selectedAppDates : (Array.isArray(q?.selectedAppDates) ? q.selectedAppDates : []);
+            if (slotId) {
+              slotFull = selectedAppDatesFull.find((s) => String(s?._id) === String(slotId)) || null;
+            }
+          } catch (e) {
+            selectedAppDatesFull = Array.isArray(q?.selectedAppDates) ? q.selectedAppDates : [];
+            if (slotId) slotFull = selectedAppDatesFull.find((s) => String(s?._id) === String(slotId)) || null;
+          }
+
           req.io.to(`org:${orgId}`).emit("confirmationResolved", {
             conversationId: payload.ConversationSid,
             respondsTo: prev.sid,
@@ -892,6 +1153,10 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
             body: decision, // opcional, solo para debug
             date: new Date().toISOString(),
             receivedAt: new Date(),
+            appointmentId: String(q._id),
+            slotId: slotId ? String(slotId) : null,
+            slot: slotFull,
+            selectedAppDates: selectedAppDatesFull,
           });
         }
 

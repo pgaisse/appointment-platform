@@ -365,11 +365,7 @@ export default function CustomChat() {
     [data]
   );
 
-  // Subscribe lightweight meta queries (limit=1) to get accurate totals for badges
-  const activeMeta = useConversationsInfinite("active", 1);
-  const archivedMeta = useConversationsInfinite("only", 1);
-  const activeCount = activeMeta.data?.pages?.[0]?.pagination?.total;
-  const archivedCount = archivedMeta.data?.pages?.[0]?.pagination?.total;
+  // Removed meta queries for header badges (counts hidden for Main/Archived icons)
 
   // Auto-select conversation from URL parameters (conversationId or phone) or event
   // Search across ALL cached views (active, only, all) to find the conversation
@@ -636,7 +632,7 @@ export default function CustomChat() {
   // removed unused sidebar header tokens (inlined where used)
   const scrollbarThumb = useColorModeValue("#CBD5E0", "#4A5568");
   const scrollbarTrack = useColorModeValue("#EDF2F7", "#2D3748");
-  const badgeBorder = useColorModeValue("white", "gray.800");
+  // removed badgeBorder (unused after hiding header badges)
 
   // Overlay bubble position: sits over categories+conversations boundary
   const bubbleLeft = useMemo(() => {
@@ -889,70 +885,24 @@ export default function CustomChat() {
                 </Text>
                 <HStack spacing={2}>
                   <Tooltip label="Main" placement="bottom" openDelay={150} hasArrow>
-                    <Box position="relative">
-                      <IconButton
-                        aria-label="Main"
-                        icon={<FiInbox />}
-                        size={{ base: "sm", md: "sm" }}
-                        variant={view === "active" ? "solid" : "ghost"}
-                        colorScheme={view === "active" ? "blue" : "gray"}
-                        onClick={() => setView("active")}
-                      />
-                      {typeof activeCount === "number" && activeCount > 0 && (
-                        <Box
-                          position="absolute"
-                          top="-6px"
-                          right="-6px"
-                          minW="18px"
-                          h="18px"
-                          px="1.5px"
-                          bg="blue.500"
-                          color="white"
-                          borderRadius="full"
-                          fontSize="xs"
-                          display="flex"
-                          alignItems="center"
-                          justifyContent="center"
-                          borderWidth="2px"
-                          borderColor={badgeBorder}
-                        >
-                          {activeCount > 99 ? "99+" : activeCount}
-                        </Box>
-                      )}
-                    </Box>
+                    <IconButton
+                      aria-label="Main"
+                      icon={<FiInbox />}
+                      size={{ base: "sm", md: "sm" }}
+                      variant={view === "active" ? "solid" : "ghost"}
+                      colorScheme={view === "active" ? "blue" : "gray"}
+                      onClick={() => setView("active")}
+                    />
                   </Tooltip>
                   <Tooltip label="Archived" placement="bottom" openDelay={150} hasArrow>
-                    <Box position="relative">
-                      <IconButton
-                        aria-label="Archived"
-                        icon={<FiArchive />}
-                        size={{ base: "sm", md: "sm" }}
-                        variant={view === "only" ? "solid" : "ghost"}
-                        colorScheme={view === "only" ? "blue" : "gray"}
-                        onClick={() => setView("only")}
-                      />
-                      {typeof archivedCount === "number" && archivedCount > 0 && (
-                        <Box
-                          position="absolute"
-                          top="-6px"
-                          right="-6px"
-                          minW="18px"
-                          h="18px"
-                          px="1.5px"
-                          bg="gray.600"
-                          color="white"
-                          borderRadius="full"
-                          fontSize="xs"
-                          display="flex"
-                          alignItems="center"
-                          justifyContent="center"
-                          borderWidth="2px"
-                          borderColor={badgeBorder}
-                        >
-                          {archivedCount > 99 ? "99+" : archivedCount}
-                        </Box>
-                      )}
-                    </Box>
+                    <IconButton
+                      aria-label="Archived"
+                      icon={<FiArchive />}
+                      size={{ base: "sm", md: "sm" }}
+                      variant={view === "only" ? "solid" : "ghost"}
+                      colorScheme={view === "only" ? "blue" : "gray"}
+                      onClick={() => setView("only")}
+                    />
                   </Tooltip>
                 </HStack>
               </HStack>

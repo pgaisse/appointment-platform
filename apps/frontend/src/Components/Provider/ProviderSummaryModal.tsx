@@ -1,5 +1,5 @@
 // apps/frontend/src/Components/Provider/ProviderSummaryModal.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, Suspense } from "react";
 import {
   Modal,
   ModalOverlay,
@@ -70,8 +70,8 @@ dayjs.extend(timezone);
 // Calendario
 import SmartCalendar, { titleCase, type CalendarEvent as SmartEvent } from "@/Components/Scheduler/SmartCalendar";
 import { Provider } from "@/types";
-import AppointmentModal from "../Modal/AppointmentModal";
-import { useModalIndex } from "../ModalStack/ModalStackContext";
+// Carga perezosa para evitar ciclos estáticos con AppointmentModal ⇄ ProviderSummaryModal
+const AppointmentModalLazy = React.lazy(() => import("../Modal/AppointmentModal"));
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 
 /* ====================================================================== */
@@ -454,12 +454,7 @@ export default function ProviderSummaryModal({
   const fullName = provider ? `${provider.firstName ?? ""} ${provider.lastName ?? ""}`.trim() : "";
   const { isOpen: isOpenApp, onOpen: onOpenApp, onClose: onCloseApp } = useDisclosure();
 
-  const stackId = React.useMemo(
-    () => `provider-summary-modal-${provider?._id ?? "unknown"}`,
-    [provider?._id]
-  );
-  const { modalIndex, topModalIndex } = useModalIndex(isOpen, { id: stackId });
-  const isTopOpen = isOpen && modalIndex === topModalIndex;
+  // Simplified: remove modal stack gating; show whenever isOpen prop is true.
 
   const skillTags = useMemo(() => {
     const ids = (provider?.skills ?? []).map(String);
@@ -600,7 +595,7 @@ export default function ProviderSummaryModal({
   /* ================= UI ================================================== */
   return (
     <Modal
-      isOpen={isTopOpen}
+      isOpen={isOpen}
       onClose={onClose}
       size="6xl"
       motionPreset="scale"
@@ -953,16 +948,18 @@ export default function ProviderSummaryModal({
                             onEventMouseLeave={() => setHover((h) => ({ ...h, show: false }))}
                           />
 
-                          {/* Modal de cita al hacer click */}
+                          {/* Modal de cita al hacer click: carga perezosa para romper ciclos */}
                           {selectedApptId && (
-                            <AppointmentModal
-                              id={selectedApptId}
-                              isOpen={isOpenApp}
-                              onClose={() => {
-                                setSelectedApptId(null);
-                                onCloseApp();
-                              }}
-                            />
+                            <Suspense fallback={null}>
+                              <AppointmentModalLazy
+                                id={selectedApptId}
+                                isOpen={isOpenApp}
+                                onClose={() => {
+                                  setSelectedApptId(null);
+                                  onCloseApp();
+                                }}
+                              />
+                            </Suspense>
                           )}
                         </CardBody>
                       </Card>
