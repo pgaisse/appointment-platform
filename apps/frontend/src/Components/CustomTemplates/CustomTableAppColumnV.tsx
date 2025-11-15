@@ -86,7 +86,8 @@ const CustomTableAppColumnV = () => {
   const query4 = {
     $and: [
       { unknown: false },
-      { selectedAppDates: { $elemMatch: { status: { $regex: "^declined$", $options: "i" } } } },
+      // include both Declined and Rejected statuses
+      { selectedAppDates: { $elemMatch: { status: { $regex: "^(declined|rejected)$", $options: "i" } } } },
     ],
   };
 
@@ -99,7 +100,7 @@ const CustomTableAppColumnV = () => {
     mongoQuery: query3,
     limit,
   });
-  // Refina Pending/Declined por último slot (inserción) para evitar falsos positivos antiguos
+  // Refina Declined por último slot; Para Pending incluimos si CUALQUIER slot es Pending
   const latestStatus = (slots: any[]): string | undefined => {
     if (!Array.isArray(slots) || !slots.length) return undefined;
     // sort by ObjectId timestamp DESC then by original index DESC
@@ -114,8 +115,14 @@ const CustomTableAppColumnV = () => {
     });
     return String((withIndex[0].s as any)?.status || '').toLowerCase();
   };
-  const dataPending = (pendingRaw ?? []).filter((apt) => latestStatus(apt.selectedAppDates as any[]) === 'pending');
-  const dataDeclined = (declinedRaw ?? []).filter((apt) => latestStatus(apt.selectedAppDates as any[]) === 'declined');
+  const dataPending = (pendingRaw ?? []).filter((apt) =>
+    Array.isArray((apt as any)?.selectedAppDates) &&
+    (apt as any).selectedAppDates.some((s: any) => String(s?.status || '').toLowerCase() === 'pending')
+  );
+  const dataDeclined = (declinedRaw ?? []).filter((apt) => {
+    const s = latestStatus(apt.selectedAppDates as any[]);
+    return s === 'declined' || s === 'rejected';
+  });
   const handleRangeChange = (
     range: RangeOption,
     customStart?: Date,

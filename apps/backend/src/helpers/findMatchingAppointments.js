@@ -36,18 +36,6 @@ async function findMatchingAppointments(start, end) {
             "selectedAppDates.endDate":   { $gte: startDate },
           },
         ],
-        "selectedDates.days.weekDay": dateDayName,
-      },
-    },
-    {
-      $addFields: {
-        "selectedDates.days": {
-          $filter: {
-            input: "$selectedDates.days",
-            as: "day",
-            cond: { $eq: ["$$day.weekDay", dateDayName] },
-          },
-        },
       },
     },
     {
@@ -91,11 +79,13 @@ async function findMatchingAppointments(start, end) {
     for (const appointment of appointments) {
       if (!appointment.priority || String(appointment.priority._id) !== priorityId) continue;
 
+      // Consider only blocks for the requested weekday
       const blocks = (appointment.selectedDates?.days || [])
+        .filter((d) => d?.weekDay === dateDayName)
         .flatMap((d) => d.timeBlocksData || []);
 
       let totalOverlapMinutes = 0;
-      const matchingBlocks = blocks.filter((block) => {
+      let matchingBlocks = blocks.filter((block) => {
         const blockStart = timeStringToMinutes(block.from);
         const blockEnd   = timeStringToMinutes(block.to);
         const overlapStart = Math.max(startMinutes, blockStart);
@@ -107,6 +97,32 @@ async function findMatchingAppointments(start, end) {
         }
         return false;
       });
+
+      // Fallback: if no availability blocks for this weekday, try selectedAppDates slots on same weekday
+      if (matchingBlocks.length === 0 && Array.isArray(appointment.selectedAppDates)) {
+        for (const slot of appointment.selectedAppDates) {
+          try {
+            const s = new Date(slot.startDate);
+            const e = new Date(slot.endDate);
+            if (!isFinite(s.getTime()) || !isFinite(e.getTime())) continue;
+            const slotDayName = daysOfWeek[s.getDay()];
+            if (slotDayName !== dateDayName) continue;
+            // Compute overlap in minutes using time of day
+            const sMin = dateToMinutes(s);
+            const eMin = dateToMinutes(e);
+            const overlapStart = Math.max(startMinutes, sMin);
+            const overlapEnd   = Math.min(endMinutes, eMin);
+            const overlap = Math.max(0, overlapEnd - overlapStart);
+            if (overlap > 0) {
+              totalOverlapMinutes += overlap;
+              const toHHMM = (min) => `${String(Math.floor(min / 60)).padStart(2,'0')}:${String(min % 60).padStart(2,'0')}`;
+              const fromStr = toHHMM(sMin);
+              const toStr = toHHMM(eMin);
+              matchingBlocks.push({ from: fromStr, to: toStr, short: 'Slot' });
+            }
+          } catch (_) {}
+        }
+      }
 
       if (matchingBlocks.length > 0) {
         const matchPercentage = (totalOverlapMinutes / requestDuration) * 100;

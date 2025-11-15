@@ -20,7 +20,7 @@ import { formatDateSingle } from '@/Functions/FormatDateSingle';
 import { getDateRangeLimits } from '@/Functions/getDateRangeLimits';
 
 export type TimeSlot = 'Early Morning' | 'Late Morning' | 'Early Afternoon' | 'Late Afternoon';
-export type WeekDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
+export type WeekDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
 
 const days: { wd: WeekDay; short: string }[] = [
   { wd: 'Monday', short: 'Mon' },
@@ -29,6 +29,7 @@ const days: { wd: WeekDay; short: string }[] = [
   { wd: 'Thursday', short: 'Thu' },
   { wd: 'Friday', short: 'Fri' },
   { wd: 'Saturday', short: 'Sat' },
+  { wd: 'Sunday', short: 'Sun' },
 ];
 
 const timeSlots: {
@@ -93,11 +94,21 @@ export default function AvailabilityDates({
     const tempDates: DateRange[] = [];
     const today = new Date();
 
+    const jsToWeekDay: Record<number, WeekDay> = {
+      0: 'Sunday',
+      1: 'Monday',
+      2: 'Tuesday',
+      3: 'Wednesday',
+      4: 'Thursday',
+      5: 'Friday',
+      6: 'Saturday',
+    };
+
     for (let i = 0; i < duration; i++) {
       const current = new Date(today);
       current.setDate(today.getDate() + i);
       const jsDay = current.getDay();
-      const weekDay = days[jsDay - 1]?.wd;
+      const weekDay = jsToWeekDay[jsDay];
 
       if (weekDay && selectedDays[weekDay]?.length) {
         selectedDays[weekDay].forEach((slot) => {
@@ -170,7 +181,7 @@ const toggleDay = (day: WeekDay) => {
   return (
     <Box p={4} width={'fit-content'}>
       <Grid
-        templateColumns={{ base: 'repeat(6, max-content)', '2xl': 'repeat(6, max-content)' }}
+        templateColumns={{ base: 'repeat(7, max-content)', '2xl': 'repeat(7, max-content)' }}
         gap={4}
       >
         {days.map(({ wd, short }) => (

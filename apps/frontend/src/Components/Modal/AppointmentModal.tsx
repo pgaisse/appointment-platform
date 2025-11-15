@@ -126,7 +126,7 @@ export interface AppointmentSlot {
   rescheduleRequested?: boolean;
 }
 
-export interface ContactAppointmentSlim extends ContactAppointment {
+export interface ContactAppointmentSlim extends Omit<ContactAppointment, 'appointment'> {
   selectedAppDate?: string | AppointmentSlot; // puede venir poblado con el objeto del slot
   askMessageSid?: string;
   proposedStartDate?: string | Date;

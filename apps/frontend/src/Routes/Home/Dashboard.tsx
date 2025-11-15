@@ -35,6 +35,7 @@ import {
   Tr,
   Th,
   Td,
+  Avatar,
 } from "@chakra-ui/react";
 import {
   FiCalendar,
@@ -62,6 +63,7 @@ import {
 } from "@/Hooks/Query/useDashboardDetails";
 import dayjs from 'dayjs';
 import { useProfile } from "@/Hooks/Query/useProfile";
+import { getAvatarColors } from "@/utils/avatarColors";
 
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError, error } = useDashboardStats();
@@ -116,7 +118,7 @@ const Dashboard: React.FC = () => {
   const handleMessageClick = (conversationId: string) => {
     navigate(`/messages?conversationId=${conversationId}`);
   };
-  
+
   const bgGradient = useColorModeValue(
     "linear(to-br, blue.50, purple.50)",
     "linear(to-br, gray.900, gray.800)"
@@ -231,6 +233,18 @@ const Dashboard: React.FC = () => {
               onClick={() => onPatientsOpen()}
               isClickable
             />
+
+          </Grid>
+
+
+          <Grid
+            templateColumns={{
+              base: "repeat(1, 1fr)",
+              md: "repeat(1, 1fr)",
+            }}
+            gap={6}
+          >
+
             <StatCard
               title="Pending"
               value={stats?.pending.total || 0}
@@ -270,13 +284,7 @@ const Dashboard: React.FC = () => {
                 color="green"
                 to="/messages"
               />
-              <QuickAction
-                title="Contacts"
-                description="Manage clients"
-                icon={FiUsers}
-                color="purple"
-                to="/clients"
-              />
+   
               <QuickAction
                 title="Pending Appointments"
                 description="Review pending items"
@@ -343,14 +351,14 @@ const Dashboard: React.FC = () => {
         />
 
         {/* New Patients modal (custom) */}
-        <Modal isOpen={isPatientsOpen} onClose={onPatientsClose} size="xl">
+        <Modal isOpen={isPatientsOpen} onClose={onPatientsClose} size="3xl">
           <ModalOverlay />
           <ModalContent>
             <ModalHeader>New patients</ModalHeader>
             <ModalCloseButton />
             <ModalBody>
-              <Tabs index={['today','week','month','range'].indexOf(patientsView)} onChange={(i) => {
-                const map: any = ['today','week','month','range'];
+              <Tabs index={['today', 'week', 'month', 'range'].indexOf(patientsView)} onChange={(i) => {
+                const map: any = ['today', 'week', 'month', 'range'];
                 setPatientsView(map[i]);
               }}>
                 <TabList>
@@ -372,13 +380,31 @@ const Dashboard: React.FC = () => {
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {(todayNewPatients || []).map((a: any) => (
-                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
-                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
-                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
-                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
-                          </Tr>
-                        ))}
+                        {(todayNewPatients || []).map((a: any) => {
+                          const rawName = ([a.nameInput].filter(Boolean).join(' ') || '');
+                          const cleaned = rawName.replace(/\s+/g, ' ').trim();
+                          const displayName = cleaned
+                            ? cleaned
+                              .split(' ')
+                              .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                              .join(' ')
+                            : '—';
+                          const initials = cleaned
+                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
+                            : '';
+                          return (
+                            <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                              <Td>
+                                <HStack spacing={3} align="center">
+                                  <Avatar size="sm" {...getAvatarColors(a.color)} name={displayName}></Avatar>
+                                  <Box>{displayName}</Box>
+                                </HStack>
+                              </Td>
+                              <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                              <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                            </Tr>
+                          );
+                        })}
                         {(todayNewPatients || []).length === 0 && (
                           <Tr><Td colSpan={3}><Text color="gray.500">No patients added today.</Text></Td></Tr>
                         )}
@@ -396,13 +422,31 @@ const Dashboard: React.FC = () => {
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {(weekNewPatients || []).map((a: any) => (
-                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
-                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
-                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
-                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
-                          </Tr>
-                        ))}
+                        {(weekNewPatients || []).map((a: any) => {
+                          const rawName = ([a.nameInput].filter(Boolean).join(' ') || '');
+                          const cleaned = rawName.replace(/\s+/g, ' ').trim();
+                          const displayName = cleaned
+                            ? cleaned
+                              .split(' ')
+                              .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                              .join(' ')
+                            : '—';
+                          const initials = cleaned
+                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
+                            : '';
+                          return (
+                            <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                              <Td>
+                                <HStack spacing={3} align="center">
+                                  <Avatar size="sm" {...getAvatarColors(a.color)} name={displayName}></Avatar>
+                                  <Box>{displayName}</Box>
+                                </HStack>
+                              </Td>
+                              <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                              <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                            </Tr>
+                          );
+                        })}
                         {(weekNewPatients || []).length === 0 && (
                           <Tr><Td colSpan={3}><Text color="gray.500">No patients added this week.</Text></Td></Tr>
                         )}
@@ -420,13 +464,31 @@ const Dashboard: React.FC = () => {
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {(monthNew || []).map((a: any) => (
-                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
-                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
-                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
-                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
-                          </Tr>
-                        ))}
+                        {(monthNew || []).map((a: any) => {
+                          const rawName = ([a.nameInput].filter(Boolean).join(' ') || '');
+                          const cleaned = rawName.replace(/\s+/g, ' ').trim();
+                          const displayName = cleaned
+                            ? cleaned
+                              .split(' ')
+                              .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                              .join(' ')
+                            : '—';
+                          const initials = cleaned
+                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
+                            : '';
+                          return (
+                            <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                              <Td>
+                                <HStack spacing={3} align="center">
+                                  <Avatar size="sm" {...getAvatarColors(a.color)} name={displayName}></Avatar>
+                                  <Box>{displayName}</Box>
+                                </HStack>
+                              </Td>
+                              <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                              <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                            </Tr>
+                          );
+                        })}
                         {(monthNew || []).length === 0 && (
                           <Tr><Td colSpan={3}><Text color="gray.500">No patients added this month.</Text></Td></Tr>
                         )}
@@ -449,13 +511,31 @@ const Dashboard: React.FC = () => {
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {(rangePatients || []).map((a: any) => (
-                          <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
-                            <Td>{[a.nameInput, a.lastNameInput].filter(Boolean).join(' ') || '—'}</Td>
-                            <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
-                            <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
-                          </Tr>
-                        ))}
+                        {(rangePatients || []).map((a: any) => {
+                          const rawName = ([a.nameInput].filter(Boolean).join(' ') || '');
+                          const cleaned = rawName.replace(/\s+/g, ' ').trim();
+                          const displayName = cleaned
+                            ? cleaned
+                              .split(' ')
+                              .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                              .join(' ')
+                            : '—';
+                          const initials = cleaned
+                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
+                            : '';
+                          return (
+                            <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
+                              <Td>
+                                <HStack spacing={3} align="center">
+                                  <Avatar size="sm" {...getAvatarColors(a.color)} name={displayName}></Avatar>
+                                  <Box>{displayName}</Box>
+                                </HStack>
+                              </Td>
+                              <Td>{a.phoneInput || a.phoneE164 || '—'}</Td>
+                              <Td>{a.createdAt ? new Date(a.createdAt).toLocaleString() : '—'}</Td>
+                            </Tr>
+                          );
+                        })}
                         {(rangePatients || []).length === 0 && (
                           <Tr><Td colSpan={3}><Text color="gray.500">No patients in the selected range.</Text></Td></Tr>
                         )}

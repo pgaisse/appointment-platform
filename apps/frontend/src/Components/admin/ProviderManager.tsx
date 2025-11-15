@@ -1,5 +1,6 @@
 // ------------------------------------------------------------------------------------
 import React, { lazy, Suspense, useMemo, useState } from "react";
+import dayjs from "dayjs";
 import {
   Box,
   Card, CardHeader, CardBody,
@@ -361,11 +362,14 @@ export default function ProviderManager() {
 
 // Inline small component to show upcoming appointments count and next date for a provider
 function ProviderAppointmentsInline({ providerId }: { providerId: string }) {
-  const now = new Date();
-  const from = now.toISOString();
-  const to = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(); // next 7 days
+  // Rango estable: hoy 00:00 -> fin de día dentro de 7 días (evita cambiar el queryKey en cada render)
+  const stableRange = React.useMemo(() => {
+    const start = dayjs().startOf('day');
+    const end = start.add(7, 'day').endOf('day');
+    return { from: start.toISOString(), to: end.toISOString() };
+  }, []);
 
-  const { data: events = [] } = useProviderAppointments(providerId, { from, to });
+  const { data: events = [] } = useProviderAppointments(providerId, stableRange);
 
   if (!events || events.length === 0) {
     return <Box fontSize="xs" color="gray.500">0 appointments</Box>;

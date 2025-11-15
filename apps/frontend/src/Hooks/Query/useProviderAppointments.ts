@@ -140,6 +140,8 @@ export function useProviderTimeOff(
       return (resp?.data as TimeOffItem[]) || [];
     },
     placeholderData: [],
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
   });
 }
 export function useProviderAppointments(
@@ -172,6 +174,8 @@ export function useProviderAppointments(
       console.log("[useProviderAppointments] normalized events:", events);
       return events;
     },
-    placeholderData: [],
+    placeholderData: (previousData) => previousData,
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
   });
 }

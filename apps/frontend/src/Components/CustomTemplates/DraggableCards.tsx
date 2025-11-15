@@ -85,7 +85,7 @@ const StatusPill: React.FC<{ status?: string }> = ({ status }) => {
       : status === 'Rejected' ? 'Rejected'
         : status === 'Declined' ? 'Declined'
           : status === 'Pending' ? 'Pending'
-            : 'Uncontacted';
+            : 'No Contacted';
   return (
     <Tooltip label={`Status: ${label}`} placement="top" hasArrow>
       <Tag size="sm" variant="subtle" colorScheme={c}>
@@ -794,7 +794,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         const sorted = [...patients]
           .filter(p => Array.isArray(p.selectedAppDates) && p.selectedAppDates.some(s => {
             const st = String((s as any)?.status || "");
-            return st === "Confirmed" || st === "NoContacted";
+            return st === "Confirmed" || st === "NoContacted" || st === "Pending";
           }))
           .sort((a, b) => Number(a.position) - Number(b.position));
 

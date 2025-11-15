@@ -388,6 +388,7 @@ function CustomEntryForm({
   providers,
   // REMOVED: providersAssignments: providersAssignmentsProp,
 }: Props) {
+  const topRef = useRef<HTMLDivElement | null>(null);
   const { data: allProviders = [] } = useProvidersList({ active: true });
   const { onOpen: onOpenApp, onClose: onCloseApp, isOpen: isOpenApp } =
     useDisclosure();
@@ -824,6 +825,7 @@ function CustomEntryForm({
   const [selectedAppDates, setSelectedAppDates] = useState<DateRange[]>(
     datesAppSelected || []
   );
+  const [resetKey, setResetKey] = useState(0);
   // REMOVED: providersAssignments state - now handled by AppointmentProvider collection
   const [selectedDays, setSelectedDays] = useState<
     Partial<Record<WeekDay, TimeBlock[]>>
@@ -1233,6 +1235,39 @@ function CustomEntryForm({
     [selectedTemplate, reminderEnabled, selectedReminder, sendSMSAsync, toast]
   );
 
+  // Hard reset of UI and local states + scroll to top
+  const hardResetUI = useCallback(() => {
+    try {
+      reset();
+      setSelectedAppDates([]);
+      setSelectedDays({});
+      setIsChild(false);
+      setRepQuery("");
+      setPendingProviderAssignments([]);
+      setReminderEnabled(true);
+      setReminderOffsetH(1);
+      setSelectedTemplate(null);
+      setMessagingOpen(false);
+      setDuration(0);
+      setColor("");
+      setSelected(-1);
+      setTreatment(undefined);
+      setIsAnAppointment(!onlyPatient);
+      scheduledKeysRef.current = new Set();
+      setTokensSnapshot({});
+      setResetKey((k) => k + 1); // force remount of subcomponents tied to this key
+    } catch {}
+    // Scroll to initial view
+    try {
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      }
+      if (topRef.current && typeof topRef.current.scrollIntoView === 'function') {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } catch {}
+  }, [onlyPatient, reset]);
+
   const extractCreatedId = (resp: any) =>
     normalizeId(resp?.document?._id) ??
     normalizeId(resp?.document?.id) ??
@@ -1347,14 +1382,7 @@ function CustomEntryForm({
           }
 
           // reset UI de reminder
-          setReminderOffsetH(1);
-          setSelectedTemplate(null);
-          setMessagingOpen(false);
-
-          reset();
-          setRepQuery("");
-          setIsChild(false);
-          setPendingProviderAssignments([]); // Clear pending assignments
+          hardResetUI();
 
           // Ensure in-flight appointment-related queries are stopped before invalidation/refetch
           await cancelAppointmentDependentQueries();
@@ -1441,6 +1469,9 @@ function CustomEntryForm({
               });
             }
           }
+
+          // Ensure UI fully resets and scroll returns to top after an edit
+          hardResetUI();
         },
         onError: () => {
           toast({
@@ -1464,6 +1495,7 @@ function CustomEntryForm({
   /* =================== UI =================== */
   return (
     <Box
+      ref={topRef}
       as="form"
       noValidate
       autoComplete="on"
@@ -1977,6 +2009,7 @@ function CustomEntryForm({
 
         {/* Per-date Provider Assignment */}
         <ProviderPerDate
+          key={`provider-per-date-${resetKey}`}
           mode={mode}
           tz={SYD_TZ}
           selectedAppDates={selectedAppDates}
@@ -2115,6 +2148,7 @@ function CustomEntryForm({
               <FormLabel>Availability</FormLabel>
               <Box display="flex" justifyContent="center" width="100%">
                 <AvailabilityDates2
+                  key={`availability-${resetKey}`}
                   modeInput={true}
                   selectedDaysResp={selectedDays}
                   setSelectedDaysResp={setSelectedDays}

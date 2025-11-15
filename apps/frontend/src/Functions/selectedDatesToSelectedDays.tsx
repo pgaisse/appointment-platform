@@ -2,6 +2,7 @@ import { TimeSlot, WeekDay } from "@/Components/CustomTemplates/AvailabilityDate
 import { DateRange } from "@/Components/CustomTemplates/CustomBestApp";
 
 const daysMap: Record<number, WeekDay> = {
+  0: "Sunday",
   1: "Monday",
   2: "Tuesday",
   3: "Wednesday",
