@@ -14,6 +14,7 @@ import {
   MenuItem,
   Icon,
   chakra,
+  Tooltip,
 } from '@chakra-ui/react';
 import { ChevronDownIcon } from '@chakra-ui/icons';
 import { FiLogOut, FiUser } from 'react-icons/fi';
@@ -136,7 +137,7 @@ export default function Header({ linkItems, linkSession }: Props) {
   );
 
   // Auth0
-  const { isAuthenticated, user, loginWithRedirect } = useAuth0();
+  const { isAuthenticated, user } = useAuth0();
 
   // Resolve a premium-looking display name (fallbacks included)
   const displayName =
@@ -144,6 +145,22 @@ export default function Header({ linkItems, linkSession }: Props) {
     ((user as any)?.["https://letsmarter.com/name"] as string) ||
     user?.email ||
     "Account";
+
+  // Version indicator data (from Vite define)
+  const version = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : "");
+  const updatedAt = (typeof __APP_BUILD_DATE__ !== 'undefined' ? __APP_BUILD_DATE__ : "");
+  const updatedAtLabel = React.useMemo(() => {
+    if (!updatedAt) return "";
+    try {
+      const d = new Date(updatedAt);
+      // Friendly format: e.g., 18 Nov 2025, 14:35
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+    } catch {
+      return updatedAt;
+    }
+  }, [updatedAt]);
 
   return (
     <Box
@@ -189,6 +206,27 @@ export default function Header({ linkItems, linkSession }: Props) {
 
         {/* Session / User Area */}
         <HStack spacing={3}>
+          {/* Version indicator */}
+          {version ? (
+            <Tooltip label={`Updated: ${updatedAtLabel || 'unknown'}`} hasArrow placement="bottom">
+              <HStack
+                as="span"
+                spacing={2}
+                px={2.5}
+                py={1}
+                borderRadius="full"
+                border="1px solid"
+                borderColor={useColorModeValue('purple.200','whiteAlpha.300')}
+                bg={useColorModeValue('purple.50','whiteAlpha.100')}
+                boxShadow="0 6px 18px rgba(168,85,247,0.20)"
+              >
+                <Box w="8px" h="8px" borderRadius="full" bg={useColorModeValue('purple.400','purple.300')} />
+                <Text fontSize="sm" fontWeight="semibold" color={useColorModeValue('purple.700','purple.200')}>
+                  v{version}
+                </Text>
+              </HStack>
+            </Tooltip>
+          ) : null}
           {!isAuthenticated ? (
             <>
               {/* Keep legacy session buttons if provided */}

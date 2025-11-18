@@ -351,13 +351,13 @@ const CustomCalendar = ({
       >
         {(isFetching || isHandlingSelection) && (
           <Center position="absolute" inset={0} bg={overlayBg} backdropFilter="blur(3px)" zIndex={2} aria-busy="true">
-            <HStack><Spinner size="lg" /><Text>Cargando…</Text></HStack>
+            <HStack><Spinner size="lg" /><Text>Loading…</Text></HStack>
           </Center>
         )}
 
         {!isFetching && memoizedEvents.length === 0 && (
           <Center p={10} borderRadius="xl" borderWidth="1px" borderColor={cardBorder} bg={emptyBg} mb={3}>
-            <HStack><CalIcon /><Text>No hay eventos en este rango.</Text></HStack>
+            <HStack><CalIcon /><Text>No events in this range.</Text></HStack>
           </Center>
         )}
 

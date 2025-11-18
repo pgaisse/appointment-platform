@@ -3,13 +3,14 @@ import { DateRange, MarkedEvents } from "@/Hooks/Handles/useSlotSelection";
 import { Box, Grid, useDisclosure } from "@chakra-ui/react";
 import { useEffect, useState } from "react";
 import { SlotInfo } from "react-big-calendar";
+import LiquidTokenEditor from '@/Components/LiquidTokenEditor';
 
 import { usePriorityTreatments } from "@/Hooks/Query/usePriorityTreatments";
 import CustomEventContentFlex from "@/Components/Scheduler/CustomEventContentFlex";
-import { AppointmentGroup } from "@/types";
+// import { AppointmentGroup } from "@/types";
 import CustomModal from "@/Components/Modal/CustomModal";
 import CustomCalendarv2 from "@/Components/Scheduler/CustomCalendarv2";
-import { useGetCollection } from "@/Hooks/Query/useGetCollection";
+// import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 
 
 
@@ -36,13 +37,14 @@ function PriorityList() {
   };
   const [catSelected, _setCatSelected] = useState<string>("")
   //console.log(catSelected)
-  const start = range?.startDate
-  const end = range?.endDate
+  // const start = range?.startDate
+  // const end = range?.endDate
   const { data: data2, isFetching: isF } = usePriorityTreatments(range?.startDate, range?.endDate, catSelected, false)
-  const query = {};
-  const limit = 20;
-  const params = { start, end } // solo frontend
-  const { data: _options } = useGetCollection<AppointmentGroup[]>("PriorityList", { query, limit, params });
+  // Removed unused PriorityList fetch to avoid an extra heavy request on every selection
+  // const query = {};
+  // const limit = 20;
+  // const params = { start, end } // solo frontend
+  // const { data: _options } = useGetCollection<AppointmentGroup[]>("PriorityList", { query, limit, params });
 
 
   useEffect(() => {
@@ -132,6 +134,7 @@ function PriorityList() {
           </CustomModal>}
         </Box>
       </Grid>
+  <LiquidTokenEditor calendarSlot={range ? { startDate: range.startDate, endDate: range.endDate } : undefined} />
     </>
   );
 }

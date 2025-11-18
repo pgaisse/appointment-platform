@@ -17,6 +17,9 @@ import { useDraggableCards } from "@/Hooks/Query/useDraggableCards";
 import { filterAppointmentsByRange, RangeOption } from "@/Functions/filterAppointmentsByRage";
 // (range helpers for priority columns retained elsewhere)
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
+import { usePendingApprovals } from "@/Hooks/Query/usePendingApprovals";
+import { useDeclinedAppointments } from "@/Hooks/Query/useDeclinedAppointments";
+import { useArchivedAppointments } from "@/Hooks/Query/useArchivedAppointments";
 import AppointmentModal from "../Modal/AppointmentModal";
 import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext"; // 👈 Provider para modal index
 
@@ -56,19 +59,9 @@ const CustomTableAppColumnV = () => {
     ],
   };
 
-  // Pending Approvals: we now fetch any appointment having at least one slot with status Pending;
-  // client-side we will refine by ensuring the latest slot (by insertion) is actually Pending.
-  const query2 = {
-    $and: [
-      { unknown: false },
-      { selectedAppDates: { $elemMatch: { status: { $regex: "^pending$", $options: "i" } } } },
-    ],
-  };
+  // Pending Approvals via dedicated hook (stable query key for easy invalidation)
 
-  // Archived: unchanged (those with position -1)
-  const query3 = {
-    $and: [ { unknown: false }, { position: -1 } ],
-  };
+  // Archived via dedicated hook (stable query key)
 
   const limit = 100;
   const { data: dataContacts } = useGetCollection<Appointment>("Appointment", {
@@ -76,30 +69,12 @@ const CustomTableAppColumnV = () => {
     limit,
   });
 
-  const { data: pendingRaw } = useGetCollection<Appointment>("Appointment", {
-    mongoQuery: query2,
-    limit,
-  });
+  const { data: pendingRaw } = usePendingApprovals({ limit });
   console.log("pendingRaw",pendingRaw)
 
-  // Declined: any appointment with at least one slot marked Declined
-  const query4 = {
-    $and: [
-      { unknown: false },
-      // include both Declined and Rejected statuses
-      { selectedAppDates: { $elemMatch: { status: { $regex: "^(declined|rejected)$", $options: "i" } } } },
-    ],
-  };
-
-  const { data: declinedRaw } = useGetCollection<Appointment>("Appointment", {
-    mongoQuery: query4,
-    limit,
-  });
-
-  const { data: dataArchived } = useGetCollection<Appointment>("Appointment", {
-    mongoQuery: query3,
-    limit,
-  });
+  // Declined and Archived via dedicated hooks (stable keys)
+  const { data: declinedRaw } = useDeclinedAppointments({ limit });
+  const { data: dataArchived } = useArchivedAppointments({ limit });
   // Refina Declined por último slot; Para Pending incluimos si CUALQUIER slot es Pending
   const latestStatus = (slots: any[]): string | undefined => {
     if (!Array.isArray(slots) || !slots.length) return undefined;

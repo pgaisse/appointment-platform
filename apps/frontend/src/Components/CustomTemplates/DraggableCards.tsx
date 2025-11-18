@@ -28,6 +28,7 @@ import {
   Tooltip,
   Fade,
   useToast,
+  useDisclosure,
 } from '@chakra-ui/react';
 import {
   closestCenter,
@@ -160,21 +161,19 @@ type AppointmentForChat = Appointment & {
 };
 
 function buildContactFromAppointment(i: AppointmentForChat) {
-  const hasDirect =
-    Boolean(i.sid && String(i.sid).trim()) ||
-    Boolean(i.phoneInput && i.phoneInput.trim()) ||
-    Boolean(i.emailInput && i.emailInput.trim());
-
   const rep =
     i.representative &&
-      i.representative.appointment &&
-      typeof i.representative.appointment === 'object'
+    i.representative.appointment &&
+    typeof i.representative.appointment === 'object'
       ? (i.representative.appointment as RepAppointmentLite)
       : null;
 
-  if (hasDirect || !rep) {
-    const conversationId = i.sid || '';
-    const author = (i.nameInput || '').trim();
+  // If there is a representative, ALWAYS derive chat to the representative
+  if (rep) {
+    const conversationId = rep.sid || '';
+    const phone = rep.phoneInput || rep.phoneE164 || '';
+    const email = rep.emailLower || '';
+    const author = `${rep.nameInput || ''}`.trim();
     return {
       conversationId,
       lastMessage: {
@@ -189,23 +188,22 @@ function buildContactFromAppointment(i: AppointmentForChat) {
         updatedAt: new Date().toISOString(),
       },
       owner: {
-        email: i.emailInput || '',
-        lastName: i.lastNameInput || '',
-        name: i.nameInput || '',
+        email,
+        lastName: rep.lastNameInput || '',
+        name: rep.nameInput || '',
         org_id: i.org_id || '',
-        phone: i.phoneInput || '',
+        phone,
         color: (i as any).color || undefined,
         unknown: false,
-        _id: i._id,
+        _id: rep._id,
+        represented: true,
       },
     };
   }
 
-  const conversationId = rep.sid || '';
-  const phone = rep.phoneInput || rep.phoneE164 || '';
-  const email = rep.emailLower || '';
-  const author = `${rep.nameInput || ''}`.trim();
-
+  // Otherwise, fall back to the patient's own chat
+  const conversationId = i.sid || '';
+  const author = (i.nameInput || '').trim();
   return {
     conversationId,
     lastMessage: {
@@ -220,14 +218,15 @@ function buildContactFromAppointment(i: AppointmentForChat) {
       updatedAt: new Date().toISOString(),
     },
     owner: {
-      email,
-      lastName: rep.lastNameInput || '',
-      name: rep.nameInput || '',
+      email: i.emailInput || '',
+      lastName: i.lastNameInput || '',
+      name: i.nameInput || '',
       org_id: i.org_id || '',
-      phone,
+      phone: i.phoneInput || '',
       color: (i as any).color || undefined,
       unknown: false,
-      _id: rep._id,
+      _id: i._id,
+      represented: false,
     },
   };
 }
@@ -237,6 +236,16 @@ function buildContactFromAppointment(i: AppointmentForChat) {
    ─────────────────────────────────────────────────────────────── */
 const cap = (s?: string) =>
   (s ?? '').toLocaleLowerCase().replace(/^\p{L}/u, c => c.toLocaleUpperCase());
+
+// Prefer the slot with status "Pending" when present
+const pickPendingSlot = (slots?: any[]) => {
+  if (!Array.isArray(slots)) return undefined;
+  return slots.find((s) => String((s as any)?.status || '').toLowerCase() === 'pending');
+};
+const getPendingSlotRange = (slots?: any[]) => {
+  const s = pickPendingSlot(slots);
+  return s ? { start: (s as any).startDate, end: (s as any).endDate } : null;
+};
 const AppointmentCard: React.FC<{
   item: Appointment;
   priorityColor?: string;
@@ -248,6 +257,8 @@ const AppointmentCard: React.FC<{
   const rep = hasRep && typeof (item as any).representative.appointment === 'object'
     ? (item as any).representative.appointment as RepAppointmentLite
     : null;
+  const { isOpen: isRepOpen, onOpen: onRepOpen, onClose: onRepClose } = useDisclosure();
+  const { isOpen: isSelfOpen, onOpen: onSelfOpen, onClose: onSelfClose } = useDisclosure();
 
   return (
     <Box
@@ -270,10 +281,14 @@ const AppointmentCard: React.FC<{
       minW="260px"
       maxW="100%"
       w="100%"
-      onClick={(e) => {
+      onClick={(e: React.MouseEvent) => {
         if (asOverlay) return;
         e.stopPropagation();
-        onCardClick?.(item);
+        if (onCardClick) {
+          onCardClick(item);
+        } else {
+          onSelfOpen();
+        }
       }}
       // para overlay: impedir interacción pero mantener el look
       pointerEvents={asOverlay ? 'none' : 'auto'}
@@ -284,8 +299,8 @@ const AppointmentCard: React.FC<{
           bottom="0"
           right="2"
           zIndex={2}
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
         >
           <ArchiveItemButton id={item._id} modelName="Appointment" />
         </Box>
@@ -311,10 +326,10 @@ const AppointmentCard: React.FC<{
 
         <HStack gap={2}>
           <Tooltip label={`Appointment Date: ${(() => { 
-            const r = getDisplaySlotRange(item.selectedAppDates); 
-            const slot = pickDisplaySlot(item.selectedAppDates); 
-            const slotId = slot && (slot as any)?._id ? String((slot as any)._id) : '—';
-            return (r ? formatDateWS({ startDate: r.start, endDate: r.end }) : '—') + ` | slot _id: ${slotId}`;
+            // Prefer the PENDING slot's date if available; otherwise use the current display logic
+            const rPending = getPendingSlotRange(item.selectedAppDates);
+            const r = rPending ?? getDisplaySlotRange(item.selectedAppDates);
+            return (r ? formatDateWS({ startDate: r.start, endDate: r.end }) : '—');
           })()}`} placement="top" hasArrow>
             <Icon as={TimeIcon} />
           </Tooltip>
@@ -346,12 +361,9 @@ const AppointmentCard: React.FC<{
           <Text fontWeight="semibold" noOfLines={1}>
             {cap(item.nameInput)} {cap(item.lastNameInput)}
           </Text>
-
         </HStack>
-
-
       </HStack>
-
+      
       <Divider my={2} />
 
       {/* Teléfono (paciente o representante) */}
@@ -365,7 +377,13 @@ const AppointmentCard: React.FC<{
               hasArrow
               placement="top"
             >
-              <Box as={RiParentFill} color="purple.500" />
+              <Box
+                as="button"
+                onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRepOpen(); }}
+                aria-label="Open representative"
+              >
+                <Box as={RiParentFill} color="purple.500" />
+              </Box>
             </Tooltip>
             <Text fontWeight="medium">
               {formatAusPhoneNumber(rep.phoneInput || '')}
@@ -375,6 +393,38 @@ const AppointmentCard: React.FC<{
           <Text fontWeight="medium">{formatAusPhoneNumber(item.phoneInput || '')}</Text>
         )}
       </HStack>
+
+      {/* Nested patient modal (fallback when no onCardClick is provided) */}
+      {!onCardClick && (
+        <React.Suspense fallback={null}>
+          {(() => {
+            const AppointmentModalLazy = React.lazy(() => import('@/Components/Modal/AppointmentModal'));
+            return (
+              <AppointmentModalLazy
+                id={String(item._id || '')}
+                isOpen={isSelfOpen}
+                onClose={onSelfClose}
+              />
+            );
+          })()}
+        </React.Suspense>
+      )}
+
+      {/* Nested tutor modal */}
+      {rep && (
+        <React.Suspense fallback={null}>
+          {(() => {
+            const AppointmentModalLazy = React.lazy(() => import('@/Components/Modal/AppointmentModal'));
+            return (
+              <AppointmentModalLazy
+                id={String((rep as any)._id || '')}
+                isOpen={isRepOpen}
+                onClose={onRepClose}
+              />
+            );
+          })()}
+        </React.Suspense>
+      )}
     </Box>
   );
 };

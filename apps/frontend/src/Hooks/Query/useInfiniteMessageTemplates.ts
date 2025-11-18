@@ -23,7 +23,7 @@ const AUDIENCE =
 
 export function useInfiniteMessageTemplates(params: Params = {}) {
   const { getAccessTokenSilently } = useAuth0();
-  const { category, q, limit = 20, org_id, enabled = true, fields = "title,content,category" } = params;
+  const { category, q, limit = 5, org_id, enabled = true, fields = "title,content,category" } = params;
 
   return useInfiniteQuery<Page>({
     queryKey: ["message-templates", { category, q, limit, org_id, fields }],

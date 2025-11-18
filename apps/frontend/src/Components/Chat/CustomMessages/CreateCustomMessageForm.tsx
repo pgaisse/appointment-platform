@@ -14,13 +14,12 @@ import {
   Tag,
   TagLabel,
   TagCloseButton,
-  IconButton,
+  
   Tooltip,
-  Divider,
-  Text
+  Divider
 } from '@chakra-ui/react';
 import { useState } from 'react';
-import { FaPlus } from 'react-icons/fa';
+ 
 
 const availableTokens = [
   "#Name",
@@ -47,12 +46,12 @@ export default function CreateCustomMessageForm({ onClose }: { onClose?: () => v
 
   const handleSave = async () => {
     if (!title || !content) {
-      toast({ title: "Todos los campos son obligatorios", status: "warning", duration: 3000 });
+      toast({ title: "All fields are required", status: "warning", duration: 3000 });
       return;
     }
 
-    // Aquí iría la lógica para guardar el mensaje en la DB
-    toast({ title: "Plantilla guardada exitosamente", status: "success", duration: 3000 });
+    // Here you'd save the message in the DB
+    toast({ title: "Template saved successfully", status: "success", duration: 3000 });
     setTitle("");
     setContent("");
     setTokensUsed([]);
@@ -62,18 +61,18 @@ export default function CreateCustomMessageForm({ onClose }: { onClose?: () => v
   return (
     <Box p={6} rounded="2xl" bg={cardBg} shadow="xl" w="full" maxW="lg" mx="auto">
       <Heading size="lg" mb={6} textAlign="center">
-        Crear mensaje personalizado
+        Create custom message
       </Heading>
       <VStack spacing={5} align="stretch">
         <FormControl>
-          <FormLabel>Título</FormLabel>
-          <Input placeholder="Ej: Confirmación de cita" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <FormLabel>Title</FormLabel>
+          <Input placeholder="Ex: Appointment confirmation" value={title} onChange={(e) => setTitle(e.target.value)} />
         </FormControl>
 
         <FormControl>
-          <FormLabel>Contenido</FormLabel>
+          <FormLabel>Content</FormLabel>
           <Textarea
-            placeholder="Escribe el mensaje con tokens..."
+            placeholder="Write the message using tokens..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={6}
@@ -83,10 +82,10 @@ export default function CreateCustomMessageForm({ onClose }: { onClose?: () => v
         <Divider my={2} />
 
         <FormControl>
-          <FormLabel>Todos los tokens disponibles</FormLabel>
+          <FormLabel>All available tokens</FormLabel>
           <HStack wrap="wrap">
             {availableTokens.map((token) => (
-              <Tooltip key={token} label="Insertar token">
+              <Tooltip key={token} label="Insert token">
                 <Button
                   variant="outline"
                   size="sm"
@@ -101,7 +100,7 @@ export default function CreateCustomMessageForm({ onClose }: { onClose?: () => v
 
         {tokensUsed.length > 0 && (
           <Box>
-            <FormLabel>Tokens usados</FormLabel>
+            <FormLabel>Tokens used</FormLabel>
             <HStack wrap="wrap">
               {tokensUsed.map((token) => (
                 <Tag key={token} colorScheme="blue">
@@ -114,7 +113,7 @@ export default function CreateCustomMessageForm({ onClose }: { onClose?: () => v
         )}
 
         <Button colorScheme="blue" size="lg" onClick={handleSave} mt={4}>
-          Guardar mensaje
+          Save message
         </Button>
       </VStack>
     </Box>

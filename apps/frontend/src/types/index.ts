@@ -191,6 +191,8 @@ export type Owner = {
   avatar?: string
   color?: string;
   unknown?: boolean;
+  /** True when the visible chat contact belongs to a representative (patient is represented) */
+  represented?: boolean;
 };
 export interface ConversationChat {
   conversationId: string;
@@ -457,6 +459,7 @@ export interface TemplateToken {
   type: TokenType;
   org_id: string;
   _id: string
+  synthetic?: boolean; // true si es un token generado en runtime y no persistido
 }
 
 

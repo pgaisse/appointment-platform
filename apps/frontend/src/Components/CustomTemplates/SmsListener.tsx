@@ -28,16 +28,16 @@ export const SmsListener = () => {
 
   return (
     <div>
-      <p>{connected ? '✅ Socket conectado' : '🔄 Conectando socket...'}</p>
+      <p>{connected ? '✅ Socket connected' : '🔄 Connecting socket...'}</p>
 
-      {messages.length === 0 && <p>📭 No hay mensajes aún</p>}
+      {messages.length === 0 && <p>📭 No messages yet</p>}
 
       {messages.length > 0 && (
         <ul style={{ marginTop: '1rem' }}>
           {messages.map((msg, i) => (
             <li key={i}>
-              <strong>📨 De:</strong> {msg.from} <br />
-              <strong>Mensaje:</strong> {msg.body}
+              <strong>📨 From:</strong> {msg.from} <br />
+              <strong>Message:</strong> {msg.body}
             </li>
           ))}
         </ul>

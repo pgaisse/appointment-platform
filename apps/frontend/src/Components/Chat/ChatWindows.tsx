@@ -1,10 +1,12 @@
 // ChatWindows.tsx
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Flex, HStack, Box, Divider, VStack, Tooltip, IconButton, Text,
   useColorModeValue, useToast, Spinner,
-  Textarea, Avatar, Icon,
+  Textarea, Avatar, Icon, useDisclosure,
 } from "@chakra-ui/react";
+import { PhoneIcon } from "@chakra-ui/icons";
+import { RiParentFill } from "react-icons/ri";
 import { FiSend } from "react-icons/fi";
 import { MdAccessTime, MdOutlinePostAdd, MdKeyboardArrowDown } from "react-icons/md";
 import { TiTick } from "react-icons/ti";
@@ -20,8 +22,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSendChatMessage } from "@/Hooks/Query/useSendChatMessage";
 import { useOptimisticMessages } from "@/Hooks/Query/useOptimisticMessages";
 import { formatToE164 } from "@/Functions/formatToE164";
+import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { ConversationChat, Message } from "@/types";
 import { useInfiniteMessages } from "@/Hooks/Query/UseInfiniteQuery";
+const AppointmentModalLazy = React.lazy(() => import("@/Components/Modal/AppointmentModal"));
 
 /* ---------- Helpers for day separators ---------- */
 const isSameLocalDay = (a: Date, b: Date) =>
@@ -83,6 +87,9 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const sendChat = useSendChatMessage();
+  // Tutor modal controls
+  const { isOpen: isTutorOpen, onOpen: onTutorOpen, onClose: onTutorClose } = useDisclosure();
+  const [tutorId, setTutorId] = useState<string | null>(null);
 
   // === INFINITE ===
   const {
@@ -90,7 +97,6 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
     fetchNextPage,          // usaremos "next" para cargar páginas más antiguas al llegar arriba
     hasNextPage,
     isFetchingNextPage,
-    refetch,
     isRefetching,
   } = useInfiniteMessages(chat.conversationId, 10);
 
@@ -184,6 +190,14 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         name_={chat.owner?.name ? chat.owner?.name : undefined}
         color={chat.owner?.color}
         avatar={chat.owner?.avatar}
+        phone={chat.owner?.phone}
+        represented={chat.owner?.represented}
+        onTutorClick={() => {
+          if (chat.owner?.represented && chat.owner?._id) {
+            setTutorId(chat.owner._id);
+            onTutorOpen();
+          }
+        }}
       />
       <Divider mb={4} borderColor={borderCol} />
 
@@ -205,6 +219,13 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         unknown={chat.owner.unknown || false}
         onSend={onSend}
       />
+
+      {/* Nested tutor modal */}
+      {tutorId && (
+        <React.Suspense fallback={null}>
+          <AppointmentModalLazy id={tutorId} isOpen={isTutorOpen} onClose={onTutorClose} />
+        </React.Suspense>
+      )}
     </Flex>
   );
 }
@@ -216,11 +237,17 @@ const Header = memo(function Header({
   name_,
   color,
   avatar,
+  phone,
+  represented,
+  onTutorClick,
 }: {
   name: string | undefined;
   avatar?: string;
   name_: string | undefined;
   color?: string;
+  phone?: string;
+  represented?: boolean;
+  onTutorClick?: () => void;
 }) {
   const titleColor = useColorModeValue("gray.800", "gray.100");
   const subColor = useColorModeValue("gray.500", "gray.400");
@@ -248,9 +275,41 @@ const Header = memo(function Header({
         color="white"
       />
       <Box minW={0}>
-        <Text fontWeight="semibold" fontSize={{ base: "lg", md: "xl" }} color={titleColor} noOfLines={1}>
-          {displayName}
-        </Text>
+        <HStack spacing={3} align="center">
+          <Text fontWeight="semibold" fontSize={{ base: "lg", md: "xl" }} color={titleColor} noOfLines={1}>
+            {displayName}
+          </Text>
+          {/* Phone pill next to the name */}
+          <Box
+            bg={useColorModeValue("blackAlpha.50", "whiteAlpha.100")}
+            px={2}
+            py={1}
+            rounded="full"
+            borderWidth="1px"
+            borderColor={useColorModeValue("blackAlpha.200", "whiteAlpha.300")}
+          >
+            <HStack spacing={2} align="center">
+              <PhoneIcon boxSize={3.5} color={useColorModeValue("green.600", "green.300")} />
+              {represented ? (
+                <HStack spacing={1} align="center">
+                    <Box 
+                    as="button" 
+                    onClick={(e: React.MouseEvent<HTMLButtonElement>) => { 
+                      e.stopPropagation(); 
+                      onTutorClick?.(); 
+                    }} 
+                    aria-label="Open representative"
+                    >
+                    <Box as={RiParentFill} color={useColorModeValue("purple.600", "purple.300")} />
+                    </Box>
+                  <Text fontSize="sm" fontWeight="semibold">{phone ? formatAusPhoneNumber(phone) : "—"}</Text>
+                </HStack>
+              ) : (
+                <Text fontSize="sm" fontWeight="semibold">{phone ? formatAusPhoneNumber(phone) : "—"}</Text>
+              )}
+            </HStack>
+          </Box>
+        </HStack>
         {displaySubName && (
           <Text fontSize="sm" color={subColor} noOfLines={1}>
             {displaySubName}

@@ -14,7 +14,8 @@ const { requireAnyPermissionExplain } = require("../middleware/rbac-explain");
 
 // Model (supports consolidated export or standalone model)
 
-const { MessageTemplate } = require('../models/Appointments');
+const { MessageTemplate, TemplateToken } = require('../models/Appointments');
+const { extractColonTokens } = require('../helpers/tokenRenderer');
 
 
 // DOMPurify in Node (no globals)
@@ -135,9 +136,20 @@ router.post(
             if (!userId) return fail(res, 400, "Missing user id (sub).");
 
 
-            console.log("[MT schema paths]", Object.keys(MessageTemplate.schema.paths));
-            console.log("[incoming.body.category]", req.body?.category);
-            console.log("[clean.category]", clean.category);
+            // Compute variablesUsed from content union if missing or for sanity
+            try {
+                const usedInContent = extractColonTokens(clean.content || '');
+                if (Array.isArray(usedInContent) && usedInContent.length) {
+                    // Validate against registry for this org
+                    const registry = await TemplateToken.find({ $or: [{ org_id: orgId }, { org_id: { $exists: false } }] }).select('key').lean();
+                    const valid = new Set(registry.map(t => t.key));
+                    const filtered = usedInContent.filter(k => valid.has(k));
+                    clean.variablesUsed = Array.from(new Set([...(clean.variablesUsed || []), ...filtered]));
+                }
+            } catch (e) {
+                // non-fatal
+                console.warn('[message-templates] variablesUsed extraction failed:', e?.message);
+            }
 
             const doc = await MessageTemplate.create({
                 ...clean,

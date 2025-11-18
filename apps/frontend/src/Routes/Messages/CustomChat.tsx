@@ -229,8 +229,61 @@ function optimisticUpsertInboundAndMoveActive(opts: {
   );
 }
 
+/**
+ * Reconcile a temporary local conversation (id starts with "local-") with the real server SID
+ * when we receive the first inbound carrying the definitive conversationId.
+ * We match by normalized owner phone to avoid duplicates.
+ */
+function reconcileLocalConversationId(opts: {
+  qc: QueryClient;
+  oldLocalId: string;
+  newSid: string;
+}) {
+  const { qc, oldLocalId, newSid } = opts;
+
+  // Replace in all conversations-infinite caches and drop duplicates if any
+  const caches = qc.getQueriesData<ConvInfinite>({ queryKey: ["conversations-infinite"] });
+  for (const [key] of caches) {
+    qc.setQueryData<ConvInfinite>(key as any, (prev) => {
+      if (!prev) return prev;
+      const seenNew = new Set<string>();
+      return {
+        pageParams: prev.pageParams,
+        pages: prev.pages.map((p) => {
+          // Map ids and then de-dup by conversationId
+          const mapped = p.items.map((c) =>
+            c.conversationId === oldLocalId ? { ...c, conversationId: newSid } : c
+          );
+          const out: ConversationChat[] = [];
+          for (const it of mapped) {
+            if (seenNew.has(it.conversationId)) continue;
+            seenNew.add(it.conversationId);
+            out.push(it);
+          }
+          return { ...p, items: out };
+        }),
+      };
+    });
+  }
+
+  // Flat legacy cache
+  qc.setQueryData<ConversationChat[]>(["conversations"], (prev) => {
+    const list = Array.isArray(prev) ? prev : [];
+    const mapped = list.map((c) => (c.conversationId === oldLocalId ? { ...c, conversationId: newSid } : c));
+    const dedup: ConversationChat[] = [];
+    const seen = new Set<string>();
+    for (const it of mapped) {
+      if (seen.has(it.conversationId)) continue;
+      seen.add(it.conversationId);
+      dedup.push(it);
+    }
+    return dedup;
+  });
+}
+
 export default function CustomChat() {
   const [chat, setChat] = useState<ConversationChat | undefined>(undefined);
+  const [tempConversations, setTempConversations] = useState<ConversationChat[]>([]);
   const [view, setView] = useState<"active" | "only">("active");
   const [catsOpen, setCatsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
@@ -360,10 +413,29 @@ export default function CustomChat() {
     hasNextPage,
     fetchNextPage,
   } = useConversationsInfinite(view, PAGE_SIZE);
-  const dataConversation: ConversationChat[] = useMemo(
+  const serverConversations: ConversationChat[] = useMemo(
     () => data?.pages.flatMap((p) => p.items) ?? [],
     [data]
   );
+  const dataConversation: ConversationChat[] = useMemo(() => {
+    // Merge temps first, then server, dedup by conversationId
+    const seen = new Set<string>();
+    const merged: ConversationChat[] = [];
+    for (const c of tempConversations) {
+      if (!seen.has(c.conversationId)) {
+        seen.add(c.conversationId);
+        merged.push(c);
+      }
+    }
+    for (const c of serverConversations) {
+      if (!seen.has(c.conversationId)) {
+        seen.add(c.conversationId);
+        merged.push(c);
+      }
+    }
+    // Exclude conversations tied to represented appointments
+    return merged.filter((c) => !(c.owner as any)?.represented);
+  }, [tempConversations, serverConversations]);
 
   // Removed meta queries for header badges (counts hidden for Main/Archived icons)
 
@@ -528,6 +600,36 @@ export default function CustomChat() {
       const openId = chatIdRef.current;
       const isVisible = document.visibilityState === "visible";
       const isOpenAndInbound = openId === msg.conversationId && msg.direction === "inbound";
+
+      // Reconcile temp local-<phone> conversation with real SID when first inbound arrives
+      if (msg.direction === "inbound") {
+        const norm = (v?: string | null) => (v ? v.replace(/\D+/g, "") : "");
+        const authorDigits = norm(msg.author);
+        if (authorDigits) {
+          // Find any temp conversation in any cache with local- id and same phone
+          const snapshot = queryClient.getQueriesData<ConvInfinite>({ queryKey: ["conversations-infinite"] });
+          let localIdToReplace: string | null = null;
+          for (const [, data] of snapshot) {
+            if (!data) continue;
+            for (const page of data.pages) {
+              for (const c of page.items) {
+                const ownerDigits = norm(c.owner?.phone ?? "");
+                if (c.conversationId?.startsWith("local-") && ownerDigits === authorDigits) {
+                  localIdToReplace = c.conversationId;
+                  break;
+                }
+              }
+              if (localIdToReplace) break;
+            }
+            if (localIdToReplace) break;
+          }
+          if (localIdToReplace && localIdToReplace !== msg.conversationId) {
+            reconcileLocalConversationId({ qc: queryClient, oldLocalId: localIdToReplace, newSid: msg.conversationId });
+            // If the currently open chat is the local one, switch to the real SID immediately
+            setChat((prev) => (prev?.conversationId === localIdToReplace ? { ...prev, conversationId: msg.conversationId } : prev));
+          }
+        }
+      }
 
       // ✅ Failsafe + optimista: si llega inbound en archivado, muévelo a "active" y
       // actualiza el preview (lastMessage) al instante.
@@ -909,7 +1011,18 @@ export default function CustomChat() {
 
               <HStack spacing={2} mt={3} wrap="wrap">
                 <NewChatButton
-                  setChat={setChat}
+                  setChat={(next) => {
+                    const conv = typeof next === "function" ? (next as any)(undefined) : next;
+                    if (!conv) return;
+                    if (view !== "active") setView("active");
+                    handleOpenChat(conv);
+                  }}
+                  onCreate={(conv) => {
+                    setTempConversations((prev) => {
+                      if (prev.some((p) => p.conversationId === conv.conversationId)) return prev;
+                      return [conv, ...prev];
+                    });
+                  }}
                   dataConversation={dataConversation}
                   iconOnly
                   tooltipLabel="New chat"

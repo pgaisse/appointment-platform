@@ -112,7 +112,8 @@ const AppointmentsSchema = new Schema({
   nameInput: String,
   lastNameInput: String,
   emailInput: String,
-  phoneInput: { type: String, default: '', index: true },
+  // Nota: no usar default '' para permitir documentos sin el campo cuando es dependiente
+  phoneInput: { type: String, index: true },
 
   // Normalizados para unicidad
   phoneE164: { type: String, default: '', index: true },
@@ -548,12 +549,13 @@ const TemplateTokenSchema = new Schema({
   key: { type: String, required: true, unique: true },
   label: { type: String, required: true },
   description: { type: String },
-  field: { type: String },
-  secondLevelfield: { type: String },
+  field: { type: String, default: null },
+  // Align with frontend typing: `secondLevelField`
+  secondLevelField: { type: String, default: null },
   type: { type: String, enum: ['string', 'date', 'time', 'phone', 'custom'], default: 'string', required: true },
   org_id: { type: String },
   createdBy: { type: String },
-});
+}, { minimize: true });
 // Para unicidad por clínica en lugar de global, podrías usar:
 // TemplateTokenSchema.index({ org_id: 1, key: 1 }, { unique: true });
 
@@ -571,19 +573,54 @@ const TimeBlockSchema = new Schema({
 
 const getModel = require('./_getModel');
 
+// Materializamos los modelos primero para poder ejecutar comprobaciones opcionales
+const AppointmentModel = getModel('Appointment', AppointmentsSchema);
+const CategoryModel = getModel('Category', CategoriesSchema);
+const PriorityListModel = getModel('PriorityList', PrioritySchema);
+const TimeBlockModel = getModel('TimeBlock', TimeBlockSchema);
+const MessageLogModel = getModel('MessageLog', ContactLogSchema);
+const TreatmentModel = getModel('Treatment', TreatmentSchema);
+const ContactAppointmentModel = getModel('ContactAppointment', ContactSchema);
+const ManualContactModel = getModel('ManualContact', ManualContactSchema);
+const TemplateTokenModel = getModel('TemplateToken', TemplateTokenSchema);
+const MessageTemplateModel = getModel('MessageTemplate', MessageTemplateSchema);
+const MediaFileModel = getModel('MediaFile', MediaFileSchema);
+const MessageModel = getModel('Message', MessageSchema);
+
+// Salvaguarda opcional: elimina un índice único legado sobre phoneInput si existe.
+// Actívalo estableciendo DROP_LEGACY_PHONEINPUT_UNIQUE=true en el entorno.
+async function dropLegacyPhoneInputUniqueIndexIfAny() {
+  if (process.env.DROP_LEGACY_PHONEINPUT_UNIQUE !== 'true') return;
+  try {
+    const indexes = await AppointmentModel.collection.indexes();
+    const bad = indexes.find((ix) => ix?.name && ix.name.includes('phoneInput') && ix.unique);
+    if (bad) {
+      const name = bad.name;
+      console.warn('[Appointment] Dropping legacy unique index on phoneInput:', name);
+      await AppointmentModel.collection.dropIndex(name);
+      console.warn('[Appointment] Dropped index:', name);
+    }
+  } catch (e) {
+    console.warn('[Appointment] Could not drop legacy phoneInput unique index (safe to ignore if missing):', e?.message || e);
+  }
+}
+
+// Ejecutar en background sin bloquear el arranque
+setTimeout(() => { dropLegacyPhoneInputUniqueIndexIfAny(); }, 0);
+
 module.exports = {
   toE164AU, // por si lo quieres usar en endpoints
 
-  Appointment: getModel('Appointment', AppointmentsSchema),
-  Category: getModel('Category', CategoriesSchema),
-  PriorityList: getModel('PriorityList', PrioritySchema),
-  TimeBlock: getModel('TimeBlock', TimeBlockSchema),
-  MessageLog: getModel('MessageLog', ContactLogSchema),
-  Treatment: getModel('Treatment', TreatmentSchema),
-  ContactAppointment: getModel('ContactAppointment', ContactSchema),
-  ManualContact: getModel('ManualContact', ManualContactSchema),
-  TemplateToken: getModel('TemplateToken', TemplateTokenSchema),
-  MessageTemplate: getModel('MessageTemplate', MessageTemplateSchema),
-  MediaFile: getModel('MediaFile', MediaFileSchema),
-  Message: getModel('Message', MessageSchema),
+  Appointment: AppointmentModel,
+  Category: CategoryModel,
+  PriorityList: PriorityListModel,
+  TimeBlock: TimeBlockModel,
+  MessageLog: MessageLogModel,
+  Treatment: TreatmentModel,
+  ContactAppointment: ContactAppointmentModel,
+  ManualContact: ManualContactModel,
+  TemplateToken: TemplateTokenModel,
+  MessageTemplate: MessageTemplateModel,
+  MediaFile: MediaFileModel,
+  Message: MessageModel,
 };

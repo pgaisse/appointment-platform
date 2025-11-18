@@ -21,14 +21,15 @@ import {
 } from "@chakra-ui/react";
 import { FiMessageCircle } from "react-icons/fi";
 import { FaUser } from "react-icons/fa";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { useCustomChat } from "@/Hooks/Query/useCustomChat";
 import { formatToE164 } from "@/Functions/formatToE164";
 import type { Message, ConversationChat } from "@/types";
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
+import type { ConversationsPage } from "@/Hooks/Query/useConversationsInfinite";
 
-type ContactDoc = {
+ type ContactDoc = {
   _id: string;
   nameInput: string;
   lastNameInput: string;
@@ -36,14 +37,14 @@ type ContactDoc = {
   sid: string;
   color?: string;
 };
-
-type Props = {
+ type Props = {
   setChat?: React.Dispatch<React.SetStateAction<ConversationChat | undefined>>;
   dataConversation: ConversationChat[] | undefined;
   iconOnly?: boolean;
   tooltipLabel?: string;
   size?: "xs" | "sm" | "md" | "lg";
   variant?: string;
+  onCreate?: (conv: ConversationChat) => void;
 };
 
 const MIN_CHARS = 2;
@@ -57,9 +58,9 @@ function useDebouncedValue<T>(value: T, delay = 300) {
   return debounced;
 }
 
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const buildLocalMessage = (conversationId: string, author: string): Message => {
+ const buildLocalMessage = (conversationId: string, author: string): Message => {
   const now = new Date().toISOString();
   return {
     clientTempId: `tmp-${Date.now()}`,
@@ -77,7 +78,7 @@ const buildLocalMessage = (conversationId: string, author: string): Message => {
   };
 };
 
-export default function NewChatButton({ setChat, dataConversation, iconOnly = false, tooltipLabel = "Nuevo chat", size = "sm", variant = "ghost" }: Props) {
+export default function NewChatButton({ setChat, dataConversation, iconOnly = false, tooltipLabel = "Nuevo chat", size = "sm", variant = "ghost", onCreate }: Props) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [search, setSearch] = useState("");
   const debounced = useDebouncedValue(search, 300);
@@ -96,7 +97,8 @@ export default function NewChatButton({ setChat, dataConversation, iconOnly = fa
     if (digits.length >= 3) {
       or.push({ phoneInput: { $regex: "^" + digits } });
     }
-    return { $or: or };
+    // Exclude patients without phone number
+    return { $and: [ { $or: or }, { phoneInput: { $exists: true, $ne: "" } } ] } as any;
   }, [debounced, isOpen]);
 
   const { data = [], isLoading } = useGetCollection<ContactDoc>("Appointment", {
@@ -104,7 +106,7 @@ export default function NewChatButton({ setChat, dataConversation, iconOnly = fa
     projection: { nameInput: 1, lastNameInput: 1, phoneInput: 1, sid: 1, color: 1 },
     limit: 20,
   });
-
+  // Legacy flat list cache (kept for backward compatibility if someone still reads it)
   const upsertConversationInCache = (conv: ConversationChat) => {
     queryClient.setQueryData<ConversationChat[]>(["conversations"], (prev) => {
       const list = Array.isArray(prev) ? prev : [];
@@ -116,38 +118,88 @@ export default function NewChatButton({ setChat, dataConversation, iconOnly = fa
     });
   };
 
+  // Helpers to read/update the infinite conversations cache so MessageList sees updates immediately
+  type ConvInfinite = InfiniteData<ConversationsPage>;
+
+  const conversationExistsInInfinite = (conv: ConversationChat) => {
+    const caches = queryClient.getQueriesData<ConvInfinite>({ queryKey: ["conversations-infinite"] });
+    const norm = (v?: string) => (v ? v.replace(/\D+/g, "") : "");
+    const phone = norm(conv.owner?.phone);
+    for (const [, data] of caches) {
+      if (!data) continue;
+      for (const page of data.pages) {
+        for (const c of page.items) {
+          if (c.conversationId && conv.conversationId && c.conversationId === conv.conversationId) return true;
+          if (norm(c.owner?.phone) && phone && norm(c.owner?.phone) === phone) return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const insertAtTopActiveInfinite = (conv: ConversationChat) => {
+    // Insert into any active view caches, placing the new conversation at the top of the first page
+    const caches = queryClient.getQueriesData<ConvInfinite>({ queryKey: ["conversations-infinite"] });
+    for (const [key] of caches) {
+      // key is the query key tuple; expect ["conversations-infinite", mode, pageSize]
+      const keyArr = Array.isArray(key) ? key : [];
+      const mode = keyArr[1];
+      if (mode !== "active") continue; // only show in active view
+      queryClient.setQueryData<ConvInfinite>(key as any, (prev) => {
+        if (!prev) return prev;
+        // Remove any existing with same id to avoid duplicates
+        const cleanedPages = prev.pages.map((p) => ({
+          ...p,
+          items: p.items.filter((c) => c.conversationId !== conv.conversationId),
+        }));
+        const first = cleanedPages[0];
+        const newFirst = { ...first, items: [conv, ...first.items] };
+        return {
+          pageParams: prev.pageParams,
+          pages: [newFirst, ...cleanedPages.slice(1)],
+        };
+      });
+    }
+  };
   const handleSelectContact = (c: ContactDoc) => {
     const phone = formatToE164(c.phoneInput || "");
     const name = `${c.nameInput} ${c.lastNameInput}`.trim();
-    const _id = c._id
-    const sid = c.sid
-    const color = c.color
+    const _id = c._id;
+    const sid = c.sid;
+    const color = c.color;
     const localConversationId = `local-${phone}`;
-
-    const lm = buildLocalMessage(localConversationId, "clinic");
+    // Prefer server SID when present; otherwise use a temporary local id
+    const conversationId = sid && sid.trim().length > 0 ? sid : localConversationId;
+    const lm = buildLocalMessage(conversationId, "clinic");
 
     const newConv: ConversationChat = {
-      conversationId: sid,
+      conversationId,
       owner: {
         phone,
         name,
         _id,
         color,
       },
-
       lastMessage: lm,
       chatmessage: lm,
+      archived: false,
+      unreadCount: 0,
     };
-    const exists = dataConversation?.some(u => u.conversationId === sid);
+
+    const exists = (dataConversation?.some((u) => u.conversationId === conversationId)) || conversationExistsInInfinite(newConv);
     if (exists) {
       onClose();
-      setSearch(""); 
-      return
+      setSearch("");
+      return;
     }
 
+    // Optimistically insert into the infinite conversations cache (active view) so MessageList updates immediately
+    insertAtTopActiveInfinite(newConv);
 
-
-    upsertConversationInCache(newConv);
+  // Keep legacy flat cache in sync (harmless if unused)
+  upsertConversationInCache(newConv);
+  // Notify parent to persist temp in-session
+  onCreate?.(newConv);
     setChat?.(newConv);
 
     socket?.emit("smsSend", { appId: c._id, phone, name });
@@ -214,7 +266,9 @@ export default function NewChatButton({ setChat, dataConversation, iconOnly = fa
               <Spinner mx="auto" my={10} />
             ) : (
               <VStack spacing={3} align="stretch" maxH="300px" overflowY="auto">
-                {data.map((contact) => (
+                {data
+                  .filter((c) => (c.phoneInput ?? "").trim().length > 0)
+                  .map((contact) => (
                   <HStack
                     key={contact._id}
                     p={3}

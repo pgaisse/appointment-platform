@@ -35,6 +35,8 @@ help:
 	@echo "  make prod-init-replica -> Ejecuta init réplica one-shot"
 	@echo "  make prod-space   -> Resumen de espacio en host"
 	@echo "  make mongo-backup / mongo-backup-host / mongo_dev / mongo_prod / dev_api_logs / dev_api_logsprod"
+	@echo "  make ssl-renew-prod -> Renueva certificados Let's Encrypt en PROD y recarga Nginx"
+	@echo "  make ssl-renew-dev  -> Renueva certificados Let's Encrypt en DEV y recarga Nginx (requiere webroot en nginx.dev.conf)"
 
 # ========= DEV =========
 .PHONY: dev dev-deep dev-fast dev-down dev-up
@@ -154,7 +156,7 @@ prod-logs:
 	@echo "== nginx_prod =="; docker logs --tail=200 -f nginx_prod
 
 # ========= BACKUPS / UTIL =========
-.PHONY: mongo-backup mongo-backup-host mongo_dev mongo_prod dev_api_logs dev_api_logsprod
+.PHONY: mongo-backup mongo-backup-host mongo_dev mongo_prod dev_api_logs dev_api_logsprod ssl-renew-prod ssl-renew-dev
 # Usa variables de entorno: MONGO_USER, MONGO_PASS, MONGO_URI, MONGO_URI_DEV
 mongo-backup:
 	docker exec mongo_prod mongodump \
@@ -213,3 +215,26 @@ mongo-restore-dev-from-prod:
     else \
         echo "Cancelado"; \
     fi
+
+# ========= SSL RENEW =========
+ssl-renew-prod:
+	@if [[ ! -f "$(COMPOSE_PROD)" ]]; then echo "No existe: $(COMPOSE_PROD)"; exit 1; fi; \
+	  echo ">> Renovando certificados (PROD)…"; \
+	  # Ejecuta certbot con webroot; si no hay renovaciones, intenta certonly forzando
+	  docker compose -p "$(PROJECT_PROD)" -f "$(COMPOSE_PROD)" run --rm --entrypoint "" certbot \
+	    sh -lc "certbot renew --webroot -w /var/www/certbot --quiet || certbot certonly --webroot -w /var/www/certbot -d letsmarter.com -d www.letsmarter.com --email p.gaisse@gmail.com --agree-tos --non-interactive --force-renewal"; \
+	  echo ">> Recargando Nginx (PROD)…"; \
+	  docker exec nginx_prod nginx -s reload || true; \
+	  echo "✔ Certificados PROD listos"
+
+ssl-renew-dev:
+	@if [[ ! -f "$(COMPOSE_PROD)" ]]; then echo "No existe: $(COMPOSE_PROD)"; exit 1; fi; \
+	  echo ">> Renovando certificados (DEV) usando Nginx PROD como webroot…"; \
+	  echo "ℹ️ Se sirve /.well-known/acme-challenge/ desde /var/www/certbot en nginx_prod (puerto 80)"; \
+	  docker compose -p "$(PROJECT_PROD)" -f "$(COMPOSE_PROD)" run --rm --entrypoint "" certbot \
+	    sh -lc "certbot certonly --webroot -w /var/www/certbot -d dev.letsmarter.com --email p.gaisse@gmail.com --agree-tos --non-interactive --force-renewal"; \
+	  echo ">> Recargando Nginx (PROD) para challenge…"; \
+	  docker exec nginx_prod nginx -s reload || true; \
+	  echo ">> Recargando Nginx (DEV) para usar el nuevo cert…"; \
+	  docker exec nginx_dev nginx -s reload || true; \
+	  echo "✔ Certificados DEV listos"

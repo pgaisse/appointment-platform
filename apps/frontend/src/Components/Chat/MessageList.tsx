@@ -69,7 +69,9 @@ export default function MessageList({
   );
 
   // Compute lists before any early return to keep hook order stable
-  const list = searchEnabled ? (searchData?.items ?? []) : (dataConversation ?? []);
+  const listRaw = searchEnabled ? (searchData?.items ?? []) : (dataConversation ?? []);
+  // Exclude conversations tied to represented appointments in both normal list and search results
+  const list = listRaw.filter((c) => !(c.owner as any)?.represented);
   const uniqueList = useMemo(() => {
     const seen = new Set<string>();
     const out: ConversationChat[] = [];
@@ -293,6 +295,12 @@ function InnerRowContent({
   readOverrides?: ReadonlySet<string>;
   archivedMode?: "active" | "only" | "all";
 }) {
+  const formatFirstName = (value: string) => {
+    const first = (value || "").trim().split(/\s+/)[0] || "";
+    if (!first) return "No name";
+    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+  };
+
   const lastPreview = (() => {
     if (contact.lastMessage?.body) return contact.lastMessage.body;
     if (contact.lastMessage?.media?.length) return "📷 Photo";
@@ -353,7 +361,7 @@ function InnerRowContent({
         <HStack align="center" spacing={2}>
           <Tooltip hasArrow label={contact.owner?.name || contact.lastMessage?.author || "No name"} openDelay={300}>
             <Text fontWeight={isUnread ? "bold" : "semibold"} noOfLines={1} fontSize={{ base: "sm", md: "md" }}>
-              {contact.owner?.name || contact.lastMessage?.author || "No name"}
+              {formatFirstName(contact.owner?.name || contact.lastMessage?.author || "No name")}
             </Text>
           </Tooltip>
 

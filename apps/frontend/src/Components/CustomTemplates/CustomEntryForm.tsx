@@ -1143,7 +1143,10 @@ function CustomEntryForm({
 
     if (repObj) {
       cleaned.representative = repObj;
-      if (!cleaned.phoneInput) cleaned.phoneInput = "";
+      // Business rule: a child/dependent MUST NOT have their own phone in Appointment
+      // Ensure no phone fields are persisted when represented by another
+      delete cleaned.phoneInput;
+      delete cleaned.phoneE164; // in case present from previous data
     } else {
       delete cleaned.representative;
     }
@@ -1391,20 +1394,23 @@ function CustomEntryForm({
           queryClient.invalidateQueries({ queryKey: ["Appointment"] });
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
         } catch (error: any) {
-          const status = error?.response?.status;
+          const status = error?.status ?? error?.response?.status;
           if (status === 409) {
-            const field = error?.response?.data?.field ?? "phoneInput";
-            const value =
-              error?.response?.data?.value ?? cleanedData?.phoneInput ?? "";
-            setError("phoneInput" as any, {
-              type: "manual",
-              message: `Duplicate ${field}: ${value}`,
-            });
+            const data = error?.data || error?.response?.data || {};
+            const field = data.field || (data.keyValue && Object.keys(data.keyValue)[0]) || "unknown";
+            const value = data.value || (data.keyValue && Object.values(data.keyValue)[0]) || "";
+            if (field === "phoneInput" || field === "phoneE164") {
+              setError("phoneInput" as any, {
+                type: "manual",
+                message: `Duplicate ${field}: ${value}`,
+              });
+            }
             toast({
               title: "Duplicate record",
-              description: `There is already a record with ${field}: ${value} in this organization.`,
+              description:
+                data.reason || data.message || `Duplicate ${field}${value ? `: ${value}` : ''}.` ,
               status: "error",
-              duration: 5000,
+              duration: 6000,
               isClosable: true,
             });
           } else {
@@ -1602,6 +1608,10 @@ function CustomEntryForm({
                       });
                       setRepQuery("");
                       trigger("representative");
+                    } else {
+                      // If marking as child/dependent, ensure no phone number is set for the child
+                      setValue("phoneInput" as any, "", { shouldDirty: true });
+                      clearErrors("phoneInput" as any);
                     }
                   }}
                   colorScheme="teal"

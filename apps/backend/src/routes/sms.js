@@ -557,12 +557,12 @@ router.post('/appointments/:id/propose', jwtCheck, attachUserInfo, ensureUser, a
 
 
 router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) => {
-  console.log("➡️ req.dbUser:", req.dbUser);   // campos de texto
+ 
   // #region recepcion de parámetros
   const session = await mongoose.startSession();
   const { to, body = '', appId } = req.body;
   const files = req.files || [];
-
+ console.log("body", req.body);   // campos de texto
   // #endregion recepcion de parametros
   let committed = false;
 

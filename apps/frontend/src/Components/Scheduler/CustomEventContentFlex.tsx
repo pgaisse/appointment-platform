@@ -19,16 +19,16 @@ import {
   WrapItem,
   Divider,
   Badge,
-  Checkbox,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  PopoverArrow,
-  PopoverBody,
-  PopoverHeader,
-  PopoverCloseButton,
-  Input,
-  Portal,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  RadioGroup,
+  Radio,
+  Stack,
+  Textarea,
 } from "@chakra-ui/react";
 import { useState, useRef, useEffect } from "react";
 import { AppointmentGroup } from "@/types";
@@ -42,16 +42,17 @@ import { getMatchLevelIcon } from "@/Functions/getMatchLevelIcon";
 import { useNavigate } from "react-router-dom";
 import { useSendAppointmentSMS } from "@/Hooks/Query/useSendAppointmentSMS";
 import ShowTemplateButton from "../Chat/CustomMessages/ShowTemplateButton";
-import CreateMessageModal from "../Chat/CustomMessages/CreateCustomMessageModal";
-import { MdOutlinePostAdd, MdScheduleSend } from "react-icons/md";
+import CreateLiquidTemplateModal from "../Chat/CustomMessages/CreateLiquidTemplateModal";
+import { MdOutlinePostAdd } from "react-icons/md";
 import { RiCalendarScheduleLine } from "react-icons/ri";
 import { DateTime } from "luxon";
+import { useProposeAppointmentDates } from "@/Hooks/Query/useProposeAppointmentDates";
 
 const MotionBox = motion(Box);
 const FadeInBox = motion(Box);
 const MotionScrollBox = motion(Box);
 
-const CARD_WIDTH = 320;
+const CARD_WIDTH = 420;
 const CARD_MARGIN = 16;
 
 interface Props {
@@ -60,13 +61,12 @@ interface Props {
 
 const CustomEventContent: React.FC<Props> = ({ event }) => {
   const [templateTextByPatient, setTemplateTextByPatient] = useState<Record<string, string>>({});
-  const [reminderCheckedByPatient, setReminderCheckedByPatient] = useState<Record<string, boolean>>({});
-  const [tipOpenByPid, setTipOpenByPid] = useState<Record<string, boolean>>({});
-  const [reminderWhenByPid, setReminderWhenByPid] = useState<Record<string, string>>({});
+  // (reminder tooltip state removed)
 
   // Mutations ahora con mutateAsync para encadenar con await
   const { mutateAsync: updateItemsAsync, isPending: isUpdating } = useUpdateItems();
   const { mutateAsync: sendSMSAsync, isPending: isSending } = useSendAppointmentSMS();
+  const { mutateAsync: proposeAsync, isPending: isProposing } = useProposeAppointmentDates();
 
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -75,14 +75,14 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
   const [showLeftShadow, setShowLeftShadow] = useState(false);
   const [showRightShadow, setShowRightShadow] = useState(true);
   const [processingPid, setProcessingPid] = useState<string>("");
+  // Drawer open trigger versions for template chooser inside Select Base Slot modal
+  const [openTemplateDrawerVersionByPid, setOpenTemplateDrawerVersionByPid] = useState<Record<string, number>>({});
   const navigate = useNavigate();
 
   const TZ = "Australia/Sydney";
-  const isWorking = Boolean(processingPid) || isUpdating || isSending;
+  const isWorking = Boolean(processingPid) || isUpdating || isSending || isProposing;
 
   // ---------- Date helpers ----------
-  const toIsoLocalSydney = (dt: DateTime) => dt.toFormat("yyyy-LL-dd'T'HH:mm:ss");
-
   const parseSydney = (val: Date | string | null | undefined): DateTime => {
     if (val instanceof Date) return DateTime.fromJSDate(val, { zone: TZ });
     const s = String(val ?? "");
@@ -91,36 +91,10 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     return dt;
   };
 
-  // Default reminder = día − 1 a las 12:00
-  const makeDefaultReminderISO = (start: Date | string) => {
-    let base = parseSydney(start);
-    if (!base.isValid) base = DateTime.now().setZone(TZ).plus({ days: 2 });
-    return base
-      .minus({ days: 1 })
-      .set({ hour: 12, minute: 0, second: 0, millisecond: 0 })
-      .toFormat("yyyy-LL-dd'T'HH:mm:ss");
-  };
-
-  const isoToInputValue = (iso: string) => {
-    const dt = parseSydney(iso);
-    return dt.isValid ? dt.toFormat("yyyy-LL-dd'T'HH:mm") : "";
-  };
-
-  // Ventana Twilio
-  const enforceTwilioWindow = (iso: string) => {
-    const now = DateTime.now().setZone(TZ);
-    let dt = parseSydney(iso);
-    if (!dt.isValid) return { ok: false as const, error: "invalid" as const };
-
-    const daysAhead = dt.diff(now, "days").days;
-    if (daysAhead > 35) return { ok: false as const, error: "tooFar" as const };
-
-    const minsAhead = dt.diff(now, "minutes").minutes;
-    if (minsAhead < 15) {
-      const fixed = now.plus({ minutes: 16 }).set({ second: 0, millisecond: 0 });
-      return { ok: true as const, iso: toIsoLocalSydney(fixed), adjusted: true as const };
-    }
-    return { ok: true as const, iso: toIsoLocalSydney(dt.set({ second: 0, millisecond: 0 })) };
+  const titleCase = (raw: any): string => {
+    const str = String(raw ?? "").trim().toLowerCase();
+    if (!str) return "";
+    return str.replace(/\b([a-záéíóúñü])([a-záéíóúñü']*)/gi, (_m, f, rest) => f.toUpperCase() + rest);
   };
 
   const formatGroupSlotHuman = (start: Date | string, end: Date | string) => {
@@ -135,35 +109,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     return `${dayPart} • ${timePart} (${TZ})`;
   };
 
-  // ---------- Inicialización ----------
-  useEffect(() => {
-    if (!group?.priorities?.length || !group?.dateRange?.startDate) return;
-
-    // Checkbox default = true
-    setReminderCheckedByPatient((prev) => {
-      const next = { ...prev };
-      for (const g of group.priorities) {
-        for (const appt of g.appointments || []) {
-          if (next[appt._id] === undefined) next[appt._id] = true;
-        }
-      }
-      return next;
-    });
-
-    // Hora default por paciente = start del slot − 1 día a las 12:00
-    const slotStart = group.dateRange.startDate;
-    const defaultISO = makeDefaultReminderISO(slotStart);
-
-    setReminderWhenByPid((prev) => {
-      const next = { ...prev };
-      for (const g of group.priorities) {
-        for (const appt of g.appointments || []) {
-          if (!next[appt._id]) next[appt._id] = defaultISO;
-        }
-      }
-      return next;
-    });
-  }, [group?.priorities, group?.dateRange?.startDate]);
+  // (Removed reminder initialization)
 
   // ---------- Scroll sombras ----------
   const handleScroll = () => {
@@ -185,6 +131,28 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     };
 
     const onWheel = (e: WheelEvent) => {
+      // If a nested element can scroll vertically in the wheel direction, let it handle the event.
+      const target = e.target as HTMLElement | null;
+      const canNestedScrollVertically = (() => {
+        let node: HTMLElement | null = target;
+        while (node && node !== el) {
+          const style = window.getComputedStyle(node);
+          const oy = style.overflowY;
+          const allowsY = oy === "auto" || oy === "scroll";
+          if (allowsY && node.scrollHeight > node.clientHeight) {
+            const atTop = node.scrollTop <= 0;
+            const atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+            // If we are not at the boundary in the intended direction, allow vertical scroll
+            if ((e.deltaY < 0 && !atTop) || (e.deltaY > 0 && !atBottom)) return true;
+          }
+          node = node.parentElement;
+        }
+        return false;
+      })();
+
+      if (canNestedScrollVertically) return; // do not hijack vertical scroll inside cards
+
+      // Otherwise, transform vertical wheel into horizontal scrolling for the columns strip
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
         const SCROLL_SPEED = 2;
@@ -204,86 +172,126 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
     };
   }, []);
 
-  // ---------- Acción principal: flujo encadenado sin onSuccess anidados ----------
-  const handleClick = async (id: string, start: Date | string, end: Date | string) => {
-    setProcessingPid(id);
+  // ---------- Rebooking con selección de base slot ----------
+  const [selectOpen, setSelectOpen] = useState(false);
+  const [selectPid, setSelectPid] = useState<string>("");
+  const [selectSlots, setSelectSlots] = useState<
+    Array<{ _id: string; startDate: any; endDate: any; status?: string; proposed?: { startDate?: any; endDate?: any } }>
+  >([]);
+  const [selectedBaseSlotId, setSelectedBaseSlotId] = useState<string>("");
+  const [recommendedSlotId, setRecommendedSlotId] = useState<string>("");
+  const [selectPatientMeta, setSelectPatientMeta] = useState<{ name?: string; lastName?: string; phone?: string }>({});
+  const [selectMode, setSelectMode] = useState<"sms" | "manual">("sms");
+  // Removed selectedSlotByPid state (was being set but never read). Re-introduce if persistent per-patient slot tracking is required.
 
-    const payload = [
-      {
-        table: "Appointment",
-        id_field: "_id",
-        id_value: id ?? "",
-        data: {
-          "selectedAppDates.0.proposed.startDate": start,
-          "selectedAppDates.0.proposed.endDate": end,
-          "selectedAppDates.0.status": "Pending",
-        },
-      },
-    ];
+  const fmtRange = (s: any, e: any) => {
+    const S = parseSydney(s);
+    const E = parseSydney(e);
+    if (!S.isValid || !E.isValid) return "—";
+    const sameDay = S.hasSame(E, "day");
+    const dayPart = sameDay
+      ? S.toFormat("ccc, dd LLL yyyy")
+      : `${S.toFormat("ccc, dd LLL yyyy")} → ${E.toFormat("ccc, dd LLL yyyy")}`;
+    const timePart = `${S.toFormat("h:mm a")} — ${E.toFormat("h:mm a")}`;
+    return `${dayPart} • ${timePart} (${TZ})`;
+  };
+  const fmtShortRange = (s?: any, e?: any) => {
+    if (!s || !e) return null;
+    const S = parseSydney(s);
+    const E = parseSydney(e);
+    if (!S.isValid || !E.isValid) return null;
+    const sameDay = S.hasSame(E, "day");
+    const dayPart = sameDay
+      ? S.toFormat("dd LLL yyyy")
+      : `${S.toFormat("dd LLL yyyy")} → ${E.toFormat("dd LLL yyyy")}`;
+    const timePart = `${S.toFormat("HH:mm")}—${E.toFormat("HH:mm")}`;
+    return `${dayPart} • ${timePart}`;
+  };
+  const statusBadge = (status?: string) => {
+    const st = String(status || '').toLowerCase();
+    const map: Record<string, { label: string; color: string }> = {
+      pending: { label: 'Pending', color: 'yellow' },
+      contacted: { label: 'Contacted', color: 'blue' },
+      noconacted: { label: 'NoContacted', color: 'gray' },
+      noconacted2: { label: 'NoContacted', color: 'gray' },
+      confirmed: { label: 'Confirmed', color: 'green' },
+      rescheduled: { label: 'Rescheduled', color: 'purple' },
+      cancelled: { label: 'Cancelled', color: 'red' },
+      canceled: { label: 'Cancelled', color: 'red' },
+      rejected: { label: 'Rejected', color: 'red' },
+      failed: { label: 'Failed', color: 'red' },
+    };
+    const key = map[st] ? st : (st === 'nocontacted' ? 'noconacted2' : 'pending');
+    const cfg = map[key];
+    return <Badge colorScheme={cfg.color} variant="subtle">{cfg.label}</Badge>;
+  };
 
+  const pickClosestSlotId = (slots: Array<{ _id: string; startDate: any; endDate: any }>) => {
+    if (!slots?.length) return "";
+    const target = parseSydney(group.dateRange.startDate).toMillis();
+    let best = slots[0];
+    let bestDiff = Math.abs(parseSydney(slots[0].startDate).toMillis() - target);
+    for (let i = 1; i < slots.length; i++) {
+      const d = Math.abs(parseSydney(slots[i].startDate).toMillis() - target);
+      if (d < bestDiff) {
+        bestDiff = d;
+        best = slots[i];
+      }
+    }
+    return String(best._id || "");
+  };
+
+  const openSelectModal = (
+    pid: string,
+    slots: Array<{ _id: string; startDate: any; endDate: any }>,
+    meta?: { name?: string; lastName?: string; phone?: string }
+  ) => {
+    setSelectPid(pid);
+    setSelectSlots(slots);
+    const rec = pickClosestSlotId(slots);
+    setSelectedBaseSlotId(rec);
+    setRecommendedSlotId(rec);
+    setSelectPatientMeta(meta || {});
+    setSelectMode("sms");
+    setSelectOpen(true);
+  };
+
+  const doPropose = async (pid: string, baseSlotId: string) => {
+    setProcessingPid(pid);
     try {
-      // 1) Update de la cita
-      await updateItemsAsync(payload);
+      const s = new Date(group.dateRange.startDate as any);
+      const e = new Date(group.dateRange.endDate as any);
+      const current = selectSlots.find((x) => String(x._id) === String(baseSlotId));
 
-      // 2) Confirmación instantánea
-      await sendSMSAsync({ appointmentId: id, msg: templateTextByPatient[id] });
-      toast({
-        title: "Confirmation SMS sent",
-        description: "The patient has been notified via SMS.",
-        status: "info",
-        duration: 3000,
-        isClosable: true,
+      const resp = await proposeAsync({
+        appointmentId: pid,
+        proposedStartDate: s.toISOString(),
+        proposedEndDate: e.toISOString(),
+        currentStartDate: current?.startDate ? new Date(current.startDate).toISOString() : undefined,
+        currentEndDate: current?.endDate ? new Date(current.endDate).toISOString() : undefined,
+        reason: "Rebooking",
+        baseSlotId,
       });
 
-      // 3) Recordatorio programado si corresponde
-      const wantsReminder = reminderCheckedByPatient[id] ?? true;
-      if (wantsReminder) {
-        const candidateISO = reminderWhenByPid[id] || makeDefaultReminderISO(start);
-        const check = enforceTwilioWindow(candidateISO);
-
-        if (!check.ok) {
-          toast({
-            title: check.error === "tooFar" ? "Reminder not scheduled" : "Invalid reminder time",
-            description:
-              check.error === "tooFar"
-                ? "Twilio only allows scheduling up to 35 days in the future. Please pick a closer date."
-                : "Please choose a valid date and time for the reminder.",
-            status: check.error === "tooFar" ? "info" : "warning",
-            duration: 4000,
-            isClosable: true,
-          });
-        } else {
-          if ((check as any).adjusted) {
-            setReminderWhenByPid((prev) => ({ ...prev, [id]: check.iso! }));
-            toast({
-              title: "Reminder time adjusted",
-              description: "The reminder was too soon and was moved to about 15 minutes from now.",
-              status: "warning",
-              duration: 4000,
-              isClosable: true,
-            });
-          }
-
-          await sendSMSAsync({
-            appointmentId: id,
-            msg: templateTextByPatient[id],
-            scheduleWithTwilio: true,
-            whenISO: check.iso!,
-            tz: TZ,
-          });
-
-          const human = parseSydney(check.iso!).toFormat("ccc, dd LLL yyyy • h:mm a");
-          toast({
-            title: "Reminder scheduled",
-            description: `Scheduled for ${human} (${TZ}).`,
-            status: "success",
-            duration: 3000,
-            isClosable: true,
-          });
-        }
+      try {
+        await sendSMSAsync({ appointmentId: pid, msg: templateTextByPatient[pid], slotId: resp?.slotId });
+        toast({
+          title: "Proposal & SMS Sent",
+          description: "Slot proposed and confirmation SMS dispatched.",
+          status: "info",
+          duration: 3000,
+          isClosable: true,
+        });
+      } catch (err: any) {
+        toast({
+          title: "Slot proposed but SMS failed",
+          description: err?.message || "Could not send SMS to the patient.",
+          status: "warning",
+          duration: 4000,
+          isClosable: true,
+        });
       }
 
-      // 4) Caché y navegación
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
         queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
@@ -301,9 +309,63 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
       });
     } finally {
       setProcessingPid("");
-      // Invalidación complementaria ligera
-      queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-      queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
+      setSelectOpen(false);
+    }
+  };
+
+  const doManualChange = async (pid: string, baseSlotId: string) => {
+    setProcessingPid(pid);
+    try {
+      const s = new Date(group.dateRange.startDate as any);
+      const e = new Date(group.dateRange.endDate as any);
+
+      // Build next selectedAppDates array updating the chosen base slot to new start/end
+      const nextArray = (selectSlots || []).map((slot) => {
+        if (String(slot._id) !== String(baseSlotId)) return slot as any;
+        return {
+          ...slot,
+          startDate: s,
+          endDate: e,
+        } as any;
+      });
+
+      const payload = [
+        {
+          table: "Appointment",
+          id_field: "_id",
+          id_value: pid,
+          data: { selectedAppDates: nextArray },
+        },
+      ];
+
+      await updateItemsAsync(payload as any);
+
+      toast({
+        title: "Date updated",
+        description: "Appointment date changed without SMS.",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
+        queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
+        queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+      ]);
+
+      navigate("/appointments/priority-list");
+    } catch (error: any) {
+      toast({
+        title: "Error updating date",
+        description: error?.message || "An unexpected error occurred.",
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setProcessingPid("");
+      setSelectOpen(false);
     }
   };
 
@@ -313,9 +375,6 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
 
   // ------- Barra general con el horario seleccionado + default reminder -------
   const generalSlotHuman = formatGroupSlotHuman(group.dateRange.startDate, group.dateRange.endDate);
-  const generalDefaultReminderHuman = parseSydney(
-    makeDefaultReminderISO(group.dateRange.startDate)
-  ).toFormat("ccc, dd LLL yyyy • h:mm a");
 
   return (
     <FadeInBox initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: "easeOut" }}>
@@ -341,13 +400,6 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
             <Text fontWeight="bold">Selected slot</Text>
             <Tag colorScheme="blue" variant="solid" borderRadius="md">
               {generalSlotHuman}
-            </Tag>
-          </HStack>
-          <HStack spacing={3} align="center">
-            <Icon as={MdScheduleSend} color="purple.500" />
-            <Text fontWeight="semibold">Default reminder</Text>
-            <Tag colorScheme="purple" variant="subtle" borderRadius="md">
-              {generalDefaultReminderHuman} ({TZ})
             </Tag>
           </HStack>
         </VStack>
@@ -384,6 +436,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
           display="flex"
           gap={`${CARD_MARGIN}px`}
           overflowX="auto"
+          overflowY="auto"
           scrollSnapType="x mandatory"
           onScroll={handleScroll}
           px={2}
@@ -391,7 +444,8 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
             scrollbarWidth: "none",
             msOverflowStyle: "none",
             WebkitOverflowScrolling: "touch",
-            touchAction: "pan-x",
+            // Allow vertical gestures so nested scrollable elements (cards) can scroll on touch devices
+            touchAction: "auto",
           }}
           sx={{ "&::-webkit-scrollbar": { display: "none" } }}
           transition={{ duration: 0.5, ease: "easeOut" }}
@@ -448,15 +502,6 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                       {groupItem.appointments.map((item) => {
                         const { icon, color } = getMatchLevelIcon(item.matchLevel);
                         const pid = item._id;
-                        const tooltipForThisPatient = templateTextByPatient[pid] ?? "";
-                        const iconColorForThisPatient = tooltipForThisPatient ? "green.500" : "red.500";
-
-                        const defaultISO = makeDefaultReminderISO(group.dateRange.startDate);
-                        const selectedISO = reminderWhenByPid[pid] || defaultISO;
-                        const selectedDT = parseSydney(selectedISO);
-                        const selectedHuman = selectedDT.isValid
-                          ? selectedDT.toFormat("ccc, dd LLL yyyy • h:mm a")
-                          : DateTime.fromISO(defaultISO, { zone: TZ }).toFormat("ccc, dd LLL yyyy • h:mm a");
 
                         const isThisRowWorking = processingPid === pid || isWorking;
 
@@ -485,7 +530,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                                 <Icon as={CiUser} color="green" boxSize={4} />
                                 <Tooltip label={`${item.nameInput} ${item.lastNameInput}`}>
                                   <Text fontWeight="semibold" noOfLines={1}>
-                                    {item.nameInput} {item.lastNameInput}
+                                    {titleCase(item.nameInput)} {titleCase(item.lastNameInput)}
                                   </Text>
                                 </Tooltip>
                               </HStack>
@@ -534,126 +579,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                                   </Box>
                                 </Tooltip>
 
-                                <ShowTemplateButton
-                                  category="confirmation"
-                                  selectedPatient={pid}
-                                  onSelectTemplate={(val: string) =>
-                                    setTemplateTextByPatient((prev) => ({ ...prev, [pid]: val }))
-                                  }
-                                  tooltipText={tooltipForThisPatient}
-                                  colorIcon={iconColorForThisPatient}
-                                />
-                                <CreateMessageModal
-                                  patientId={pid}
-                                  triggerButton={
-                                    <IconButton
-                                      aria-label="Create template"
-                                      icon={<MdOutlinePostAdd size={20} />}
-                                      variant="ghost"
-                                      size="sm"
-                                      borderRadius="full"
-                                      _focusVisible={{ boxShadow: "0 0 0 3px rgba(66,153,225,0.6)" }}
-                                    />
-                                  }
-                                />
-                                <Tooltip
-                                  label={`Reminder: ${selectedHuman} (${TZ})`}
-                                  isOpen={!!tipOpenByPid[pid]}
-                                  openDelay={150}
-                                  closeDelay={0}
-                                >
-                                  <Box
-                                    display="inline-flex"
-                                    onMouseEnter={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: true }))
-                                    }
-                                    onMouseLeave={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: false }))
-                                    }
-                                    onFocus={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: true }))
-                                    }
-                                    onBlur={() =>
-                                      setTipOpenByPid((prev) => ({ ...prev, [pid]: false }))
-                                    }
-                                  >
-                                    <Checkbox
-                                      size="sm"
-                                      colorScheme="green"
-                                      isChecked={reminderCheckedByPatient[pid] ?? true}
-                                      onChange={(e) => {
-                                        setReminderCheckedByPatient((prev) => ({
-                                          ...prev,
-                                          [pid]: e.target.checked,
-                                        }));
-                                        (e.currentTarget as HTMLInputElement).blur();
-                                      }}
-                                      isDisabled={isThisRowWorking}
-                                    >
-                                      Reminder
-                                    </Checkbox>
-                                  </Box>
-                                </Tooltip>
-
-                                {/* Editor del horario */}
-                                <Popover placement="bottom-end" gutter={8} isLazy>
-                                  <PopoverTrigger>
-                                    <IconButton
-                                      aria-label="Edit reminder time"
-                                      icon={<MdScheduleSend size={18} />}
-                                      size="sm"
-                                      variant="ghost"
-                                      isDisabled={!(reminderCheckedByPatient[pid] ?? true) || isThisRowWorking}
-                                    />
-                                  </PopoverTrigger>
-                                  <Portal>
-                                    <PopoverContent zIndex={10000} w="sm">
-                                      <PopoverArrow />
-                                      <PopoverCloseButton />
-                                      <PopoverHeader fontWeight="semibold">
-                                        Edit reminder date and time ({TZ})
-                                      </PopoverHeader>
-                                      <PopoverBody>
-                                        <VStack align="stretch" spacing={3}>
-                                          <Input
-                                            type="datetime-local"
-                                            value={isoToInputValue(selectedISO)}
-                                            onChange={(e) => {
-                                              const raw = e.target.value;
-                                              let dt = DateTime.fromISO(raw, { zone: TZ });
-                                              if (dt.isValid) {
-                                                dt = dt.set({ second: 0, millisecond: 0 });
-                                                setReminderWhenByPid((prev) => ({
-                                                  ...prev,
-                                                  [pid]: toIsoLocalSydney(dt),
-                                                }));
-                                              }
-                                            }}
-                                            isDisabled={isThisRowWorking}
-                                          />
-                                          <HStack justify="flex-end">
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              onClick={() =>
-                                                setReminderWhenByPid((prev) => ({
-                                                  ...prev,
-                                                  [pid]: makeDefaultReminderISO(group.dateRange.startDate),
-                                                }))
-                                              }
-                                              isDisabled={isThisRowWorking}
-                                            >
-                                              Reset to default
-                                            </Button>
-                                          </HStack>
-                                          <Text fontSize="xs" color="gray.600">
-                                            Default is one day before the appointment at 12:00 PM ({TZ}). Twilio allows scheduling up to 35 days in advance and not earlier than about 15 minutes from now. If too soon, we will adjust automatically.
-                                          </Text>
-                                        </VStack>
-                                      </PopoverBody>
-                                    </PopoverContent>
-                                  </Portal>
-                                </Popover>
+                                {/* Confirmation message controls removed from card; handled in Select Base Slot modal */}
                               </HStack>
 
                               <VStack align="flex-end" spacing={1} w="full">
@@ -661,14 +587,24 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                                   <Button
                                     size="sm"
                                     colorScheme="green"
-                                    isDisabled={!tooltipForThisPatient || isThisRowWorking}
-                                    onClick={() =>
-                                      handleClick(
-                                        pid,
-                                        group.dateRange.startDate,
-                                        group.dateRange.endDate
-                                      )
-                                    }
+                                    isDisabled={isThisRowWorking}
+                                    onClick={() => {
+                                      const slots = Array.isArray(item.selectedAppDates)
+                                        ? item.selectedAppDates.map((s) => ({ _id: s._id, startDate: s.startDate, endDate: s.endDate, status: (s as any).status, proposed: (s as any).proposed }))
+                                        : [];
+                                      if (!slots.length) {
+                                        toast({
+                                          title: "No existing dates",
+                                          description: "This patient has no base slot to edit.",
+                                          status: "warning",
+                                          duration: 3000,
+                                          isClosable: true,
+                                        });
+                                        return;
+                                      }
+                                      // Always open Select Base Slot modal (also handles message selection)
+                                      openSelectModal(pid, slots, { name: titleCase(item.nameInput), lastName: titleCase(item.lastNameInput), phone: item.phoneInput });
+                                    }}
                                     leftIcon={
                                       isThisRowWorking && processingPid === pid ? (
                                         <Spinner size="xs" color="white" />
@@ -693,6 +629,198 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
           })}
         </MotionScrollBox>
       </Flex>
+
+      {/* Modal de selección de slot base */}
+      <Modal isOpen={selectOpen} onClose={() => setSelectOpen(false)} isCentered size="lg" motionPreset="slideInBottom">
+        <ModalOverlay bg="blackAlpha.500" backdropFilter="blur(4px)" />
+        <ModalContent>
+          <ModalHeader>
+            <VStack align="stretch" spacing={1}>
+              <HStack justify="space-between" align="center">
+                <Text fontSize="lg" fontWeight="bold">Select Base Slot</Text>
+                {selectSlots.length > 1 && (
+                  <Badge size="sm" colorScheme="purple" variant="subtle">Multi-slot patient</Badge>
+                )}
+              </HStack>
+              {(selectPatientMeta?.name || selectPatientMeta?.lastName || selectPatientMeta?.phone) && (
+                <HStack spacing={3} color="gray.600">
+                  <Icon as={CiUser} />
+                  <Text fontSize="sm" noOfLines={1}>
+                    {(selectPatientMeta?.name || "")} {(selectPatientMeta?.lastName || "")} • {formatAusPhoneNumber(selectPatientMeta?.phone || "")}
+                  </Text>
+                </HStack>
+              )}
+            </VStack>
+          </ModalHeader>
+          <Divider />
+          <ModalBody>
+            <VStack align="stretch" spacing={3} pt={2} maxH="60vh" overflowY="auto">
+              {/* Mode selector: Consult via SMS vs Manual change */
+              }
+              <Box>
+                <Text fontWeight="semibold" mb={2}>How would you like to proceed?</Text>
+                <RadioGroup value={selectMode} onChange={(v) => setSelectMode(v as any)}>
+                  <Stack direction="row" spacing={6}>
+                    <Radio value="sms" colorScheme="purple">Consult via SMS</Radio>
+                    <Radio value="manual" colorScheme="green">Manual change (no SMS)</Radio>
+                  </Stack>
+                </RadioGroup>
+              </Box>
+
+              <RadioGroup value={selectedBaseSlotId} onChange={(v) => setSelectedBaseSlotId(String(v))}>
+                <Stack direction="column" spacing={3}>
+                  {[...selectSlots]
+                    .sort((a, b) => new Date(a.startDate as any).getTime() - new Date(b.startDate as any).getTime())
+                    .map((s, idx) => {
+                      const id = String(s._id);
+                      const isSelected = id === selectedBaseSlotId;
+                      const isRecommended = id === recommendedSlotId;
+                      const hasProposed = Boolean(s?.proposed?.startDate && s?.proposed?.endDate);
+                      const proposedText = fmtShortRange(s?.proposed?.startDate, s?.proposed?.endDate);
+                      return (
+                        <Box
+                          key={id}
+                          role="button"
+                          onClick={() => setSelectedBaseSlotId(id)}
+                          borderWidth="2px"
+                          borderColor={isSelected ? "green.400" : "gray.200"}
+                          bg={isSelected ? "green.50" : "white"}
+                          rounded="xl"
+                          p={3}
+                          transition="all 0.2s ease"
+                          _hover={{ borderColor: isSelected ? "green.500" : "gray.300", bg: isSelected ? "green.100" : "gray.50" }}
+                        >
+                          <HStack align="start" justify="space-between">
+                            <HStack align="center" spacing={3}>
+                              <Badge rounded="full" px={2} colorScheme="gray" variant="subtle">{idx + 1}</Badge>
+                              <Radio value={id} colorScheme="green" />
+                              <VStack align="start" spacing={0}>
+                                <HStack spacing={2} align="center">
+                                  <Icon as={RiCalendarScheduleLine} color="blue.500" />
+                                  <Text fontWeight="semibold" color="gray.800" fontSize="sm">
+                                    {fmtRange(s.startDate, s.endDate)}
+                                  </Text>
+                                </HStack>
+                                <HStack spacing={2} pt={1} align="center">
+                                  {statusBadge(s.status)}
+                                  {hasProposed && (
+                                    <Badge colorScheme="blue" variant="subtle">Proposed</Badge>
+                                  )}
+                                  {isRecommended && (
+                                    <Badge colorScheme="cyan" variant="subtle">Recommended</Badge>
+                                  )}
+                                </HStack>
+                                {hasProposed && proposedText && (
+                                  <Text fontSize="xs" color="blue.700" mt={1}>
+                                    Proposed: {proposedText}
+                                  </Text>
+                                )}
+                              </VStack>
+                            </HStack>
+                          </HStack>
+                        </Box>
+                      );
+                    })}
+                </Stack>
+              </RadioGroup>
+
+              {/* Branch: SMS vs Manual */}
+              {selectMode === "sms" ? (
+                <>
+                  <Divider my={3} />
+                  {/* Custom message selection inside Select Base Slot */}
+                  <Box>
+                    <HStack justify="space-between" align="center" mb={2}>
+                      <Text fontWeight="semibold">Custom message</Text>
+                      {/* Inline template chooser tied to the currently selected slot */}
+                      <HStack>
+                        <Text fontSize="xs" color="gray.600">Choose a template:</Text>
+                        <ShowTemplateButton
+                          category="confirmation"
+                          selectedPatient={selectPid}
+                          calendarSlot={{ startDate: group.dateRange.startDate as any, endDate: group.dateRange.endDate as any }}
+                          selectedSlot={(() => {
+                            const s = selectSlots.find((x) => String(x._id) === String(selectedBaseSlotId));
+                            return s ? { _id: s._id as any, startDate: s.startDate as any, endDate: s.endDate as any } : undefined;
+                          })()}
+                          onSelectTemplate={(val: string) =>
+                            setTemplateTextByPatient((prev) => ({ ...prev, [selectPid]: val }))
+                          }
+                          tooltipText="Select template"
+                          colorIcon={templateTextByPatient[selectPid] ? 'green.500' : 'purple.500'}
+                          initialTypeFilter="liquid"
+                          externalOpenVersion={openTemplateDrawerVersionByPid[selectPid] || 0}
+                        />
+                        <CreateLiquidTemplateModal
+                          trigger={
+                            <IconButton
+                              aria-label="Create template"
+                              icon={<MdOutlinePostAdd size={18} />}
+                              variant="ghost"
+                              size="sm"
+                              colorScheme="purple"
+                            />
+                          }
+                          defaultCategory="confirmation"
+                          defaultAppointmentId={selectPid}
+                          calendarSlot={{ startDate: group.dateRange.startDate as any, endDate: group.dateRange.endDate as any }}
+                          selectedSlot={(() => {
+                            const s = selectSlots.find((x) => String(x._id) === String(selectedBaseSlotId));
+                            return s ? { _id: s._id as any, startDate: s.startDate as any, endDate: s.endDate as any } : undefined;
+                          })()}
+                          onCreated={() => setOpenTemplateDrawerVersionByPid(prev => ({ ...prev, [selectPid]: (prev[selectPid] || 0) + 1 }))}
+                        />
+                      </HStack>
+                    </HStack>
+                    <Text fontSize="xs" color="gray.500" mb={1}>You can edit the message below before sending.</Text>
+                    <Textarea
+                      value={templateTextByPatient[selectPid] || ''}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setTemplateTextByPatient((prev) => ({ ...prev, [selectPid]: e.target.value }))}
+                      placeholder={selectedBaseSlotId ? 'Your message will use the selected slot: :StartDate, :StartTime, :EndTime, etc.' : 'Select a base slot to enable date/time tokens.'}
+                      minH="120px"
+                      fontFamily="mono"
+                      fontSize="sm"
+                    />
+                  </Box>
+                </>
+              ) : (
+                <>
+                  <Divider my={3} />
+                  <Box bg="green.50" borderWidth="1px" borderColor="green.200" p={3} rounded="md">
+                    <Text fontSize="sm" color="green.800">
+                      Manual path selected. No SMS will be sent. The selected base slot will be updated to the selected time range shown at the top.
+                    </Text>
+                  </Box>
+                </>
+              )}
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <HStack spacing={3}>
+              <Button variant="ghost" onClick={() => setSelectOpen(false)}>Cancel</Button>
+              {selectMode === "sms" ? (
+                <Button colorScheme="purple" isDisabled={!selectedBaseSlotId || !templateTextByPatient[selectPid] || isWorking} onClick={() => {
+                  if (!selectedBaseSlotId) return;
+                  const chosen = selectSlots.find((s) => String(s._id) === String(selectedBaseSlotId));
+                  if (!chosen) return;
+                  doPropose(selectPid, String(selectedBaseSlotId));
+                }}>
+                  {isWorking ? <Spinner size="sm" /> : "Confirm & Send"}
+                </Button>
+              ) : (
+                <Button colorScheme="green" isDisabled={!selectedBaseSlotId || isWorking} onClick={() => {
+                  if (!selectedBaseSlotId) return;
+                  const chosen = selectSlots.find((s) => String(s._id) === String(selectedBaseSlotId));
+                  if (!chosen) return;
+                  doManualChange(selectPid, String(selectedBaseSlotId));
+                }}>
+                  {isWorking ? <Spinner size="sm" /> : "Save without SMS"}
+                </Button>
+              )}
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </FadeInBox>
   );
 };

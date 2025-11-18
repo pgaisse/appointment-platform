@@ -10,7 +10,6 @@ import {
   Box,
   HStack,
   VStack,
-  Stack,
   Text,
   Badge,
   Tag,
@@ -29,25 +28,30 @@ import {
   useDisclosure,
 } from "@chakra-ui/react";
 import { FiCalendar, FiClock, FiClipboard, FiInfo } from "react-icons/fi";
+import { PhoneIcon } from "@chakra-ui/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { Appointment, ContactAppointment, Provider } from "@/types";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { GrContact } from "react-icons/gr";
 import { CiUser } from "react-icons/ci";
-import { getLatestSelectedAppDate, getSlotStart, getSlotEnd, pickDisplaySlot, getDisplaySlotRange } from "@/Functions/getLatestSelectedAppDate";
+import { getSlotStart, getSlotEnd, pickDisplaySlot } from "@/Functions/getLatestSelectedAppDate";
 
 // 🚀 Chat: componente reutilizable (lazy) + icono
 import ChatLauncher from "@/Components/Chat/ChatLauncher";
 import { FaCommentSms } from "react-icons/fa6";
 import { to12Hour } from "@/Functions/to12Hour";
 import { useModalIndex } from "../ModalStack/ModalStackContext";
+import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
+import { RiParentFill } from "react-icons/ri";
 import { useSocket } from "@/Hooks/Query/useSocket";
 
 // — Lazy load del ProviderSummaryModal —
 const ProviderSummaryModalLazy = React.lazy(
   () => import("@/Components/Provider/ProviderSummaryModal")
 );
+// — Lazy load self for tutor jump —
+const AppointmentModalLazy = React.lazy(() => import("@/Components/Modal/AppointmentModal"));
 
 // -----------------------------
 // Tipos basados en tus esquemas Mongoose (actualizados)
@@ -146,17 +150,7 @@ export interface ContactLog {
   notes?: string;
   org_id: string;
 }
-type Contacted = {
-  _id?: string;
-  status?: string;
-  startDate?: Date;
-  endDate?: Date;
-  context?: string;
-  cSid?: string;
-  pSid?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
+// removed unused Contacted type
 
 // -----------------------------
 // Helpers visuales
@@ -355,13 +349,20 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     onOpen: onProviderOpen,
     onClose: onProviderClose,
   } = useDisclosure();
+  // Estado para abrir el modal del tutor (representante)
+  const {
+    isOpen: isRepOpen,
+    onOpen: onRepOpen,
+    onClose: onRepClose,
+  } = useDisclosure();
   const [selectedProvider, setSelectedProvider] = React.useState<Provider | null>(
     null
   );
 
   // 👇 Modal index (solo gestión open/close)
-  const { modalIndex, topModalIndex } = useModalIndex(isOpen, { id: "premium-appointment-modal" });
-  const isTopOpen = isOpen && modalIndex === topModalIndex;
+  // Mantén el registro en el stack por si se requiere z-index entre modales, aunque no bloqueamos la visibilidad
+  useModalIndex(isOpen, { id: "premium-appointment-modal" });
+  const isTopOpen = isOpen;
 
   // --- Fetch con populate actualizado a tus refs ---
   const populateFields = [
@@ -370,6 +371,8 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     { path: "providers" },
     { path: "selectedDates.days.timeBlocks", select: "_id org_id blockNumber label short from to" },
     { path: "user", select: "auth0_id name email" },
+    // Necesitamos los datos del representante para mostrar el teléfono efectivo
+    { path: "representative.appointment", select: "nameInput lastNameInput phoneInput phoneE164 emailLower sid proxyAddress" },
   ] as const;
 
   const limit = 25;
@@ -449,9 +452,22 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
   }, [contacted]);
   console.log("contactedSlim", contactedSlim);
   const appointment = data?.[0] ?? null;
-  const fullName =
-    `${appointment?.nameInput ?? ""} ${appointment?.lastNameInput ?? ""}`.trim() ||
-    "Unnamed";
+  const cap = (s?: string) => (s ?? "").toLocaleLowerCase().replace(/^\p{L}/u, c => c.toLocaleUpperCase());
+  const fullName = (() => {
+    const name = cap(appointment?.nameInput);
+    const last = cap(appointment?.lastNameInput);
+    const v = `${name} ${last}`.trim();
+    return v || "Unnamed";
+  })();
+
+  // Teléfono efectivo (mismo criterio que en DraggableCards)
+  const hasRep = Boolean((appointment as any)?.representative?.appointment);
+  const rep = hasRep && typeof (appointment as any)?.representative?.appointment === 'object'
+    ? (appointment as any).representative.appointment as any
+    : null;
+  const phoneDisplay = rep
+    ? formatAusPhoneNumber(rep.phoneInput || rep.phoneE164 || "")
+    : formatAusPhoneNumber(appointment?.phoneInput || "");
 
   // 🔄 Live refresh: ensure modal always shows the freshest appointment after server-side updates
   const queryClient = useQueryClient();
@@ -487,7 +503,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
   return (
     <>
       {/* 🔑 Importante: cuando isProviderOpen === true, este Modal se "cierra" */}
-      <Modal isOpen={isTopOpen && !isProviderOpen} onClose={onClose} size="6xl">
+  <Modal isOpen={isTopOpen && !isProviderOpen} onClose={onClose} size="6xl" closeOnOverlayClick={false}>
         <ModalOverlay backdropFilter="blur(6px)" />
         <ModalContent
           overflow="hidden"
@@ -513,7 +529,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                   size="lg"
                   boxShadow="0 2px 8px rgba(0,0,0,0.15)"
                 />
-                <VStack align="start" spacing={0} flex={1}>
+                <VStack align="start" spacing={1} flex={1}>
                   <HStack wrap="wrap" spacing={3} align="center">
                     <Text fontSize="xl" fontWeight="extrabold">
                       {fullName}
@@ -524,37 +540,111 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                         Unknown
                       </Badge>
                     ) : null}
+                    {/* Teléfono al lado del nombre (estilizado) */}
+                    <Box
+                      bg="whiteAlpha.200"
+                      px={2}
+                      py={1}
+                      rounded="full"
+                      border="1px solid"
+                      borderColor="whiteAlpha.300"
+                    >
+                      <HStack spacing={2} align="center" color="white">
+                        <PhoneIcon boxSize={3.5} />
+                        {rep ? (
+                          <HStack spacing={1} align="center">
+                            <Box
+                              as="button"
+                              onClick={(e: React.MouseEvent) => {
+                                e.stopPropagation();
+                                onRepOpen();
+                              }}
+                              aria-label="Open representative"
+                              _hover={{ opacity: 0.9 }}
+                            >
+                              <Box as={RiParentFill} color="purple.200" />
+                            </Box>
+                            <Text fontSize="sm" fontWeight="semibold">{phoneDisplay || '—'}</Text>
+                          </HStack>
+                        ) : (
+                          <Text fontSize="sm" fontWeight="semibold">{phoneDisplay || '—'}</Text>
+                        )}
+                      </HStack>
+                    </Box>
                   </HStack>
                 </VStack>
               </HStack>
               {/* 🔗 Acceso rápido al chat desde el header */}
               {appointment && (
-                <ChatLauncher
+                  <ChatLauncher
                   item={appointment}
                   tooltip="Open chat"
-                  buildContact={(i: Appointment) => ({
-                    conversationId: i.sid ?? i._id,
-                    lastMessage: {
-                      author: i.nameInput || "",
-                      body: "",
-                      conversationId: i.sid ?? i._id,
-                      createdAt: new Date().toISOString(),
-                      direction: "outbound",
-                      media: [],
-                      sid: "temp-lastmessage",
-                      status: "delivered",
-                      updatedAt: new Date().toISOString(),
-                    },
-                    owner: {
-                      email: i.emailInput,
-                      lastName: i.lastNameInput,
-                      name: i.nameInput,
-                      org_id: i.org_id,
-                      phone: i.phoneInput,
-                      unknown: !!i.unknown,
-                      _id: i._id,
-                    },
-                  })}
+                  buildContact={(i: Appointment) => {
+                    // Always derive chat to representative if present; otherwise use patient
+                    const repApp = (i as any)?.representative?.appointment && typeof (i as any)?.representative?.appointment === 'object'
+                      ? ((i as any).representative.appointment as any)
+                      : null;
+
+                    if (repApp) {
+                      const conversationId = repApp.sid || '';
+                      const phone = repApp.phoneInput || repApp.phoneE164 || '';
+                      const email = repApp.emailLower || '';
+                      const author = `${repApp.nameInput || ''}`.trim();
+                      return {
+                        conversationId,
+                        lastMessage: {
+                          author,
+                          body: '',
+                          conversationId,
+                          createdAt: new Date().toISOString(),
+                          direction: 'outbound' as const,
+                          media: [],
+                          sid: 'temp-lastmessage',
+                          status: 'delivered' as const,
+                          updatedAt: new Date().toISOString(),
+                        },
+                        owner: {
+                          email,
+                          lastName: repApp.lastNameInput || '',
+                          name: repApp.nameInput || '',
+                          org_id: i.org_id || '',
+                          phone,
+                          color: (i as any)?.color || undefined,
+                          unknown: false,
+                          _id: repApp._id,
+                          represented: true,
+                        },
+                      };
+                    }
+
+                    const conversationId = (i as any).sid || '';
+                    const author = (i.nameInput || '').trim();
+                    return {
+                      conversationId,
+                      lastMessage: {
+                        author,
+                        body: '',
+                        conversationId,
+                        createdAt: new Date().toISOString(),
+                        direction: 'outbound' as const,
+                        media: [],
+                        sid: 'temp-lastmessage',
+                        status: 'delivered' as const,
+                        updatedAt: new Date().toISOString(),
+                      },
+                      owner: {
+                        email: i.emailInput || '',
+                        lastName: i.lastNameInput || '',
+                        name: i.nameInput || '',
+                        org_id: i.org_id || '',
+                        phone: i.phoneInput || '',
+                        color: (i as any)?.color || undefined,
+                        unknown: !!i.unknown,
+                        _id: i._id,
+                        represented: false,
+                      },
+                    };
+                  }}
                   modalInitial={{ appId: appointment._id }}
                   trigger={
                     <Button
@@ -914,15 +1004,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                               {(() => {
                                 const display = pickDisplaySlot(appointment?.selectedAppDates ?? []);
                                 const displayId = display ? String((display as any)?._id ?? "") : "";
-                                const oidTime = (val: any): number => {
-                                  const hex = String(val ?? '').trim();
-                                  // ObjectId: first 8 hex chars are seconds since epoch
-                                  if (/^[0-9a-fA-F]{24}$/.test(hex)) {
-                                    const secs = parseInt(hex.slice(0, 8), 16);
-                                    if (!Number.isNaN(secs)) return secs * 1000;
-                                  }
-                                  return 0;
-                                };
+                                // (removed unused oidTime helper)
 
                                 // 1) Ordenar SOLO por updatedAt (más reciente primero). Si falta updatedAt, tratamos como 0.
                                 const updatedAtTs = (s: any): number => {
@@ -1153,6 +1235,28 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
             }}
             provider={selectedProvider}
           />
+        </Suspense>
+      )}
+
+      {/* — Modal del Tutor (representante) en lazy load — */}
+      {rep && (
+        <Suspense
+          fallback={
+            <Modal isOpen={isRepOpen} onClose={() => {}} isCentered>
+              <ModalOverlay />
+              <ModalContent>
+                <ModalBody p={6}>
+                  <VStack align="stretch" spacing={3}>
+                    <Skeleton h="24px" />
+                    <Skeleton h="18px" />
+                    <Skeleton h="240px" />
+                  </VStack>
+                </ModalBody>
+              </ModalContent>
+            </Modal>
+          }
+        >
+          <AppointmentModalLazy id={String(rep._id || '')} isOpen={isRepOpen} onClose={onRepClose} />
         </Suspense>
       )}
     </>

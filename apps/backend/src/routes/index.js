@@ -637,8 +637,10 @@ router.post('/add', jwtCheck, async (req, res) => {
           });
         }
       } else {
-        // Niño SIN teléfono → garantizamos string vacío para respetar índice parcial
-        data.phoneInput = "";
+        // Niño SIN teléfono → no persistimos ningún número propio
+        // Importante: NO setear "" para evitar colisiones con índices únicos legados sobre phoneInput
+        delete data.phoneInput;
+        delete data.phoneE164;
       }
     }
 
@@ -692,6 +694,16 @@ router.post('/add', jwtCheck, async (req, res) => {
       return res.status(201).json({ message: 'Document created successfully', document: savedDoc });
     } catch (error) {
       if (error?.code === 11000) {
+        // Log extra details to help diagnose which unique index triggered the conflict
+        try {
+          console.warn('[POST /add] Duplicate key conflict', {
+            model: modelName,
+            org_id,
+            keyPattern: error.keyPattern,
+            keyValue: error.keyValue,
+            message: error.message,
+          });
+        } catch {}
         return res.status(409).json({
           error: 'Duplicate key',
           keyPattern: error.keyPattern,
