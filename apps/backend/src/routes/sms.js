@@ -24,6 +24,7 @@ const ConversationRead = require('../models/Chat/ConversationRead');
 const ConversationState = require('../models/Chat/ConversationState');
 const { autoUnarchiveOnInbound } = require('../helpers/autoUnarchiveOnInbound');
 const { DateTime } = require("luxon");
+const { validateConversationSid } = require('../helpers/twilioHealth');
 
 const {
   decideFromBody,
@@ -131,13 +132,6 @@ function clampSendAt(whenISO, tz = "Australia/Sydney") {
   };
 }
 
-function makeSyntheticIndex() {
-  // índice negativo con ruido para evitar colisión dentro del (conversationId, index)
-  const base = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-  return -base;
-}
-
-// =====================================================
 //  /sendMessageAsk (instantáneo + programado con clamp)
 // =====================================================
 router.post('/sendMessageAsk', async (req, res) => {
@@ -146,9 +140,7 @@ router.post('/sendMessageAsk', async (req, res) => {
   console.log("MG_SID:", MG_SID);
   console.log("➡️ req.bodyyyyyyyyyyyyyyyyyyyyyyyyy:", req.body);
 
-  {
-
-    const session = await mongoose.startSession();
+  const session = await mongoose.startSession();
     let committed = false;
 
     try {
@@ -439,7 +431,6 @@ router.post('/sendMessageAsk', async (req, res) => {
       session.endSession();
     }
 
-  }
 });
 
 // =====================================================
@@ -2074,6 +2065,7 @@ function requireOrg(req, res, next) {
 }
 const withJwt = [jwtCheck, attachUserInfo];
 const withAuth = [jwtCheck, attachUserInfo, requireOrg]; // <-- garantiza req.org_id
+const { requireAnyPermissionExplain } = require('../middleware/rbac-explain');
 
 // --- Categorías ---
 
@@ -2143,6 +2135,464 @@ router.delete("/conversations/:sid/categories/:chatCategoryId", withAuth, async 
     });
     res.json({ deleted });
   } catch (e) { next(e); }
+});
+
+// =====================================================
+//  POST /simulate/confirmation
+//  Emite un evento de socket "confirmationResolved" para probar la UI.
+//  Body:
+//   - appointmentId?: string
+//   - conversationSid?: string
+//   - decision?: 'confirmed' | 'declined' | 'reschedule' | 'unknown'
+//   - slotId?: string
+//   - from?: string
+//   - name?: string
+//   - body?: string
+//   - date?: string (ISO o cualquier string para mostrar en el toast)
+// =====================================================
+router.post('/simulate/confirmation', withAuth, async (req, res) => {
+  try {
+    const {
+      appointmentId,
+      conversationSid,
+      decision: rawDecision = 'confirmed',
+      slotId,
+      from: fromOverride,
+      name: nameOverride,
+      body: bodyOverride,
+      date: dateOverride,
+    } = req.body || {};
+
+    const allowed = new Set(['confirmed', 'declined', 'reschedule', 'unknown']);
+    const decision = allowed.has(String(rawDecision)) ? String(rawDecision) : 'confirmed';
+
+    if (!appointmentId && !conversationSid) {
+      return res.status(400).json({ error: 'Provide appointmentId or conversationSid' });
+    }
+
+    let appt = null;
+    if (appointmentId && mongoose.Types.ObjectId.isValid(String(appointmentId))) {
+      appt = await Appointment.findOne(
+        { _id: appointmentId },
+        { sid: 1, phoneInput: 1, phoneE164: 1, proxyAddress: 1, nameInput: 1, lastNameInput: 1, org_id: 1, selectedAppDates: 1 }
+      ).lean();
+    }
+    if (!appt && conversationSid) {
+      appt = await Appointment.findOne(
+        { sid: String(conversationSid) },
+        { sid: 1, phoneInput: 1, phoneE164: 1, proxyAddress: 1, nameInput: 1, lastNameInput: 1, org_id: 1, selectedAppDates: 1 }
+      ).lean();
+    }
+    if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+
+    const convId = String(appt.sid || conversationSid || '');
+    const orgId = String(appt.org_id || req.org_id || '').toLowerCase();
+
+    const allSlots = Array.isArray(appt.selectedAppDates) ? appt.selectedAppDates : [];
+    let chosenSlot = null;
+    if (slotId && mongoose.Types.ObjectId.isValid(String(slotId))) {
+      chosenSlot = allSlots.find((s) => String(s?._id) === String(slotId)) || null;
+    }
+    if (!chosenSlot) {
+      // Heurística: slot más "reciente" por updatedAt/proposed.createdAt/startDate
+      const withTs = allSlots.map((s) => {
+        const t = new Date(
+          s?.updatedAt || s?.proposed?.createdAt || s?.proposed?.startDate || s?.startDate || 0
+        ).getTime();
+        return { s, t };
+      });
+      withTs.sort((a, b) => b.t - a.t);
+      chosenSlot = withTs.length ? withTs[0].s : null;
+    }
+
+    const from = fromOverride || appt.phoneInput || appt.phoneE164 || appt.proxyAddress || '';
+    const name = nameOverride || `${appt.nameInput || ''} ${appt.lastNameInput || ''}`.trim();
+    const dateStr = dateOverride || (chosenSlot?.startDate ? new Date(chosenSlot.startDate).toISOString() : new Date().toISOString());
+
+    // Antes de emitir el socket, aplicar la actualización solicitada en MongoDB
+    // Nota: se aplica al appointment encontrado (equivalente a usar el _id específico del ejemplo)
+    try {
+      await Appointment.updateOne(
+        { _id: appt._id },
+        { $set: { "selectedAppDates.0.status": "Confirmed" } }
+      );
+    } catch (e) {
+      console.warn("⚠️ /simulate/confirmation: no se pudo actualizar selectedAppDates.0.status:", e?.message || e);
+    }
+
+    const payload = {
+      conversationId: convId,
+      respondsTo: null,
+      decision,
+      notification: true,
+      from,
+      name,
+      body: bodyOverride || decision,
+      date: dateStr,
+      receivedAt: new Date(),
+      appointmentId: String(appt._id),
+      slotId: chosenSlot?._id ? String(chosenSlot._id) : null,
+      slot: chosenSlot || null,
+      selectedAppDates: allSlots,
+    };
+
+    if (orgId) {
+      req.io.to(`org:${orgId}`).emit('confirmationResolved', payload);
+    } else {
+      // Fallback: emitir globalmente si no hay org (no debería ocurrir)
+      req.io.emit('confirmationResolved', payload);
+    }
+
+    return res.json({ ok: true, emitted: payload });
+  } catch (e) {
+    console.error('❌ Error in /simulate/confirmation:', e?.message || e);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// =====================================================
+//  GET /conversations/health
+//  Lista chats (appointments) y valida el SID en Twilio (paginado)
+//  Query:
+//    - page: number (default 1)
+//    - limit: number (default 50, max 200)
+//    - validate: '0' | '1' (default '1') — si '1', consulta Twilio para cada SID
+// =====================================================
+router.get('/conversations/health', [...withAuth, requireAnyPermissionExplain('master')], async (req, res) => {
+  try {
+    const page = Math.max(parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
+    const limitReq = Math.max(parseInt(String(req.query.limit ?? '50'), 10) || 50, 1);
+    const limit = Math.min(limitReq, 200);
+  const validate = String(req.query.validate ?? '1') === '1';
+  const skip = (page - 1) * limit;
+  const q = String(req.query.q ?? '').trim();
+
+    const orgLower = String(req.org_id || '').toLowerCase();
+    // Aggregate appointments by org, newest first
+    const base = [
+      {
+        $match: {
+          $expr: {
+            $eq: [{ $toLower: '$org_id' }, orgLower],
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          nameInput: 1,
+          lastNameInput: 1,
+          phoneInput: 1,
+          emailInput: 1,
+          sid: 1,
+          unknown: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+      { $sort: { updatedAt: -1, _id: 1 } },
+    ];
+
+    const searchStage = q
+      ? {
+          $match: {
+            $or: [
+              { nameInput: { $regex: q, $options: 'i' } },
+              { lastNameInput: { $regex: q, $options: 'i' } },
+              { phoneInput: { $regex: q, $options: 'i' } },
+              { emailInput: { $regex: q, $options: 'i' } },
+            ],
+          },
+        }
+      : null;
+
+    const pipeline = [
+      ...base,
+      ...(searchStage ? [searchStage] : []),
+      {
+        $facet: {
+          page: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+      {
+        $project: {
+          items: '$page',
+          total: { $ifNull: [{ $first: '$totalCount.count' }, 0] },
+        },
+      },
+    ];
+
+    const [result] = await Appointment.aggregate(pipeline);
+    let items = Array.isArray(result?.items) ? result.items : [];
+    let total = Number(result?.total || 0);
+    // Fallback: si no hay appointments por org, intentar a partir de mensajes (conversations activas)
+    if (total === 0 && !q) {
+      const fromMain = process.env.TWILIO_FROM_MAIN;
+      const basePipeline = [
+        ...(fromMain ? [{ $match: { proxyAddress: fromMain } }] : []),
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: '$conversationId', lastMessage: { $first: '$$ROOT' } } },
+        {
+          $lookup: {
+            from: 'appointments',
+            let: { convId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$sid', '$$convId'] },
+                      { $eq: [{ $toLower: '$org_id' }, orgLower] },
+                    ],
+                  },
+                },
+              },
+              { $sort: { unknown: 1 } },
+              { $group: { _id: '$sid', doc: { $first: '$$ROOT' } } },
+              { $replaceRoot: { newRoot: '$doc' } },
+              { $project: { _id: 1, nameInput: 1, lastNameInput: 1, phoneInput: 1, emailInput: 1, sid: 1, unknown: 1, createdAt: 1, updatedAt: 1 } },
+            ],
+            as: 'appointment',
+          },
+        },
+        { $unwind: '$appointment' },
+        { $sort: { 'lastMessage.createdAt': -1, _id: 1 } },
+        { $skip: skip },
+        { $limit: limit },
+      ];
+
+      const fallback = await Message.aggregate(basePipeline);
+      items = fallback.map((row) => row.appointment);
+      total = items.length; // aproximado para fallback; si quieres exacto, podemos agregar $facet
+    }
+
+    let enriched = items.map((it) => ({
+      appointmentId: String(it._id),
+      name: it.nameInput || '',
+      lastName: it.lastNameInput || '',
+      phone: it.phoneInput || '',
+      email: it.emailInput || '',
+      sid: it.sid || '',
+      unknown: !!it.unknown,
+      status: it.sid ? 'unchecked' : 'missing',
+      reason: it.sid ? undefined : 'No SID present',
+      createdAt: it.createdAt,
+      updatedAt: it.updatedAt,
+    }));
+
+    if (validate) {
+      enriched = await Promise.all(
+        enriched.map(async (row) => {
+          if (!row.sid) return row; // missing already set
+          const r = await validateConversationSid(client, row.sid);
+          return { ...row, status: r.status, reason: r.reason };
+        })
+      );
+    }
+    console.log({enriched,
+      pagination: {
+        page,
+        limit,
+        total,
+        hasMore: total > 0 ? (skip + items.length < total) : false,
+      },
+    })
+    res.json({
+      items: enriched,
+      pagination: {
+        page,
+        limit,
+        total,
+        hasMore: total > 0 ? (skip + items.length < total) : false,
+      },
+    });
+  } catch (e) {
+    console.error('❌ Error in GET /conversations/health:', e?.message || e);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// =====================================================
+//  POST /conversations/health/:appointmentId/repair
+//  Repara (crea o reemplaza) la conversación Twilio para un paciente con SID missing/invalid/error.
+//  Devuelve la fila de health actualizada.
+// =====================================================
+router.post('/conversations/health/:appointmentId/repair', [...withAuth, requireAnyPermissionExplain('master')], async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    if (!appointmentId || !mongoose.Types.ObjectId.isValid(String(appointmentId))) {
+      return res.status(400).json({ error: 'Invalid appointmentId' });
+    }
+    const orgLower = String(req.org_id || '').toLowerCase();
+    const appt = await Appointment.findOne({ _id: appointmentId }).lean();
+    if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+    if (String(appt.org_id || '').toLowerCase() !== orgLower) {
+      return res.status(403).json({ error: 'Forbidden (org mismatch)' });
+    }
+
+    let currentSid = appt.sid || '';
+    let status = 'missing';
+    let reason = 'No SID present';
+
+    if (currentSid) {
+      const r = await validateConversationSid(client, currentSid);
+      status = r.status;
+      reason = r.reason;
+    }
+
+    // Si SID ok y usuario pide reparar -> no hacemos nada especial
+    if (status === 'ok') {
+      return res.json({
+        item: {
+          appointmentId: String(appt._id),
+          name: appt.nameInput || '',
+          lastName: appt.lastNameInput || '',
+          phone: appt.phoneInput || '',
+          email: appt.emailInput || '',
+          sid: currentSid,
+          unknown: !!appt.unknown,
+          status: 'ok',
+          reason,
+          createdAt: appt.createdAt,
+          updatedAt: appt.updatedAt,
+        },
+        repaired: false,
+      });
+    }
+
+    // Política solicitada: NO reparar casos "missing" (sin SID) — debe gestionarse por otro flujo.
+    if (status === 'missing') {
+      return res.status(400).json({ error: 'Repair not allowed for missing SID (no conversation).', status, reason });
+    }
+
+    // Solo reparar invalid / error.
+    if (status !== 'invalid' && status !== 'error') {
+      return res.status(400).json({ error: `Repair not applicable for status '${status}'.` });
+    }
+
+    // Crear nueva conversación Twilio
+    let newConv = null;
+    try {
+      newConv = await client.conversations.v1.conversations.create({
+        friendlyName: `${appt.nameInput || 'Appointment'}-${appt._id}`.slice(0, 100),
+        messagingServiceSid: MG_SID || undefined,
+      });
+    } catch (twErr) {
+      console.error('❌ Error creando conversación Twilio:', twErr?.message || twErr);
+      return res.status(502).json({ error: 'Twilio conversation create failed', detail: twErr?.message });
+    }
+
+    const newSid = newConv.sid;
+    await Appointment.updateOne(
+      { _id: appt._id },
+      { $set: { sid: newSid } }
+    );
+
+    const updated = await Appointment.findOne({ _id: appt._id }, { sid: 1, nameInput: 1, lastNameInput: 1, phoneInput: 1, emailInput: 1, unknown: 1, createdAt: 1, updatedAt: 1 }).lean();
+    return res.json({
+      item: {
+        appointmentId: String(updated._id),
+        name: updated.nameInput || '',
+        lastName: updated.lastNameInput || '',
+        phone: updated.phoneInput || '',
+        email: updated.emailInput || '',
+        sid: updated.sid || '',
+        unknown: !!updated.unknown,
+        status: 'ok',
+        reason: 'Repaired (new conversation created)',
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+      repaired: true,
+      previousSid: currentSid || null,
+    });
+  } catch (e) {
+    console.error('❌ Error in POST /conversations/health/:appointmentId/repair:', e?.message || e);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// =====================================================
+//  POST /conversations/health/repair-all
+//  Repara en lote todos los appointments con SID missing o invalid (revalida antes de crear).
+//  Devuelve resumen + items reparados.
+// =====================================================
+router.post('/conversations/health/repair-all', [...withAuth, requireAnyPermissionExplain('master')], async (req, res) => {
+  try {
+    const orgLower = String(req.org_id || '').toLowerCase();
+    // Traer todos los appointments de la org
+    const appts = await Appointment.find({ org_id: new RegExp(`^${orgLower}$`, 'i') }, { sid: 1, nameInput: 1, lastNameInput: 1, phoneInput: 1, emailInput: 1, unknown: 1, createdAt: 1, updatedAt: 1 }).lean();
+
+    const toRepair = [];
+    for (const appt of appts) {
+      const sid = appt.sid || '';
+      // Política: ignorar missing (no crear SID en bulk) y solo reparar invalid
+      if (!sid) continue; // missing se salta
+      const r = await validateConversationSid(client, sid);
+      if (r.status === 'invalid') {
+        toRepair.push({ appt, reason: r.reason || r.status });
+      }
+    }
+
+    const repairedItems = [];
+    for (const entry of toRepair) {
+      const { appt } = entry;
+      let newConv = null;
+      try {
+        newConv = await client.conversations.v1.conversations.create({
+          friendlyName: `${appt.nameInput || 'Appointment'}-${appt._id}`.slice(0, 100),
+          messagingServiceSid: MG_SID || undefined,
+        });
+      } catch (twErr) {
+        console.error('❌ Bulk repair Twilio error:', twErr?.message || twErr);
+        repairedItems.push({
+          appointmentId: String(appt._id),
+          name: appt.nameInput || '',
+          lastName: appt.lastNameInput || '',
+          phone: appt.phoneInput || '',
+          email: appt.emailInput || '',
+          sid: appt.sid || '',
+          unknown: !!appt.unknown,
+          status: 'error',
+          reason: `Create failed: ${twErr?.message || 'Unknown'}`,
+          createdAt: appt.createdAt,
+          updatedAt: appt.updatedAt,
+          repaired: false,
+        });
+        continue;
+      }
+      const newSid = newConv.sid;
+      await Appointment.updateOne({ _id: appt._id }, { $set: { sid: newSid } });
+      const updated = await Appointment.findOne({ _id: appt._id }, { sid: 1, nameInput: 1, lastNameInput: 1, phoneInput: 1, emailInput: 1, unknown: 1, createdAt: 1, updatedAt: 1 }).lean();
+      repairedItems.push({
+        appointmentId: String(updated._id),
+        name: updated.nameInput || '',
+        lastName: updated.lastNameInput || '',
+        phone: updated.phoneInput || '',
+        email: updated.emailInput || '',
+        sid: updated.sid || '',
+        unknown: !!updated.unknown,
+        status: 'ok',
+        reason: 'Repaired (new conversation created)',
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+        repaired: true,
+        previousSid: appt.sid || null,
+      });
+    }
+
+    res.json({
+      processed: appts.length,
+      attempted: toRepair.length,
+      repaired: repairedItems.filter(x => x.repaired).length,
+      failed: repairedItems.filter(x => x.status === 'error').length,
+      items: repairedItems,
+    });
+  } catch (e) {
+    console.error('❌ Error in POST /conversations/health/repair-all:', e?.message || e);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 module.exports = router;

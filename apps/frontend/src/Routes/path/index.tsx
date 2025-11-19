@@ -7,6 +7,7 @@ import { LuCalendarCog, LuUserRoundSearch } from "react-icons/lu";
 import { HiOutlineClipboardDocumentCheck } from "react-icons/hi2";
 import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
 import { IoSettingsOutline } from "react-icons/io5";
+import { MdHealthAndSafety } from "react-icons/md";
 
 const paths = {
   root: "/",
@@ -14,6 +15,7 @@ const paths = {
   profile: "/profile",
   messages: "/messages",
   chat: "/messages/custom-chat",
+  chatHealth: "/messages/health",
   appointments: "/appointments",
   appointmentManager: "/appointments/appointment-manager",
   appointmentList: "/appointments/priority-list",
@@ -87,6 +89,18 @@ export const navLinks: NavLink[] = [
     sidebarZone: "main",
     requireAnyPerms: ['chat:read']
 
+  },
+  // Chat Health (diagnóstico)
+  {
+    key: "chatHealth",
+    path: paths.chatHealth,
+    label: "Chat Health",
+    icon: MdHealthAndSafety,
+    show: ["sidebar"],
+    order: 31,
+    requireAuth: true,
+    sidebarZone: "main",
+    requireAnyPerms: ["master"]
   },
   { key: "organizer", 
     path: paths.organizer, 

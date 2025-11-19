@@ -145,6 +145,21 @@ export const ROUTE_LINKS: RouteLink[] = [
                 order: 30,
                 gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
             },
+            {
+                key: "chatHealth",
+                path: paths.chatHealth,
+                componentKey: "ChatHealth",
+                label: "Chat Health",
+                icon: MdTextsms,
+                show: ["sidebar"],
+                order: 31,
+                gate: {
+                    requireAuth: true,
+                    source: "token",
+                    redirectToOnUnauthed: "/signin",
+                    requireAnyPerms: ["master"],
+                },
+            },
 
             // Organizer
             {

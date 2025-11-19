@@ -9,6 +9,7 @@ import AppointmentManager from "./Appointments/AppointmentManager";
 import PatientFinder from "./Appointments/PatientFinder";
 import AssignedAppointments from "./Appointments/AssignedAppointments";
 import CustomChat from "./Messages/CustomChat";
+import ChatHealth from "./Messages/ChatHealth";
 import Organizer from "./Organizer";
 import LogOut from "./LogOut";
 import UsersManager from "./Admin/UsersManager";
@@ -25,6 +26,7 @@ const registry = {
   PatientFinder: <PatientFinder />,
   AssignedAppointments: <AssignedAppointments />,
   CustomChat: <CustomChat />,
+  ChatHealth: <ChatHealth />,
   Organizer: <Organizer />,
   LogOut: <LogOut />,
   UsersManager: <UsersManager />,

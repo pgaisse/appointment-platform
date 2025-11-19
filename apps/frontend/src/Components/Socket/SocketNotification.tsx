@@ -52,6 +52,10 @@ console.log('SocketNotification - decision:', data.decision);
                     );
                 },
             });
+            // Also cancel our stable keys explicitly (prod safety)
+            await queryClient.cancelQueries({ queryKey: PENDING_APPROVALS_QK as any });
+            await queryClient.cancelQueries({ queryKey: DECLINED_APPTS_QK as any });
+            await queryClient.cancelQueries({ queryKey: ARCHIVED_APPTS_QK as any });
 
             const baseProps = {
                 duration: 5000,
@@ -156,6 +160,11 @@ console.log('SocketNotification - decision:', data.decision);
             // Declined and Archived (stable keys)
             queryClient.invalidateQueries({ queryKey: DECLINED_APPTS_QK as any });
             queryClient.invalidateQueries({ queryKey: ARCHIVED_APPTS_QK as any });
+
+            // Force refetch of the stable keys to avoid any subtle differences between dev/prod behavior
+            queryClient.refetchQueries({ queryKey: PENDING_APPROVALS_QK as any });
+            queryClient.refetchQueries({ queryKey: DECLINED_APPTS_QK as any });
+            queryClient.refetchQueries({ queryKey: ARCHIVED_APPTS_QK as any });
 
             // Contact-related refresh (manual contact flows)
             queryClient.invalidateQueries({ queryKey: ['ManualContact'] });

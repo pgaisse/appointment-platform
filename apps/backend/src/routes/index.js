@@ -10,6 +10,7 @@ const { attachUserInfo, jwtCheck, checkJwt, decodeToken, ensureUser } = require(
 const { requireAnyPermissionExplain } = require('../middleware/rbac-explain');
 const models = require("../models/Appointments");
 const sms = require('../helpers/conversations')
+const { validateConversationSid } = require('../helpers/twilioHealth');
 const { findMatchingAppointments } = require('../helpers/findMatchingAppointments');
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -645,6 +646,7 @@ router.post('/add', jwtCheck, async (req, res) => {
     }
 
     // ——— Efectos laterales (Twilio) SOLO si NO es niño y tenemos teléfono ———
+    // Impone la política: no crear pacientes NO representados sin una conversación Twilio válida
     let sid;
     if (isAppointment && !isChild && data.phoneInput) {
       const meta = {
@@ -654,10 +656,33 @@ router.post('/add', jwtCheck, async (req, res) => {
         org_id,
       };
 
-      sid = await sms.getOrCreatePhoneConversation({
-        client, org_id, phoneE164: data.phoneInput, proxyAddress, meta, createdByUserId: req.dbUser._id,
-      });
+      // Crear o reutilizar conversación Twilio
+      try {
+        sid = await sms.getOrCreatePhoneConversation({
+          client, org_id, phoneE164: data.phoneInput, proxyAddress, meta, createdByUserId: req.dbUser._id,
+        });
+      } catch (e) {
+        console.error('[POST /add] Twilio getOrCreatePhoneConversation failed:', e?.message || e);
+        return res.status(502).json({
+          error: 'TWILIO_CONVERSATION_CREATE_FAILED',
+          message: 'Unable to create or fetch Twilio conversation',
+          detail: e?.message || String(e),
+        });
+      }
 
+      // Validar que el SID realmente existe en Twilio
+      const check = await validateConversationSid(client, sid);
+      if (!check.ok) {
+        const code = check.status === 'error' ? 502 : 424;
+        return res.status(code).json({
+          error: 'TWILIO_CONVERSATION_INVALID',
+          status: check.status,
+          message: 'Appointment creation requires a valid Twilio conversation for non-represented patients.',
+          reason: check.reason || 'Unknown',
+        });
+      }
+
+      // Persistimos vínculo teléfono↔conversación y normalizamos citas previas del mismo número
       await PhoneConversationLink.findOneAndUpdate(
         { org_id, phoneE164: data.phoneInput },
         { conversationSid: sid, proxyAddress },
