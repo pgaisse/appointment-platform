@@ -10,6 +10,8 @@ dayjs.extend(timezone);
 
 const { jwtCheck, ensureUser, attachUserInfo } = require('../middleware/auth');
 const { Appointment, Message } = require('../models/Appointments');
+const twilio = require('twilio');
+const { validateConversationSid } = require('../helpers/twilioHealth');
 const ConversationRead = require('../models/Chat/ConversationRead');
 
 const TZ = 'Australia/Sydney';
@@ -161,6 +163,40 @@ router.get('/stats', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
   } catch (error) {
     console.error('Dashboard stats error:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard stats', message: error.message });
+  }
+});
+
+// GET /api/dashboard/stats/invalid-chat-sids - expensive check separated
+router.get('/stats/invalid-chat-sids', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+  try {
+    const org_id = req.dbUser?.org_id;
+    if (!org_id) return res.status(403).json({ error: 'Missing organization scope.' });
+    const perms = Array.isArray(req.dbUser?.permissions) ? req.dbUser.permissions : [];
+    if (!perms.includes('master')) {
+      // No permiso: devolver 0 para no filtrar pero evitar coste.
+      return res.json({ invalidSidCount: 0, skipped: true });
+    }
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (!accountSid || !authToken) {
+      return res.json({ invalidSidCount: 0, skipped: true, reason: 'Missing Twilio credentials' });
+    }
+    const client = twilio(accountSid, authToken);
+    let invalidSidCount = 0;
+    const apptsWithSid = await Appointment.find({ org_id, sid: { $exists: true, $ne: '' } }, { sid: 1 }).lean();
+    for (const ap of apptsWithSid) {
+      try {
+        const r = await validateConversationSid(client, ap.sid);
+        if (r.status === 'invalid') invalidSidCount++;
+      } catch (e) {
+        // Si falla uno, continuar; log minimal
+        console.warn('Invalid SID check error', ap.sid, e?.message || e);
+      }
+    }
+    res.json({ invalidSidCount });
+  } catch (error) {
+    console.error('Dashboard invalid-chat-sids error:', error);
+    res.status(500).json({ error: 'Failed to compute invalid chat sids', message: error.message });
   }
 });
 

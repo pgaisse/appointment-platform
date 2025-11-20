@@ -23,6 +23,9 @@ type SendAppointmentSMSResponse = {
   to?: string;                // programado
   runAt?: string;             // programado
   tz?: string;                // programado
+  // When auto-repair happens server-side
+  repairedSid?: string;
+  previousSid?: string;
 };
 
 // =========================

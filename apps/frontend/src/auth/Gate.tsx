@@ -71,7 +71,7 @@ export default function Gate({
       const at = await getAccessTokenSilently({
         authorizationParams: { audience: AUDIENCE },
       });
-      const r = await fetch("/api/me", { headers: { Authorization: `Bearer ${at}` } });
+      const r = await fetch("/api/profile/me", { headers: { Authorization: `Bearer ${at}` } });
       if (!r.ok) throw new Error("me_fetch_failed");
       return r.json(); // { dbUser, tokenUser }
     },

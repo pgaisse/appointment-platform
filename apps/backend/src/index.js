@@ -71,6 +71,7 @@ app.use('/api', require('./routes/debug-auth'));
 app.use('/api', require('./routes/priority-list'));
 app.use('/api', Routes);
 app.use('/api', Topics);
+app.use('/api/users', require('./routes/users'));
 app.use('/api/tokens', require('./routes/tokens'));
 app.use('/api/appointment-manager', require('./routes/appointment-manager'));
 app.use('/api/socket.io', SocketRoutes);

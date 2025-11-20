@@ -155,8 +155,8 @@ export const ROUTE_LINKS: RouteLink[] = [
                 order: 31,
                 gate: {
                     requireAuth: true,
-                    source: "token",
-                    redirectToOnUnauthed: "/signin",
+                    source: "all",
+                    // no redirectToOnUnauthed aquí para evitar mandar a /signin si falta permiso
                     requireAnyPerms: ["master"],
                 },
             },

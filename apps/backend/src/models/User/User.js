@@ -13,7 +13,14 @@ const UserSchema = new Schema(
     roles: { type: [String], default: [] },
     permissions: { type: [String], default: [] },
     status: { type: String, enum: ['active', 'blocked'], default: 'active' },
+    // Tracking
+    lastAccessAt: { type: Date, default: null },
     lastLoginAt: { type: Date, default: null },
+    lastLoginIp: { type: String, default: null },
+    lastLoginUa: { type: String, default: null },
+    lastTokenJti: { type: String, default: null },
+    lastTokenIat: { type: Number, default: null },
+    loginCount: { type: Number, default: 0 },
   },
   {
     timestamps: true,

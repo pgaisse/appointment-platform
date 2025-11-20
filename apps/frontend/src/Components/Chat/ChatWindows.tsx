@@ -76,14 +76,18 @@ const DayDivider = memo(function DayDivider({ date }: { date: Date }) {
   );
 });
 
-type Props = { chat: ConversationChat | undefined; isOpen: boolean };
+type Props = {
+  chat: ConversationChat | undefined;
+  isOpen: boolean;
+  onConversationRepaired?: (newSid: string, prevSid: string) => void;
+};
 
-export default function ChatWindows({ chat }: Props) {
+export default function ChatWindows({ chat, onConversationRepaired }: Props) {
   if (!chat) return null;
-  return <ChatWindowsInner chat={chat} />;
+  return <ChatWindowsInner chat={chat} onConversationRepaired={onConversationRepaired} />;
 }
 
-function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
+function ChatWindowsInner({ chat, onConversationRepaired }: { chat: ConversationChat; onConversationRepaired?: (newSid: string, prevSid: string) => void; }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const sendChat = useSendChatMessage();
@@ -160,10 +164,28 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
           onProgress: () => { },
         },
         {
-          onSuccess: () => {
+          onSuccess: (res: any) => {
             clearOptimistic();
-            // Mantiene el contrato con el padre: misma queryKey
-            queryClient.invalidateQueries({ queryKey: ["messages", chat.conversationId] });
+
+            const repairedSid = res?.repairedSid as string | undefined;
+            const previousSid = (res?.previousSid as string | undefined) || chat.conversationId;
+
+            if (repairedSid && repairedSid !== previousSid) {
+              // Invalidate both old and new threads
+              queryClient.invalidateQueries({ queryKey: ["messages", previousSid] });
+              queryClient.invalidateQueries({ queryKey: ["messages", repairedSid] });
+              // Notify parent to switch to the repaired conversation
+              onConversationRepaired?.(repairedSid, previousSid);
+              toast({
+                title: "Conversation repaired",
+                description: `Updated conversation SID to ${repairedSid}`,
+                status: "success",
+                position: "bottom-right",
+              });
+            } else {
+              // Normal path: just refresh the current thread
+              queryClient.invalidateQueries({ queryKey: ["messages", chat.conversationId] });
+            }
           },
           onError: (error: any) => {
             removeOptimistic(optimistic.sid);
@@ -178,7 +200,7 @@ function ChatWindowsInner({ chat }: { chat: ConversationChat }) {
         }
       );
     },
-    [chat.conversationId, chat.owner._id, chat.owner.phone, addOptimistic, removeOptimistic, clearOptimistic, queryClient, sendChat, toast]
+    [chat.conversationId, chat.owner._id, chat.owner.phone, addOptimistic, removeOptimistic, clearOptimistic, queryClient, sendChat, toast, onConversationRepaired]
   );
 
   const borderCol = useColorModeValue("blackAlpha.200", "whiteAlpha.200");

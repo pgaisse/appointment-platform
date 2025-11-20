@@ -4,6 +4,7 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { requireRole, requireAnyPermission } = require('../middleware/rbac');
+const UserLoginAudit = require('../models/User/UserLoginAudit');
 
 // Modelo
 const User = require('../models/User/User');
@@ -94,3 +95,80 @@ router.delete('/:id',
 );
 
 module.exports = router;
+
+// ───────────────────────────────────────────────────────────
+// GET /api/users/audit  → listar auditoría de logins
+// Filtros opcionales:
+//   - q: string (busca por email o auth0_id)
+//   - userId: ObjectId del User
+//   - auth0_id: string exacto
+//   - email: string (regex i)
+//   - from, to: ISO date range
+//   - limit, page: paginación
+// Acceso: admin role o permiso user:audit:read o dev-admin
+router.get('/audit',
+  (req, res, next) => {
+    const roles = Array.isArray(req.dbUser?.roles) ? req.dbUser.roles : [];
+    if (roles.includes('admin')) return next();
+    return requireAnyPermission('user:audit:read', 'dev-admin')(req, res, next);
+  },
+  async (req, res) => {
+    try {
+      const {
+        q = '',
+        userId,
+        auth0_id,
+        email,
+        from,
+        to,
+        limit = 100,
+        page = 0,
+        sort = 'at',
+        order = 'desc',
+      } = req.query;
+
+      const lim = Math.min(Number(limit) || 100, 500);
+      const skip = (Number(page) || 0) * lim;
+
+      const filter = {};
+      if (q) {
+        filter.$or = [
+          { email: { $regex: String(q), $options: 'i' } },
+          { auth0_id: { $regex: String(q), $options: 'i' } },
+        ];
+      }
+      if (userId) filter.userId = userId;
+      if (auth0_id) filter.auth0_id = auth0_id;
+      if (email) filter.email = { $regex: String(email), $options: 'i' };
+
+      if (from || to) {
+        filter.at = {};
+        if (from) filter.at.$gte = new Date(String(from));
+        if (to) filter.at.$lte = new Date(String(to));
+      }
+
+      const orderNum = String(order).toLowerCase() === 'asc' ? 1 : -1;
+      const sortBy = { [sort || 'at']: orderNum, _id: -1 };
+
+      const [items, total] = await Promise.all([
+        UserLoginAudit.find(filter).sort(sortBy).skip(skip).limit(lim).lean(),
+        UserLoginAudit.countDocuments(filter),
+      ]);
+
+      res.json({
+        ok: true,
+        items,
+        pagination: {
+          total,
+          page: Number(page) || 0,
+          limit: lim,
+          hasMore: skip + items.length < total,
+          sort: { field: sort || 'at', order: orderNum === 1 ? 'asc' : 'desc' },
+        },
+      });
+    } catch (e) {
+      console.error('[GET /users/audit] ERROR:', e?.message, e?.stack || '');
+      res.status(500).json({ ok: false, error: e?.message || 'Internal Server Error' });
+    }
+  }
+);

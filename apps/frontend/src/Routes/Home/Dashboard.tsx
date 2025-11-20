@@ -52,6 +52,7 @@ import { MessagesDetailsModal } from "@/Components/Dashboard/MessagesDetailsModa
 import AppointmentModal from "@/Components/Modal/AppointmentModal";
 import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext";
 import { useDashboardStats } from "@/Hooks/Query/useDashboardStats";
+import { useInvalidSidCount } from "@/Hooks/Query/useInvalidSidCount";
 import {
   useTodayAppointments,
   useWeekAppointments,
@@ -64,10 +65,11 @@ import {
 import dayjs from 'dayjs';
 import { useProfile } from "@/Hooks/Query/useProfile";
 import { getAvatarColors } from "@/utils/avatarColors";
+import paths from "@/Routes/path";
 
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError, error } = useDashboardStats();
-  const { data: monthNewPatients = [], isLoading: isLoadingMonthNew } = useMonthNewPatients();
+  const { data: monthNewPatients = [] } = useMonthNewPatients();
   const { data: profile } = useProfile();
   const navigate = useNavigate();
 
@@ -84,11 +86,10 @@ const Dashboard: React.FC = () => {
   const weekEnd = dayjs().endOf('week').format('YYYY-MM-DD');
 
   // Fetch patients (appointments created) for selected ranges — enabled only when the view is active
-  const { data: todayNewPatients = [], isLoading: isLoadingTodayNew } = useAppointmentsRange(todayStart, todayEnd, patientsView === 'today');
-  const { data: weekNewPatients = [], isLoading: isLoadingWeekNew } = useAppointmentsRange(weekStart, weekEnd, patientsView === 'week');
-  const { data: rangePatients = [], isLoading: isLoadingRange } = useAppointmentsRange(rangeStart, rangeEnd, patientsView === 'range' && !!rangeStart && !!rangeEnd);
+  const { data: todayNewPatients = [] } = useAppointmentsRange(todayStart, todayEnd, patientsView === 'today');
+  const { data: weekNewPatients = [] } = useAppointmentsRange(weekStart, weekEnd, patientsView === 'week');
+  const { data: rangePatients = [] } = useAppointmentsRange(rangeStart, rangeEnd, patientsView === 'range' && !!rangeStart && !!rangeEnd);
   const monthNew = monthNewPatients;
-  const isLoadingPatients = patientsView === 'today' ? isLoadingTodayNew : patientsView === 'week' ? isLoadingWeekNew : patientsView === 'month' ? isLoadingMonthNew : isLoadingRange;
 
   // Modals state
   const { isOpen: isTodayOpen, onOpen: onTodayOpen, onClose: onTodayClose } = useDisclosure();
@@ -126,6 +127,18 @@ const Dashboard: React.FC = () => {
 
   const userName = profile?.dbUser?.name || profile?.tokenUser?.name || "User";
   const firstName = userName.split(" ")[0];
+  const permissions = [
+    ...(Array.isArray(profile?.dbUser?.permissions) ? profile!.dbUser!.permissions : []),
+    ...(Array.isArray(profile?.tokenUser?.permissions) ? profile!.tokenUser!.permissions : []),
+  ];
+  const hasMaster = permissions.includes('master');
+  // Chequeo manual del conteo de invalid SID: no cargar automáticamente
+  const {
+    data: invalidSidData,
+    isFetching: isFetchingInvalidSid,
+    isSuccess: isSuccessInvalidSid,
+    refetch: refetchInvalidSid,
+  } = useInvalidSidCount(false);
 
   if (isError) {
     return (
@@ -210,8 +223,9 @@ const Dashboard: React.FC = () => {
           {/* Secondary Stats */}
           <Grid
             templateColumns={{
-              base: "repeat(1, 1fr)",
-              md: "repeat(2, 1fr)",
+              base: 'repeat(1, 1fr)',
+              md: hasMaster ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+              lg: hasMaster ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
             }}
             gap={6}
           >
@@ -233,6 +247,36 @@ const Dashboard: React.FC = () => {
               onClick={() => onPatientsOpen()}
               isClickable
             />
+            {hasMaster && (
+              <StatCard
+                title="Invalid Chat SIDs"
+                value={
+                  isFetchingInvalidSid
+                    ? '...'
+                    : isSuccessInvalidSid
+                      ? (invalidSidData?.invalidSidCount || 0)
+                      : 'Tap to check'
+                }
+                icon={FiAlertCircle}
+                color={
+                  !isSuccessInvalidSid
+                    ? 'gray'
+                    : (invalidSidData?.invalidSidCount || 0) > 0
+                      ? 'red'
+                      : 'teal'
+                }
+                subtitle={
+                  !isSuccessInvalidSid
+                    ? 'Click to run check'
+                    : (invalidSidData?.invalidSidCount || 0) > 0
+                      ? 'Need repair'
+                      : 'All healthy'
+                }
+                isLoading={false}
+                onClick={() => refetchInvalidSid()}
+                isClickable
+              />
+            )}
 
           </Grid>
 
@@ -389,9 +433,6 @@ const Dashboard: React.FC = () => {
                               .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
                               .join(' ')
                             : '—';
-                          const initials = cleaned
-                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
-                            : '';
                           return (
                             <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
                               <Td>
@@ -431,9 +472,6 @@ const Dashboard: React.FC = () => {
                               .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
                               .join(' ')
                             : '—';
-                          const initials = cleaned
-                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
-                            : '';
                           return (
                             <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
                               <Td>
@@ -473,9 +511,6 @@ const Dashboard: React.FC = () => {
                               .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
                               .join(' ')
                             : '—';
-                          const initials = cleaned
-                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
-                            : '';
                           return (
                             <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
                               <Td>
@@ -520,9 +555,6 @@ const Dashboard: React.FC = () => {
                               .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
                               .join(' ')
                             : '—';
-                          const initials = cleaned
-                            ? cleaned.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
-                            : '';
                           return (
                             <Tr key={a._id} _hover={{ bg: 'blackAlpha.50' }} onClick={() => handleAppointmentClick(a._id)} style={{ cursor: 'pointer' }}>
                               <Td>

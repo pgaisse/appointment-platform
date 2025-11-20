@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Box,
   Flex,
@@ -245,6 +245,18 @@ function ChatModalInner({
   // Fancy wait overlay while initial data settles
   const isBooting = !chat; // we already lazy-load modal, so just wait for contact
 
+  const handleConversationRepaired = useCallback(
+    (newSid: string, prevSid: string) => {
+      // Update local chat state with new conversationId
+      setChat((prev) => (prev ? { ...prev, conversationId: newSid } : prev));
+      // Refresh lists and threads for both SIDs
+      queryClient.invalidateQueries({ queryKey: ["messages", prevSid] });
+      queryClient.invalidateQueries({ queryKey: ["messages", newSid] });
+      queryClient.invalidateQueries({ queryKey: ["conversations-infinite"] });
+    },
+    [queryClient]
+  );
+
   return (
     <Box h="75dvh" minH="480px" w="100%" position="relative" overflow="hidden" borderRadius="xl">
       <Box position="absolute" inset={0} bgGradient={pageBg} zIndex={0} />
@@ -264,7 +276,7 @@ function ChatModalInner({
           overflow="hidden"
           maxH={{ base: "100%", xl: "calc(75dvh - 1rem)" }}
         >
-          <ChatWindows chat={chat} isOpen={!!chat} />
+          <ChatWindows chat={chat} isOpen={!!chat} onConversationRepaired={handleConversationRepaired} />
         </Box>
       </Flex>
 

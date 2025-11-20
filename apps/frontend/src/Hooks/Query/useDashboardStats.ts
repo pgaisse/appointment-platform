@@ -27,6 +27,7 @@ export interface DashboardStats {
     total: number;
     urgent: number;
   };
+  invalidSidCount?: number; // número de pacientes con SID inválido (solo visible si permiso master)
 }
 
 const fetchDashboardStats = async (token: string): Promise<DashboardStats> => {

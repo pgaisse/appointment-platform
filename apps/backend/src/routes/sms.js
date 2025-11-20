@@ -13,6 +13,7 @@ const twilio = require('twilio');
 const router = express.Router();
 const mongoose = require('mongoose');
 const { attachUserInfo, jwtCheck, checkJwt, decodeToken, verifyJwtManually, ensureUser } = require('../middleware/auth');
+const { syncUserFromToken } = require('../middleware/sync-user');
 const { SendMessageSchema } = require("../schemas/messages");
 const { uploadImageFromUrl, getFileMetadata, getPublicImageLink } = require('../helpers/imagesManagment')
 const { receiveMessage } = require('../controllers/message.controller');
@@ -64,6 +65,22 @@ router.use(
   attachUserInfo,
   ensureUser
 );
+
+
+// Detecta errores típicos de Twilio cuando el Conversation SID no existe/es inválido
+function isConvSidInvalid(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  const status = err?.status || err?.statusCode;
+  const code = err?.code;
+  return (
+    status === 404 ||
+    code === 20404 ||
+    msg.includes('not found') ||
+    msg.includes('resource not') ||
+    msg.includes('invalid sid') ||
+    msg.includes('no such')
+  );
+}
 
 
 
@@ -288,14 +305,40 @@ router.post('/sendMessageAsk', async (req, res) => {
         requestedSlotId = new mongoose.Types.ObjectId(req.body.slotId);
       }
 
-      const twMsg = await client.conversations.v1
-        .conversations(conversationId)
-        .messages
-        .create({
-          author: org_id,
-          body: safeBody,
-          attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1, user: req.dbUser?._id }),
+      let twMsg;
+      let repairedSid = null;
+      try {
+        twMsg = await client.conversations.v1
+          .conversations(conversationId)
+          .messages
+          .create({
+            author: org_id,
+            body: safeBody,
+            attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1, user: req.dbUser?._id }),
+          });
+      } catch (e) {
+        if (!isConvSidInvalid(e)) throw e;
+        // Autorreparación: crear/obtener conversación por teléfono y reintentar
+        const proxy = process.env.TWILIO_FROM_MAIN;
+        const newSid = await sms.getOrCreatePhoneConversation({
+          client,
+          org_id,
+          phoneE164: safeTo,
+          proxyAddress: proxy,
+          meta: { nameInput: data.nameInput, patientId: data._id, org_id },
+          createdByUserId: req.dbUser?._id,
         });
+        await Appointment.updateOne({ _id: data._id }, { $set: { sid: newSid } });
+        repairedSid = newSid;
+        twMsg = await client.conversations.v1
+          .conversations(newSid)
+          .messages
+          .create({
+            author: org_id,
+            body: safeBody,
+            attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1, user: req.dbUser?._id, repairedFrom: conversationId }),
+          });
+      }
 
       console.log("Twilio creó:", twMsg);
 
@@ -400,7 +443,7 @@ router.post('/sendMessageAsk', async (req, res) => {
               startDate,
               endDate,
               context: "Confirmation ask",
-              cSid: conversationId,
+              cSid: twMsg.conversationSid,
               askMessageSid: twMsg.sid,
               sentAt,
               selectedAppDate: latest?._id || null,
@@ -420,6 +463,8 @@ router.post('/sendMessageAsk', async (req, res) => {
         success: true,
         scheduled: false,
         docs,
+        repairedSid: repairedSid || null,
+        previousSid: repairedSid ? conversationId : null,
       });
     } catch (err) {
       if (!committed) {
@@ -655,34 +700,88 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
     const groupId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const messagesCreated = [];
 
+    let repairedSid = null;
+    const originalSid = conversationId;
     if (meSids.length === 0) {
       // Solo texto
       if (!safeBody?.trim()) {
         return res.status(400).json({ error: 'Message has neither text nor files' });
       }
-      const msg = await client.conversations.v1
-        .conversations(conversationId)
-        .messages
-        .create({
-          author: org_id,
-          body: safeBody,
-          attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1 }),
-        });
-      messagesCreated.push({ msg, mediaInfo: [] });
-    } else {
-      // Varios archivos => N mensajes (uno por ME...)
-      for (let i = 0; i < meSids.length; i++) {
+      try {
         const msg = await client.conversations.v1
           .conversations(conversationId)
           .messages
           .create({
             author: org_id,
-            mediaSid: meSids[i],                // <- CLAVE EN CONVERSATIONS REST
-            body: i === 0 ? safeBody || undefined : undefined, // texto solo en el primero (opcional)
-            attributes: JSON.stringify({ groupId, groupIndex: i, groupCount: meSids.length }),
+            body: safeBody,
+            attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1 }),
           });
+        messagesCreated.push({ msg, mediaInfo: [] });
+      } catch (e) {
+        if (!isConvSidInvalid(e)) throw e;
+        const proxy = process.env.TWILIO_FROM_MAIN;
+        const newSid = await sms.getOrCreatePhoneConversation({
+          client,
+          org_id,
+          phoneE164: safeTo,
+          proxyAddress: proxy,
+          meta: { patientId: data._id },
+          createdByUserId: req.dbUser?._id,
+        });
+        await Appointment.updateOne({ _id: data._id }, { $set: { sid: newSid } });
+        repairedSid = newSid;
+        conversationId = newSid; // actualizar para futuros mensajes
+        const msg = await client.conversations.v1
+          .conversations(newSid)
+          .messages
+          .create({
+            author: org_id,
+            body: safeBody,
+            attributes: JSON.stringify({ groupId, groupIndex: 0, groupCount: 1, repairedFrom: conversationId }),
+          });
+        messagesCreated.push({ msg, mediaInfo: [] });
+      }
+    } else {
+      // Varios archivos => N mensajes (uno por ME...)
+      for (let i = 0; i < meSids.length; i++) {
+        try {
+          const msg = await client.conversations.v1
+            .conversations(conversationId)
+            .messages
+            .create({
+              author: org_id,
+              mediaSid: meSids[i],                // <- CLAVE EN CONVERSATIONS REST
+              body: i === 0 ? safeBody || undefined : undefined, // texto solo en el primero (opcional)
+              attributes: JSON.stringify({ groupId, groupIndex: i, groupCount: meSids.length }),
+            });
 
-        messagesCreated.push({ msg, mediaInfo: [savedPerFile[i]] });
+          messagesCreated.push({ msg, mediaInfo: [savedPerFile[i]] });
+        } catch (e) {
+          if (!isConvSidInvalid(e)) throw e;
+          const proxy = process.env.TWILIO_FROM_MAIN;
+          const newSid = await sms.getOrCreatePhoneConversation({
+            client,
+            org_id,
+            phoneE164: safeTo,
+            proxyAddress: proxy,
+            meta: { patientId: data._id },
+            createdByUserId: req.dbUser?._id,
+          });
+          await Appointment.updateOne({ _id: data._id }, { $set: { sid: newSid } });
+          repairedSid = repairedSid || newSid; // conservar el primero
+          conversationId = newSid; // usar nuevo SID para siguientes iteraciones
+          const msg = await client.conversations.v1
+            .conversations(newSid)
+            .messages
+            .create({
+              author: org_id,
+              mediaSid: meSids[i],
+              body: i === 0 ? safeBody || undefined : undefined,
+              attributes: JSON.stringify({ groupId, groupIndex: i, groupCount: meSids.length, repairedFrom: conversationId }),
+            });
+
+          messagesCreated.push({ msg, mediaInfo: [savedPerFile[i]] });
+        }
       }
     }
 
@@ -718,6 +817,8 @@ router.post('/sendMessage', jwtCheck, upload.array("files"), async (req, res) =>
     return res.status(200).json({
       success: true,
       docs,
+      repairedSid: repairedSid || null,
+      previousSid: repairedSid ? originalSid : null,
     });
   } catch (err) {
     if (!committed) {
@@ -2064,7 +2165,7 @@ function requireOrg(req, res, next) {
   next();
 }
 const withJwt = [jwtCheck, attachUserInfo];
-const withAuth = [jwtCheck, attachUserInfo, requireOrg]; // <-- garantiza req.org_id
+const withAuth = [jwtCheck, attachUserInfo, ensureUser, syncUserFromToken, requireOrg]; // <-- garantiza req.org_id y sincroniza usuario
 const { requireAnyPermissionExplain } = require('../middleware/rbac-explain');
 
 // --- Categorías ---

@@ -148,6 +148,7 @@ const ensureUser = async (req, _res, next) => {
 };
 
 // Composición lista para usar en rutas protegidas
-const requireAuth = [jwtCheck, attachUserInfo, ensureUser];
+const { syncUserFromToken } = require('./sync-user');
+const requireAuth = [jwtCheck, attachUserInfo, ensureUser, syncUserFromToken];
 
 module.exports = { jwtCheck, attachUserInfo, ensureUser, requireAuth, decodeToken };

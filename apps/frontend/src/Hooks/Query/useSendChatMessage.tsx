@@ -14,9 +14,12 @@ type SendChatMessageInput = {
 
 type SendChatMessageResponse = {
   success: boolean;
-  conversationSid: string;
-  messageSid: string;
-  mediaSids: string[];        // vacía si no hubo archivos
+  conversationSid?: string;
+  messageSid?: string;
+  mediaSids?: string[];        // vacía si no hubo archivos
+  // Backend may include these when auto-repair happens
+  repairedSid?: string;
+  previousSid?: string;
 };
 
 export function useSendChatMessage(): UseMutationResult<

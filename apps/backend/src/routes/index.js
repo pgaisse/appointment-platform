@@ -7,6 +7,7 @@ const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const { attachUserInfo, jwtCheck, checkJwt, decodeToken, ensureUser } = require('../middleware/auth');
+const { syncUserFromToken } = require('../middleware/sync-user');
 const { requireAnyPermissionExplain } = require('../middleware/rbac-explain');
 const models = require("../models/Appointments");
 const sms = require('../helpers/conversations')
@@ -30,7 +31,7 @@ const { exist } = require('joi');
 
 
 //RUTAS PROTEGIDAS
-router.use(jwtCheck, attachUserInfo, ensureUser);
+router.use(jwtCheck, attachUserInfo, ensureUser, syncUserFromToken);
 
 
 

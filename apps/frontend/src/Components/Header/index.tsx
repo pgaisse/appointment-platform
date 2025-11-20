@@ -147,7 +147,12 @@ export default function Header({ linkItems, linkSession }: Props) {
     "Account";
 
   // Version indicator data (from Vite define)
-  const version = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : "");
+  const rawVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : "");
+  const version = React.useMemo(() => {
+    if (!rawVersion) return '';
+    if (rawVersion === 'unknown') return 'dev';
+    return rawVersion;
+  }, [rawVersion]);
   const updatedAt = (typeof __APP_BUILD_DATE__ !== 'undefined' ? __APP_BUILD_DATE__ : "");
   const updatedAtLabel = React.useMemo(() => {
     if (!updatedAt) return "";
