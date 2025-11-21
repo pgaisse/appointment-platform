@@ -12,7 +12,23 @@ import AutoProvisionUser from "./Boot/AutoProvisionUser";
 import AuthAutoLogoutGuard from "./auth/AuthAutoLogoutGuard";
 import { useSocketInvalidate } from "./lib/useSocketInvalidate";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount: number, error: any) => {
+        const status = error?.response?.status || error?.status;
+        if (status >= 500) return failureCount < 1; // solo 1 intento en 5xx
+        if (status === 404) return false;           // no tiene sentido reintentar 404
+        return failureCount < 2;                    // otros errores: máximo 2 intentos
+      },
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: false,
+      staleTime: 30_000,
+      cacheTime: 5 * 60_000,
+    },
+  },
+});
 
 // Lee primero window.__ENV__ (si existe) y cae a import.meta.env
 const WENV = (window as any).__ENV__ || {};

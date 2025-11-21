@@ -1,7 +1,7 @@
 // apps/frontend/src/Routes/routes.config.ts
 import React from "react";
 import { IconType } from "react-icons";
-import { FiHome, FiCalendar } from "react-icons/fi";
+import { FiHome, FiCalendar, FiActivity } from "react-icons/fi";
 import { FaUserCircle, FaRegCalendarCheck } from "react-icons/fa";
 import { MdTextsms } from "react-icons/md";
 import { LuUserRoundSearch } from "react-icons/lu";
@@ -171,6 +171,23 @@ export const ROUTE_LINKS: RouteLink[] = [
                 show: ["header", "sidebar"],
                 order: 40,
                 gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
+            },
+
+            // Reports
+            {
+                key: "reports",
+                path: paths.reports,
+                componentKey: "Reports",
+                label: "Reports",
+                icon: FiActivity,
+                show: ["sidebar"],
+                order: 45,
+                gate: {
+                    requireAuth: true,
+                    source: "all",
+                    requireAnyPerms: ["master"],
+                    redirectToOnUnauthed: "/signin"
+                }
             },
 
             // Admin (permisos avanzados con Gate)

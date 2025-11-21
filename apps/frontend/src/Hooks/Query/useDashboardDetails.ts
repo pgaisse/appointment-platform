@@ -40,6 +40,7 @@ export const useTodayAppointments = () => {
       });
       return res.data as Appointment[];
     },
+    retry: false,
     staleTime: 60_000, // 1 minuto
   });
 };
@@ -61,6 +62,7 @@ export const useWeekAppointments = () => {
       });
       return res.data as Appointment[];
     },
+    retry: false,
     staleTime: 60_000, // 1 minuto
   });
 };
@@ -82,6 +84,7 @@ export const usePendingAppointments = () => {
       });
       return res.data as Appointment[];
     },
+    retry: false,
     staleTime: 60_000, // 1 minuto
   });
 };
@@ -103,6 +106,7 @@ export const useTodayMessages = (direction: 'outbound' | 'inbound' | 'both' = 'o
       });
       return res.data as Message[];
     },
+    retry: false,
     staleTime: 60_000, // 1 minuto
   });
 };
@@ -124,6 +128,7 @@ export const useMonthMessages = (direction: 'outbound' | 'inbound' | 'both' = 'o
       });
       return res.data as Message[];
     },
+    retry: false,
     staleTime: 60_000, // 1 minuto
   });
 };
@@ -147,6 +152,7 @@ export const useMessagesRange = (start?: string, end?: string, enabledParam?: bo
       });
       return res.data as Message[];
     },
+    retry: false,
     staleTime: 30_000,
   });
 };
@@ -164,6 +170,7 @@ export const useMonthNewPatients = () => {
       const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
       return res.data as Appointment[];
     },
+    retry: false,
     staleTime: 60_000,
   });
 };
@@ -183,6 +190,7 @@ export const useAppointmentsRange = (start?: string, end?: string, enabledParam:
       const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
       return res.data as Appointment[];
     },
+    retry: false,
     staleTime: 30_000,
   });
 };

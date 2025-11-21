@@ -1,3 +1,4 @@
+import { useLocation } from "react-router-dom";
 // apps/frontend/src/Components/DraggableCards/DraggableColumns.tsx
 
 import { formatDateWS } from '@/Functions/FormatDateWS';
@@ -49,6 +50,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ModalStackProvider } from '@/Components/ModalStack/ModalStackContext';
 import type { Appointment, GroupedAppointment } from '@/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSocket } from '@/Hooks/Query/useSocket';
@@ -400,11 +402,13 @@ const AppointmentCard: React.FC<{
           {(() => {
             const AppointmentModalLazy = React.lazy(() => import('@/Components/Modal/AppointmentModal'));
             return (
-              <AppointmentModalLazy
-                id={String(item._id || '')}
-                isOpen={isSelfOpen}
-                onClose={onSelfClose}
-              />
+              <ModalStackProvider>
+                <AppointmentModalLazy
+                  id={String(item._id || '')}
+                  isOpen={isSelfOpen}
+                  onClose={onSelfClose}
+                />
+              </ModalStackProvider>
             );
           })()}
         </React.Suspense>
@@ -416,11 +420,13 @@ const AppointmentCard: React.FC<{
           {(() => {
             const AppointmentModalLazy = React.lazy(() => import('@/Components/Modal/AppointmentModal'));
             return (
-              <AppointmentModalLazy
-                id={String((rep as any)._id || '')}
-                isOpen={isRepOpen}
-                onClose={onRepClose}
-              />
+              <ModalStackProvider>
+                <AppointmentModalLazy
+                  id={String((rep as any)._id || '')}
+                  isOpen={isRepOpen}
+                  onClose={onRepClose}
+                />
+              </ModalStackProvider>
             );
           })()}
         </React.Suspense>
@@ -625,6 +631,9 @@ const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
 };
 
 export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending, dataDeclined, dataArchived }: Props) {
+    const location = useLocation();
+    const [highlightPending, setHighlightPending] = useState(false);
+    const pendingCardRef = useRef<HTMLDivElement | null>(null);
   const toast = useToast();
   const searchRef = useRef<SearchBarRef>(null);
   const pendingSearchRef = useRef<PendingDeclinedSearchBarRef>(null);
@@ -641,9 +650,24 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const { socket, connected } = useSocket();
 
+  // keep local optimistic copy in sync
   useEffect(() => {
     setOptimisticData(dataAP2 ?? null);
   }, [dataAP2]);
+
+  // When arriving with ?focus=pending, briefly highlight the Pending Approvals card
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('focus') === 'pending' && lastColPainted) {
+      setHighlightPending(true);
+      // scroll into view subtly after layout
+      setTimeout(() => {
+        pendingCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }, 100);
+      const t = setTimeout(() => setHighlightPending(false), 2800);
+      return () => clearTimeout(t);
+    }
+  }, [location.search, lastColPainted]);
 
   // 🔄 Ensure board reflects backend updates immediately upon confirmation events
   useEffect(() => {
@@ -1151,6 +1175,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       {lastColPainted && (
         <Fade in>
           <Card
+            ref={pendingCardRef as any}
             pb={2}
             minW="280px"
             flex="0 0 auto"
@@ -1161,9 +1186,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             position="relative"
             mr={4}
             bg="white"
-            boxShadow="md"
+            boxShadow={highlightPending ? '0 0 0 3px rgba(72,187,120,0.35)' : 'md'}
             border="1px solid"
-            borderColor="gray.200"
+            borderColor={highlightPending ? 'green.400' : 'gray.200'}
             _before={{
               content: '""',
               position: 'absolute',

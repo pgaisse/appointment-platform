@@ -8,42 +8,43 @@ export const useSocket = () => {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
+    let disposed = false;
     const connectSocket = async () => {
-      if (isAuthenticated) {
-        try {
-          const token = await getAccessTokenSilently({
-            authorizationParams: {
-              audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-            },
-          });
-          const newSocket = io(import.meta.env.VITE_APP_SERVER_SOCKET, {
-            transports: ['websocket'],
-            auth: {
-              token: `Bearer ${token}`,
-            },
-          });
-          
+      if (!isAuthenticated) return;
+      try {
+        const token = await getAccessTokenSilently({
+          authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+        });
+        const newSocket = io(import.meta.env.VITE_APP_SERVER_SOCKET, {
+          transports: ['websocket'],
+          auth: { token: `Bearer ${token}` },
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 2000,
+          reconnectionDelayMax: 10000,
+        });
 
-          newSocket.on('connect', () => {
-            setConnected(true);
-          });
+        newSocket.on('connect', () => !disposed && setConnected(true));
+        newSocket.on('disconnect', () => !disposed && setConnected(false));
+        newSocket.on('connect_error', (err) => {
+          // Avoid console spam, log concise message
+          console.warn('Socket connect_error:', err?.message || err);
+        });
+        newSocket.on('error', (err) => {
+          console.warn('Socket error:', err);
+        });
 
-          newSocket.on('disconnect', () => {
-            setConnected(false);
-          });
-
-          setSocket(newSocket);
-
-          return () => {
-            newSocket.disconnect();
-          };
-        } catch (error) {
-          console.error('Error al conectar socket:', error);
-        }
+        if (!disposed) setSocket(newSocket);
+      } catch (error) {
+        console.error('Error al conectar socket:', error);
       }
     };
 
     connectSocket();
+    return () => {
+      disposed = true;
+      if (socket) socket.disconnect();
+    };
   }, [getAccessTokenSilently, isAuthenticated]);
 
   return {

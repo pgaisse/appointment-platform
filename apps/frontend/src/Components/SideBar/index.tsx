@@ -1,5 +1,4 @@
 // apps/frontend/src/Components/SideBar/index.tsx
-import React from "react";
 import {
   Box,
   VStack,
@@ -75,12 +74,27 @@ function SideBarLink({ item, isActive }: { item: LinkItemType; isActive: boolean
 export default function SideBar({ linkItems, linkConfig = [] }: Props) {
   const location = useLocation();
 
-  // ¿cuándo un link está activo?
-  const isActive = (path: string) => {
-    if (!path) return false;
-    // marcamos activo si coincide exactamente o es prefijo de la ruta actual
-    return location.pathname === path || location.pathname.startsWith(path + "/");
+  // Normaliza paths para comparar (quita trailing slash excepto "/")
+  const normalizePath = (p?: string) => {
+    if (!p) return "";
+    if (p.length > 1 && p.endsWith("/")) return p.slice(0, -1);
+    return p;
   };
+
+  // Determina un único link activo (mejor coincidencia por prefijo más largo)
+  const currentPath = normalizePath(location.pathname);
+  const allLinks: LinkItemType[] = [...linkItems, ...linkConfig].filter((i) => !!i.path);
+  const bestActive = allLinks.reduce<LinkItemType | null>((best, item) => {
+    const p = normalizePath(item.path);
+    if (!p) return best;
+    const matches = currentPath === p || currentPath.startsWith(p + "/");
+    if (!matches) return best;
+    if (!best) return item;
+    const bestPath = normalizePath(best.path);
+    // Prefiere el path más específico (más largo)
+    return p.length > bestPath.length ? item : best;
+  }, null);
+  const activePath = bestActive?.path || "";
 
   const sectionTitleColor = useColorModeValue("gray.500", "gray.400");
   const sidebarBg = useColorModeValue("white", "gray.100");
@@ -102,7 +116,7 @@ export default function SideBar({ linkItems, linkConfig = [] }: Props) {
 
         <VStack align="stretch" spacing={1}>
           {linkItems.map((item) => (
-            <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={isActive(item.path)} />
+            <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={item.path === activePath} />
           ))}
         </VStack>
       </Box>
@@ -118,7 +132,7 @@ export default function SideBar({ linkItems, linkConfig = [] }: Props) {
 
           <VStack align="stretch" spacing={1}>
             {linkConfig.map((item) => (
-              <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={isActive(item.path)} />
+              <SideBarLink key={`${item.name}-${item.path}`} item={item} isActive={item.path === activePath} />
             ))}
           </VStack>
 

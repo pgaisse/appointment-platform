@@ -61,6 +61,7 @@ export const useMonthlyMessageStats = (months: number = 6) => {
       });
       return res.data.monthly as MonthlyMessageStat[];
     },
+    retry: false,
     staleTime: 5 * 60_000, // 5 minutes
     refetchOnWindowFocus: false,
   });
@@ -83,6 +84,7 @@ export const useMessageRangeStats = (start: string, end: string, enabled: boolea
       });
       return res.data as { start: string; end: string; count: number };
     },
+    retry: false,
     staleTime: 5 * 60_000, // 5 minutes
     refetchOnWindowFocus: false,
   });
@@ -100,6 +102,7 @@ export const useDashboardStats = () => {
       });
       return fetchDashboardStats(token);
     },
+    retry: false,
     staleTime: 60_000, // 1 minuto
     refetchOnWindowFocus: true,
   });

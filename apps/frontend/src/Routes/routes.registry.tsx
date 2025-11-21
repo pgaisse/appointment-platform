@@ -14,6 +14,7 @@ import Organizer from "./Organizer";
 import LogOut from "./LogOut";
 import UsersManager from "./Admin/UsersManager";
 import PriorityCategoryManager from "./Settings";
+import Reports from "./Reports";
 
 const registry = {
   Layout: <Layout />,
@@ -30,7 +31,8 @@ const registry = {
   Organizer: <Organizer />,
   LogOut: <LogOut />,
   UsersManager: <UsersManager />,
-  Settings: <PriorityCategoryManager/>
+  Settings: <PriorityCategoryManager/>,
+  Reports: <Reports />,
 } as const;
 
 export type ComponentKey = keyof typeof registry;

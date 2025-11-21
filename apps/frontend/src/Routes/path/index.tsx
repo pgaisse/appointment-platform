@@ -1,6 +1,6 @@
 // apps/frontend/src/Routes/path/index.tsx
 import { IconType } from "react-icons";
-import { FiHome } from "react-icons/fi";
+import { FiHome, FiActivity } from "react-icons/fi";
 import { FaUserCircle, FaRegCalendarCheck } from "react-icons/fa";
 import { MdTextsms } from "react-icons/md";
 import { LuCalendarCog, LuUserRoundSearch } from "react-icons/lu";
@@ -22,6 +22,7 @@ const paths = {
   patientFinder: "/appointments/patient-finder",
   assignedAppointments: "/appointments/assigned-appointments",
   organizer: "/organizer",
+  reports: "/reports",
   settings: "/settings",
   logout: "/logout",
   roles: "/admin/access",
@@ -111,6 +112,19 @@ export const navLinks: NavLink[] = [
     headerZone: "main", 
     sidebarZone: "main" ,
   
+  },
+
+  // Reports
+  {
+    key: "reports",
+    path: paths.reports,
+    label: "Reports",
+    icon: FiActivity,
+    show: ["sidebar"],
+    order: 799, // just above Settings (800)
+    requireAuth: true,
+    sidebarZone: "bottom",
+    requireAnyPerms: ["master"]
   },
 
   // Admin y Settings → sidebar "bottom"

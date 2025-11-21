@@ -14,10 +14,20 @@ type SendChatMessageInput = {
 
 type SendChatMessageResponse = {
   success: boolean;
+  // Single message convenience (legacy)
   conversationSid?: string;
   messageSid?: string;
   mediaSids?: string[];        // vacía si no hubo archivos
-  // Backend may include these when auto-repair happens
+  // New bulk docs from backend (array of created messages)
+  docs?: Array<{
+    sid: string;
+    conversationId: string;
+    body?: string;
+    media?: any[];
+    index?: number;
+    status?: string;
+  }>;
+  // Auto-repair metadata
   repairedSid?: string;
   previousSid?: string;
 };

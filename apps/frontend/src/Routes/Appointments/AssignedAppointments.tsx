@@ -17,6 +17,7 @@ import CustomCalendar, { Data } from "@/Components/Scheduler/CustomCalendar";
 import CustomMinCalendar from "@/Components/Scheduler/CustomMinCalendar";
 import { Appointment } from "@/types";
 import AppointmentModal from "@/Components/Modal/AppointmentModal";
+import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext";
 import { useAppointmentsByRange } from "@/Hooks/Query/useAppointmentsByRange";
 import { useMonthlyEventDays } from "@/Hooks/Query/useMonthlyEventDays";
 
@@ -176,14 +177,16 @@ const AssignedAppointments = () => {
 
       {/* Modal de cita */}
       {selectedEvent && (
-        <AppointmentModal
-          id={selectedEvent._id ?? ""}
-          isOpen={isOpen}
-          onClose={() => {
-            onClose();
-            setSelectedEvent(null);
-          }}
-        />
+        <ModalStackProvider>
+          <AppointmentModal
+            id={selectedEvent._id ?? ""}
+            isOpen={isOpen}
+            onClose={() => {
+              onClose();
+              setSelectedEvent(null);
+            }}
+          />
+        </ModalStackProvider>
       )}
     </>
   );

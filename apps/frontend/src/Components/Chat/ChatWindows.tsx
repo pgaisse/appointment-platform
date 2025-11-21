@@ -114,7 +114,7 @@ function ChatWindowsInner({ chat, onConversationRepaired }: { chat: Conversation
   }, [data]);
 
   // Optimistas encima de baseMessages
-  const { messages, addOptimistic, removeOptimistic, clearOptimistic } =
+  const { messages, addOptimistic, removeOptimistic, updateOptimistic, clearOptimistic } =
     useOptimisticMessages(baseMessages);
 
   const onSend = useCallback(
@@ -134,8 +134,9 @@ function ChatWindowsInner({ chat, onConversationRepaired }: { chat: Conversation
         return;
       }
 
+      const tempSid = `temp-${Date.now()}`;
       const optimistic: Message = {
-        sid: `temp-${Date.now()}`,
+        sid: tempSid,
         conversationId: chat.conversationId,
         author: appId,
         body: text.trim(),
@@ -154,51 +155,71 @@ function ChatWindowsInner({ chat, onConversationRepaired }: { chat: Conversation
         appId,
         body: text.trim(),
         files,
-      })
-      sendChat.mutate(
-        {
-          to: formatToE164(chat.owner.phone || ""),
-          appId,
-          body: text.trim(),
-          files,
-          onProgress: () => { },
-        },
-        {
-          onSuccess: (res: any) => {
-            clearOptimistic();
+      });
+      (async () => {
+        try {
+          const res: any = await sendChat.mutateAsync({
+            to: formatToE164(chat.owner.phone || ""),
+            appId,
+            body: text.trim(),
+            files,
+            onProgress: () => { },
+          });
 
-            const repairedSid = res?.repairedSid as string | undefined;
-            const previousSid = (res?.previousSid as string | undefined) || chat.conversationId;
+          const repairedSid = res?.repairedSid as string | undefined;
+          const previousSid = (res?.previousSid as string | undefined) || chat.conversationId;
+          const finalSid = repairedSid && repairedSid !== previousSid ? repairedSid : previousSid;
 
-            if (repairedSid && repairedSid !== previousSid) {
-              // Invalidate both old and new threads
-              queryClient.invalidateQueries({ queryKey: ["messages", previousSid] });
-              queryClient.invalidateQueries({ queryKey: ["messages", repairedSid] });
-              // Notify parent to switch to the repaired conversation
-              onConversationRepaired?.(repairedSid, previousSid);
-              toast({
-                title: "Conversation repaired",
-                description: `Updated conversation SID to ${repairedSid}`,
-                status: "success",
-                position: "bottom-right",
-              });
-            } else {
-              // Normal path: just refresh the current thread
-              queryClient.invalidateQueries({ queryKey: ["messages", chat.conversationId] });
-            }
-          },
-          onError: (error: any) => {
-            removeOptimistic(optimistic.sid);
-            console.error("Error sending message:", error);
+          // Reconcile optimistic entry with first real message if available
+          const firstDoc = Array.isArray(res?.docs) ? res.docs[0] : null;
+          const realSid = firstDoc?.sid || res?.messageSid;
+          if (realSid) {
+            updateOptimistic(tempSid, {
+              sid: realSid,
+              status: "sent",
+              index: String(firstDoc?.index ?? optimistic.index),
+              conversationId: firstDoc?.conversationId || finalSid,
+              body: firstDoc?.body ?? optimistic.body,
+              media: (firstDoc?.media as any) || optimistic.media,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+
+          if (repairedSid && repairedSid !== previousSid) {
+            // Invalidate and refetch both threads to avoid visual gaps
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["messages", previousSid] }) as any,
+              queryClient.invalidateQueries({ queryKey: ["messages", repairedSid] }) as any,
+            ]);
+            await Promise.all([
+              queryClient.refetchQueries({ queryKey: ["messages", previousSid] }),
+              queryClient.refetchQueries({ queryKey: ["messages", repairedSid] }),
+            ]);
+            onConversationRepaired?.(repairedSid, previousSid);
             toast({
-              title: "Failed to send",
-              description: error?.message || "Unexpected error",
-              status: "error",
+              title: "Conversation repaired",
+              description: `Updated conversation SID to ${repairedSid}`,
+              status: "success",
               position: "bottom-right",
             });
-          },
+          } else {
+            await queryClient.invalidateQueries({ queryKey: ["messages", finalSid] }) as any;
+            await queryClient.refetchQueries({ queryKey: ["messages", finalSid] });
+          }
+
+          // Remove optimistics only after real data is in cache (prevents flicker)
+          clearOptimistic();
+        } catch (error: any) {
+          removeOptimistic(optimistic.sid);
+          console.error("Error sending message:", error);
+          toast({
+            title: "Failed to send",
+            description: error?.message || "Unexpected error",
+            status: "error",
+            position: "bottom-right",
+          });
         }
-      );
+      })();
     },
     [chat.conversationId, chat.owner._id, chat.owner.phone, addOptimistic, removeOptimistic, clearOptimistic, queryClient, sendChat, toast, onConversationRepaired]
   );

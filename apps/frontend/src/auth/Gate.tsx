@@ -75,6 +75,7 @@ export default function Gate({
       if (!r.ok) throw new Error("me_fetch_failed");
       return r.json(); // { dbUser, tokenUser }
     },
+    retry: false,
     staleTime: 60_000,
   });
 
@@ -92,6 +93,7 @@ export default function Gate({
       console.log("perms",perms, "p[permissions]",p["permissions"])
       return perms;
     },
+    retry: false,
     staleTime: 60_000,
   });
 

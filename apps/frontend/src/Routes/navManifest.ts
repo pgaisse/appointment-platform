@@ -1,5 +1,5 @@
 import { IconType } from "react-icons";
-import { FiHome, FiCalendar } from "react-icons/fi";
+import { FiHome, FiCalendar, FiActivity } from "react-icons/fi";
 import { FaUserCircle, FaRegCalendarCheck } from "react-icons/fa";
 import { MdTextsms } from "react-icons/md";
 import { LuUserRoundSearch } from "react-icons/lu";
@@ -111,6 +111,18 @@ export const NAV_ROUTES: NavRoute[] = [
         showInSidebar: true,
         order: 40,
         requireAuth: true,
+      },
+
+      // Reports
+      {
+        key: "reports",
+        path: paths.reports,
+        label: "Reports",
+        icon: FiActivity,
+        showInSidebar: true,
+        order: 45,
+        requireAuth: true,
+        requireAnyPerms: ["master"],
       },
 
       // Admin

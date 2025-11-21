@@ -37,6 +37,7 @@ import {
   Td,
   Avatar,
 } from "@chakra-ui/react";
+import { keyframes } from "@emotion/react";
 import {
   FiCalendar,
   FiMessageSquare,
@@ -65,7 +66,6 @@ import {
 import dayjs from 'dayjs';
 import { useProfile } from "@/Hooks/Query/useProfile";
 import { getAvatarColors } from "@/utils/avatarColors";
-import paths from "@/Routes/path";
 
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError, error } = useDashboardStats();
@@ -250,30 +250,37 @@ const Dashboard: React.FC = () => {
             {hasMaster && (
               <StatCard
                 title="Invalid Chat SIDs"
-                value={
-                  isFetchingInvalidSid
-                    ? '...'
-                    : isSuccessInvalidSid
-                      ? (invalidSidData?.invalidSidCount || 0)
-                      : 'Tap to check'
-                }
+                value={(() => {
+                  if (isSuccessInvalidSid) return (invalidSidData?.invalidSidCount || 0);
+                  if (isFetchingInvalidSid) {
+                    const bounce = keyframes`0%{transform:translateY(0);opacity:.6}50%{transform:translateY(-4px);opacity:1}100%{transform:translateY(0);opacity:.6}`;
+                    return (
+                      <HStack spacing={2}>
+                        <HStack spacing={1} onClick={(e)=>{e.stopPropagation(); navigate('/messages/health');}} cursor="pointer" role="link" aria-label="Go to Chat Health">
+                          {[0,1,2].map(i => (
+                            <Box key={i} w="6px" h="6px" borderRadius="full" bg="gray.500" animation={`${bounce} 1.2s ${i*0.15}s infinite`} />
+                          ))}
+                        </HStack>
+                        <Text fontSize="xs" color="gray.500">Health</Text>
+                      </HStack>
+                    );
+                  }
+                  return '—';
+                })()}
+                valueFontSize={isSuccessInvalidSid ? undefined : (isFetchingInvalidSid ? undefined : 'xl')}
                 icon={FiAlertCircle}
-                color={
-                  !isSuccessInvalidSid
-                    ? 'gray'
-                    : (invalidSidData?.invalidSidCount || 0) > 0
-                      ? 'red'
-                      : 'teal'
-                }
-                subtitle={
-                  !isSuccessInvalidSid
-                    ? 'Click to run check'
-                    : (invalidSidData?.invalidSidCount || 0) > 0
-                      ? 'Need repair'
-                      : 'All healthy'
-                }
+                color={!isSuccessInvalidSid ? 'gray' : (invalidSidData?.invalidSidCount || 0) > 0 ? 'red' : 'teal'}
+                subtitle={isSuccessInvalidSid ? (invalidSidData?.invalidSidCount || 0) > 0 ? 'Need repair' : 'All healthy' : (isFetchingInvalidSid ? 'Checking…' : 'Tap to check')}
                 isLoading={false}
-                onClick={() => refetchInvalidSid()}
+                onClick={() => {
+                  if (isFetchingInvalidSid) {
+                    navigate('/messages/health');
+                  } else if (!isSuccessInvalidSid) {
+                    refetchInvalidSid();
+                  } else {
+                    navigate('/messages/health');
+                  }
+                }}
                 isClickable
               />
             )}
@@ -334,10 +341,10 @@ const Dashboard: React.FC = () => {
                 description="Review pending items"
                 icon={FiClock}
                 color="orange"
-                to="/appointments"
+                to="/appointments/priority-list?focus=pending"
               />
               <QuickAction
-                title="Reports (no ready yet)"
+                title="Reports"
                 description="View statistics"
                 icon={FiActivity}
                 color="pink"
