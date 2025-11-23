@@ -25,6 +25,7 @@ import { RepeatIcon } from '@chakra-ui/icons';
 import { useConversationHealth } from '@/Hooks/Query/useConversationHealth';
 import { useAuthFetch } from '@/api/authFetch';
 import { useMutation } from '@tanstack/react-query';
+import { formatAustralianMobile } from '@/Functions/formatAustralianMobile';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -36,9 +37,40 @@ function statusColor(status: string): string {
   }
 }
 
+function capitalize(str?: string): string {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+function formatPhone(phone?: string): string {
+  if (!phone) return '-';
+  // Remover todos los caracteres no numéricos
+  let digits = phone.replace(/\D/g, '');
+  
+  // Si empieza con 61 (código de Australia) y tiene 11+ dígitos
+  if (digits.startsWith('61') && digits.length >= 11) {
+    // Si el siguiente dígito es 4 (móvil), convertir a formato 04...
+    if (digits[2] === '4') {
+      digits = '0' + digits.slice(2);
+    }
+  }
+  
+  // Asegurar que tenga 0 al inicio para números de 9 dígitos
+  if (digits.length === 9 && digits[0] !== '0') {
+    digits = '0' + digits;
+  }
+  
+  // Truncar a 10 dígitos si es más largo
+  if (digits.length > 10 && digits.startsWith('0')) {
+    digits = digits.slice(0, 10);
+  }
+  return  formatAustralianMobile(digits) || '-';
+}
+
 export default function ChatHealth() {
   const [page, setPage] = React.useState(1);
   const [validate, setValidate] = React.useState(true);
+  const [showOnlyInvalid, setShowOnlyInvalid] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [search, setSearch] = React.useState('');
   const limit = 50;
@@ -53,7 +85,10 @@ export default function ChatHealth() {
   }, [query]);
 
   const { data, isFetching, refetch } = useConversationHealth({ page, limit, validate, q: search });
-  const items = data?.items ?? [];
+  const allItems = data?.items ?? [];
+  // Filtrar: excluir pacientes sin teléfono y aplicar filtro de "only invalid"
+  const filteredItems = allItems.filter(it => it.phone && it.phone.trim() !== '');
+  const items = showOnlyInvalid ? filteredItems.filter(it => it.status === 'invalid') : filteredItems;
   const pagination = data?.pagination;
   const { authFetch } = useAuthFetch();
 
@@ -104,6 +139,10 @@ export default function ChatHealth() {
             <Text fontSize="sm">Validate with Twilio</Text>
             <Switch isChecked={validate} onChange={(e) => setValidate(e.target.checked)} />
           </HStack>
+          <HStack>
+            <Text fontSize="sm">Only Invalid</Text>
+            <Switch isChecked={showOnlyInvalid} onChange={(e) => setShowOnlyInvalid(e.target.checked)} colorScheme="red" />
+          </HStack>
           <Tooltip label="Revalidate current page">
             <IconButton aria-label="Revalidate" icon={<RepeatIcon />} onClick={() => refetch()} isLoading={isFetching} />
           </Tooltip>
@@ -142,10 +181,10 @@ export default function ChatHealth() {
               return (
                 <Tr key={it.appointmentId}>
                   <Td>
-                    <Text fontWeight="semibold">{`${it.name} ${it.lastName}`.trim() || 'Unnamed'}</Text>
+                    <Text fontWeight="semibold">{`${capitalize(it.name)} ${capitalize(it.lastName)}`.trim() || 'Unnamed'}</Text>
                     <Text fontSize="xs" color="gray.500">{it.appointmentId}</Text>
                   </Td>
-                  <Td>{it.phone || '-'}</Td>
+                  <Td>{formatPhone(it.phone)}</Td>
                   <Td><Text fontFamily="mono" fontSize="xs">{it.sid || '-'}</Text></Td>
                   <Td>
                     <Badge colorScheme={statusColor(it.status)} textTransform="none">{it.status}</Badge>

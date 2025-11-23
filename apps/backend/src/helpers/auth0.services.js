@@ -1,4 +1,5 @@
 const User = require('../models/User/User');
+const { attachSignedUrls } = require('./user.helpers');
 
 // --- Helpers de sincronización con Auth0 ---
 async function listAllRolePermissions(roleId, audience) {
@@ -74,11 +75,14 @@ async function syncUserFromAuth0(userId, org_id) {
   const effective = Array.from(new Set([...directPermissions, ...rolePermissions]));
 
   // Actualiza DB (guardamos permisos efectivos y los roles por nombre)
-  const dbUser = await User.findOneAndUpdate(
+  let dbUser = await User.findOneAndUpdate(
     { auth0_id: userId },
     { $set: { roles: roleNames, permissions: effective, lastLoginAt: new Date() } },
     { upsert: true, new: true }
   ).lean(false);
+
+  // Generate signed URL for user picture
+  dbUser = await attachSignedUrls(dbUser);
 
   return {
     dbUser,

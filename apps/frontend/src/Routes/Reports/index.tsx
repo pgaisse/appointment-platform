@@ -1,6 +1,6 @@
 // apps/frontend/src/Routes/Reports/index.tsx
 import React, { useState, useEffect } from 'react';
-import { Box, Container, Heading, Tabs, TabList, TabPanels, Tab, TabPanel, Input, HStack, Button, Table, Thead, Tbody, Tr, Th, Td, Spinner, Text, useToast, Menu, MenuButton, MenuList, MenuItem } from '@chakra-ui/react';
+import { Box, Container, Heading, Tabs, TabList, TabPanels, Tab, TabPanel, Input, HStack, Button, Table, Thead, Tbody, Tr, Th, Td, Spinner, Text, useToast, Menu, MenuButton, MenuList, MenuItem, Select } from '@chakra-ui/react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
 import { useReportsResource, ReportsPage } from '@/Hooks/Query/useReportsResource';
@@ -50,6 +50,44 @@ const RESOURCE_COLUMNS: Record<string, ColDef[]> = {
     { key: 'user', label: 'User', format: (_v,row) => row.user ? (row.user.name || row.user.email || '—') : (row.user_id || '—'), csvFormat: (_v,row)=> row.user ? (row.user.name || row.user.email || '') : (row.user_id || '') },
     { key: 'createdAt', label: 'Created', format: v => v ? new Date(v).toLocaleString() : '—', csvFormat: v => v ? new Date(v).toLocaleString() : '' },
   ],
+  appointmentSlots: [
+    { 
+      key: 'startDate', 
+      label: 'Date', 
+      format: (v) => {
+        if (!v) return '—';
+        const d = new Date(v);
+        return d.toLocaleDateString('en-AU', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+      },
+      csvFormat: (v) => v ? new Date(v).toLocaleString() : ''
+    },
+    { key: 'nameInput', label: 'Patient', format: (v, row) => `${capWords(v)} ${capWords(row.lastNameInput)}`, csvFormat: (v, row) => `${capWords(v)} ${capWords(row.lastNameInput)}`.trim() },
+    { key: 'phoneInput', label: 'Phone', format: v => formatAusPhoneNumber(String(v ?? '')), csvFormat: v => { const f = formatPhone(v); return f==='—'?'':f; } },
+    { 
+      key: 'provider', 
+      label: 'Provider', 
+      format: (_v, row) => row.provider ? `${capWords(row.provider.firstName)} ${capWords(row.provider.lastName)}` : '—',
+      csvFormat: (_v, row) => row.provider ? `${capWords(row.provider.firstName)} ${capWords(row.provider.lastName)}`.trim() : ''
+    },
+    { 
+      key: 'treatment', 
+      label: 'Treatment', 
+      format: (_v, row) => row.treatment?.name || '—',
+      csvFormat: (_v, row) => row.treatment?.name || ''
+    },
+    { 
+      key: 'priority', 
+      label: 'Priority', 
+      format: (_v, row) => row.priority?.name || '—',
+      csvFormat: (_v, row) => row.priority?.name || ''
+    },
+    { 
+      key: 'status', 
+      label: 'Status', 
+      format: (v) => v || '—',
+      csvFormat: (v) => v || ''
+    },
+  ],
   providers: [
     { key: 'firstName', label: 'First', format: (v) => capWords(v), csvFormat: (v)=>{ const s = capWords(v); return s==='—'?'':s; } },
     { key: 'lastName', label: 'Last', format: (v) => capWords(v), csvFormat: (v)=>{ const s = capWords(v); return s==='—'?'':s; } },
@@ -87,6 +125,28 @@ const RESOURCE_COLUMNS: Record<string, ColDef[]> = {
 };
 
 const RESOURCES = Object.keys(RESOURCE_COLUMNS);
+
+// Helper to expand appointments into individual date slots
+function expandAppointmentSlots(appointments: any[]): any[] {
+  const slots: any[] = [];
+  for (const apt of appointments) {
+    const dates = apt.selectedAppDates;
+    if (!Array.isArray(dates) || dates.length === 0) continue;
+    
+    // Create a row for each date slot
+    for (const slot of dates) {
+      slots.push({
+        ...apt,
+        startDate: slot.startDate,
+        endDate: slot.endDate,
+        status: slot.status,
+        slotId: slot._id,
+        // Keep original appointment data for patient info
+      });
+    }
+  }
+  return slots;
+}
 
 function buildCSV(rows: any[], resource: string) {
   if (!rows.length) return 'data:text/csv;charset=utf-8,' + encodeURIComponent('No data');
@@ -128,9 +188,14 @@ const Reports: React.FC = () => {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   useEffect(() => { setPage(1); }, [resource, debouncedSearch, sortField, sortDir]);
 
-  const { data: pageData, isLoading, refetch, isFetching } = useReportsResource(resource, debouncedSearch, page, limit, sortField, sortDir);
+  // For appointmentSlots, fetch from appointments and expand
+  const backendResource = resource === 'appointmentSlots' ? 'appointments' : resource;
+  const { data: pageData, isLoading, refetch, isFetching } = useReportsResource(backendResource, debouncedSearch, page, limit, sortField, sortDir);
   const { getAccessTokenSilently } = useAuth0();
-  const rows = (pageData as ReportsPage | undefined)?.data || [];
+  
+  // Expand appointments into slots if needed
+  const rawRows = (pageData as ReportsPage | undefined)?.data || [];
+  const rows = resource === 'appointmentSlots' ? expandAppointmentSlots(rawRows) : rawRows;
   const total = (pageData as ReportsPage | undefined)?.meta?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const hasNext = page < totalPages;
@@ -157,6 +222,7 @@ const Reports: React.FC = () => {
         authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
       });
       const base = import.meta.env.VITE_BASE_URL;
+      const fetchResource = resource === 'appointmentSlots' ? 'appointments' : resource;
       while (keep) {
         const params = new URLSearchParams({
           page: String(p),
@@ -165,7 +231,7 @@ const Reports: React.FC = () => {
           sort: sortField || '',
           dir: sortDir,
         });
-          const url = `${base}/reports/${resource}?${params.toString()}`; // respect current filter + order
+        const url = `${base}/reports/${fetchResource}?${params.toString()}`; // respect current filter + order
         const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) {
           const text = await res.text();
@@ -178,6 +244,10 @@ const Reports: React.FC = () => {
         keep = typeof meta.hasMore === 'boolean' ? meta.hasMore : ((meta.total && meta.limit && meta.page) ? (meta.page * meta.limit < meta.total) : false);
         p = (meta.page || p) + 1;
         if (p > 200) break; // hard safety cutoff
+      }
+      // Expand if appointmentSlots
+      if (resource === 'appointmentSlots') {
+        all = expandAppointmentSlots(all);
       }
       const uri = buildCSV(all, resource);
       const a = document.createElement('a');
@@ -198,7 +268,10 @@ const Reports: React.FC = () => {
         <Heading size='lg' mb={4}>Reports</Heading>
         <Tabs index={activeIdx} onChange={i => { setActiveIdx(i); setSearch(''); setDebouncedSearch(''); }} variant='enclosed'>
           <TabList>
-            {RESOURCES.map(r => <Tab key={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</Tab>)}
+            {RESOURCES.map(r => {
+              if (r === 'appointmentSlots') return <Tab key={r}>Appointment Dates</Tab>;
+              return <Tab key={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</Tab>;
+            })}
           </TabList>
           <TabPanels>
             {RESOURCES.map(r => {
@@ -206,7 +279,12 @@ const Reports: React.FC = () => {
               return (
                 <TabPanel key={r} px={0}>
                   <HStack mb={3} spacing={3} align='center'>
-                    <Input placeholder={`Search ${r} (multi-field)…`} value={search} onChange={e=>setSearch(e.target.value)} maxW='360px' />
+                    <Input 
+                      placeholder={r === 'appointmentSlots' ? 'Search (name, phone, date YYYY-MM-DD)…' : `Search ${r} (multi-field)…`} 
+                      value={search} 
+                      onChange={e=>setSearch(e.target.value)} 
+                      maxW='360px' 
+                    />
                     <Button size='sm' onClick={()=>refetch()} isDisabled={isLoading}>Refresh</Button>
                     <Menu>
                       <MenuButton as={Button} size='sm' colorScheme='blue' isDisabled={isDownloading && !rows.length} isLoading={isDownloading}>
@@ -218,19 +296,24 @@ const Reports: React.FC = () => {
                       </MenuList>
                     </Menu>
                     <HStack spacing={1} ml='auto'>
-                      <Text fontSize='xs' color='gray.600'>Page {page} / {totalPages}</Text>
+                      <Text fontSize='xs' color='gray.600' whiteSpace='nowrap'>Rows per page:</Text>
+                      <Select
+                        size='xs'
+                        width='70px'
+                        value={limit}
+                        onChange={e => { setLimit(parseInt(e.target.value, 10)); setPage(1); }}
+                      >
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                      </Select>
+                      <Text fontSize='xs' color='gray.600' ml={2}>Page {page} / {totalPages}</Text>
                       <Button size='xs' onClick={()=>setPage(1)} isDisabled={!hasPrev}>«</Button>
                       <Button size='xs' onClick={()=>setPage(p=>Math.max(1,p-1))} isDisabled={!hasPrev}>‹</Button>
                       <Button size='xs' onClick={()=>setPage(p=>hasNext? p+1 : p)} isDisabled={!hasNext}>›</Button>
                       <Button size='xs' onClick={()=>setPage(totalPages)} isDisabled={!hasNext}>»</Button>
-                      <Input
-                        size='xs'
-                        width='60px'
-                        type='number'
-                        value={limit}
-                        onChange={e => { const v = parseInt(e.target.value,10); if (v>0 && v<=500) { setLimit(v); setPage(1);} }}
-                        title='Rows per page'
-                      />
                     </HStack>
                   </HStack>
                   <Box borderWidth='1px' borderRadius='lg' bg='white' boxShadow='xl' overflow='hidden'>

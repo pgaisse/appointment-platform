@@ -26,6 +26,7 @@ const ConversationState = require('../models/Chat/ConversationState');
 const { autoUnarchiveOnInbound } = require('../helpers/autoUnarchiveOnInbound');
 const { DateTime } = require("luxon");
 const { validateConversationSid } = require('../helpers/twilioHealth');
+const { attachSignedUrlsToPopulated } = require('../helpers/user.helpers');
 
 const {
   decideFromBody,
@@ -1255,9 +1256,12 @@ router.post("/webhook2", express.urlencoded({ extended: false }), async (req, re
       }
 
       // 4) Populate user antes de emitir
-      const populatedMessage = await Message.findById(saved._id)
+      let populatedMessage = await Message.findById(saved._id)
         .populate('user', 'name email picture')
         .lean();
+
+      // Generate signed URL for user picture
+      populatedMessage = await attachSignedUrlsToPopulated(populatedMessage);
 
       // 5) Emitir el newMessage a la organización
       req.io.to(`org:${orgId}`).emit("newMessage", {
@@ -1522,6 +1526,9 @@ router.get('/messages/:conversationId/sync', async (req, res) => {
       })
       .populate('user', 'name email picture')
       .sort({ createdAt: 1 });
+      
+      // Generate signed URLs for user pictures
+      newMessages = await attachSignedUrlsToPopulated(newMessages);
     }
 
     // 🔹 Mensajes ya existentes pero que cambiaron (ej: status)
@@ -1532,6 +1539,9 @@ router.get('/messages/:conversationId/sync', async (req, res) => {
       })
       .populate('user', 'name email picture')
       .sort({ updatedAt: 1 });
+      
+      // Generate signed URLs for user pictures
+      updatedMessages = await attachSignedUrlsToPopulated(updatedMessages);
     }
 
     res.json({ newMessages, updatedMessages });
@@ -1549,12 +1559,15 @@ router.get('/messages/:conversationId', async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const messages = await Message.find({ conversationId })
+    let messages = await Message.find({ conversationId })
       .sort({ createdAt: -1 }) // últimos primero
       .skip(skip)
       .limit(limit)
       .populate('user', 'name email picture')
       .lean();
+    
+    // Generate signed URLs for user pictures
+    messages = await attachSignedUrlsToPopulated(messages);
 
     const ordered = messages.sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()

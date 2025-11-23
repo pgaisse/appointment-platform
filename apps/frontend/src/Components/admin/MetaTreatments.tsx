@@ -603,18 +603,14 @@ export function TreatmentsManager({ data, isLoading, onCreate, onUpdate, onDelet
                         <Text fontSize="xs" color="gray.600">
                           icon:
                         </Text>
-                        <Badge variant="subtle" rounded="full">
-                          {row.icon || "—"}
-                        </Badge>
+                       
                       </HStack>
                       <HStack>
                         {MiniIcon ? <Icon as={MiniIcon} color={row.color} boxSize={4} /> : <Text fontSize="sm">—</Text>}
                         <Text fontSize="xs" color="gray.600">
                           minIcon:
                         </Text>
-                        <Badge variant="subtle" rounded="full">
-                          {row.minIcon || "—"}
-                        </Badge>
+                       
                       </HStack>
                     </VStack>
                   </Td>

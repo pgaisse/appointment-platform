@@ -795,6 +795,17 @@ const Composer = memo(function Composer({
     previews.forEach((p) => URL.revokeObjectURL(p.url));
   }, [previews]);
 
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = 'auto';
+    const scrollHeight = textarea.scrollHeight;
+    const maxHeight = window.innerHeight * 0.35; // 35vh
+    textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+  }, [text]);
+
   const composerBg = useColorModeValue("white", "gray.800");
   const composerBorder = useColorModeValue("blackAlpha.200", "whiteAlpha.200");
   const fieldBorder = useColorModeValue("blackAlpha.300", "whiteAlpha.300");
@@ -813,13 +824,13 @@ const Composer = memo(function Composer({
         borderColor={fieldBorder}
         px={2}
         py={2}
-        align="center"
+        align="flex-end"
         gap={2}
         bg={composerBg}
       >
-        <HStack spacing={1}>
+        <HStack spacing={1} alignSelf="flex-end">
           {!unknown && <Tooltip label="Saved messages">
-            <ShowTemplateButton selectedPatient={patientId} onSelectTemplate={setText} />
+            <ShowTemplateButton selectedPatient={patientId} onSelectTemplate={setText} category="message" />
           </Tooltip>}
 
           {!unknown && <Tooltip label="Create template">
@@ -858,18 +869,18 @@ const Composer = memo(function Composer({
               send();
             }
           }}
-          onWheel={(e) => e.stopPropagation()} // evita que la rueda se vaya al contenedor
-          resize="vertical"                    // ⬅️ permite modificar la altura con el mouse
-          minH="44px"
-          maxH="50vh"
+          onWheel={(e) => e.stopPropagation()}
+          resize="none"
+          minH="40px"
+          maxH="35vh"
           overflowY="auto"
           px={2}
           isDisabled={disabled}
           sx={{
             scrollbarWidth: "thin",
             msOverflowStyle: "auto",
-            "&::-webkit-scrollbar": { width: "8px" },
-            "&::-webkit-scrollbar-thumb": { borderRadius: "8px", background: "var(--chakra-colors-gray-500)" },
+            "&::-webkit-scrollbar": { width: "6px" },
+            "&::-webkit-scrollbar-thumb": { borderRadius: "8px", background: "var(--chakra-colors-gray-400)" },
             "&::-webkit-scrollbar-track": { background: "transparent" },
           }}
         />

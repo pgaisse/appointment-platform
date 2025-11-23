@@ -19,6 +19,7 @@ import { useMeta } from "@/Hooks/Query/useMeta";
 import { PrioritiesManager } from "../../Components/admin/MetaPriorities";
 import { TreatmentsManager } from "../../Components/admin/MetaTreatments";
 import ProviderManager from "@/Components/admin/ProviderManager";
+import UserManager from "@/Components/admin/UserManager";
 
 const MotionCard = motion(Card);
 
@@ -64,6 +65,7 @@ export default function MetaManagerTabs() {
               <Tab roundedTop="xl">Priorities</Tab>
               <Tab roundedTop="xl">Treatments</Tab>
               <Tab roundedTop="xl">Providers</Tab>
+              <Tab roundedTop="xl">Users</Tab>
             </TabList>
             <TabPanels>
               <TabPanel px={0}>
@@ -87,8 +89,12 @@ export default function MetaManagerTabs() {
                 />
               </TabPanel>
 
-               <TabPanel px={0}>
-               <ProviderManager/>
+              <TabPanel px={0}>
+                <ProviderManager/>
+              </TabPanel>
+
+              <TabPanel px={0}>
+                <UserManager/>
               </TabPanel>
             </TabPanels>
 

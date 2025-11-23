@@ -4,6 +4,7 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const User = require('../models/User/User');
+const { attachSignedUrls } = require('../helpers/user.helpers');
 
 // GET /api/profile/me  → devuelve tokenUser + dbUser con forma estable
 router.get('/me', requireAuth, async (req, res) => {
@@ -26,6 +27,11 @@ router.get('/me', requireAuth, async (req, res) => {
     let dbUser = req.dbUser;
     if (!dbUser && tokenUser.id) {
       dbUser = await User.findOne({ auth0_id: tokenUser.id }).lean();
+    }
+
+    // Generate signed URL for user picture if exists
+    if (dbUser) {
+      dbUser = await attachSignedUrls(dbUser);
     }
 
     const stats = {
@@ -68,7 +74,10 @@ router.put('/', requireAuth, async (req, res) => {
       { upsert: false, new: true }
     ).lean();
 
-    res.json({ ok: true, user: updated });
+    // Generate signed URL for user picture
+    const userWithSignedUrl = await attachSignedUrls(updated);
+
+    res.json({ ok: true, user: userWithSignedUrl });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }

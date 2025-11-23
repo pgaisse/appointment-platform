@@ -22,6 +22,7 @@ import { IconType } from 'react-icons';
 import { Link } from "react-router-dom";
 import { useAuth0 } from '@auth0/auth0-react';
 import paths from '@/Routes/path';
+import { useProfile } from '@/Hooks/Query/useProfile';
 
 interface LinkItemProps {
   name: string;
@@ -138,13 +139,18 @@ export default function Header({ linkItems, linkSession }: Props) {
 
   // Auth0
   const { isAuthenticated, user } = useAuth0();
+  const { data: profile } = useProfile();
 
   // Resolve a premium-looking display name (fallbacks included)
   const displayName =
+    profile?.dbUser?.name ||
     (user?.name as string) ||
     ((user as any)?.["https://letsmarter.com/name"] as string) ||
     user?.email ||
     "Account";
+
+  // Get picture from dbUser first (has signed URL), fallback to Auth0 token
+  const userPicture = profile?.dbUser?.picture || user?.picture || (user as any)?.["https://letsmarter.com/picture"];
 
   // Version indicator data (from Vite define)
   const rawVersion = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : "");
@@ -256,7 +262,7 @@ export default function Header({ linkItems, linkSession }: Props) {
           ) : (
             <PremiumUserChip
               name={displayName}
-              picture={user?.picture || (user as any)?.["https://letsmarter.com/picture"]}
+              picture={userPicture}
             />
           )}
         </HStack>

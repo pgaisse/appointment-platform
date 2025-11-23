@@ -444,9 +444,7 @@ export function PrioritiesManager({
                   {row.color ? (
                     <HStack>
                       <ColorSwatch hex={row.color} />
-                      <Text fontSize="sm" color="gray.600">
-                        {row.color}
-                      </Text>
+                      
                     </HStack>
                   ) : (
                     <Text color="gray.400">—</Text>

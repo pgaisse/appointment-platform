@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
-import { PhoneIcon, TimeIcon } from '@chakra-ui/icons';
+import { PhoneIcon, TimeIcon, RepeatIcon } from '@chakra-ui/icons';
 import {
   Badge,
   Box,
@@ -18,6 +18,7 @@ import {
   HStack,
   Icon,
   IconButton,
+  Button,
   Skeleton,
   SkeletonCircle,
   SkeletonText,
@@ -254,7 +255,9 @@ const AppointmentCard: React.FC<{
   onCardClick?: (item: Appointment) => void;
   asOverlay?: boolean;       // cuando es overlay: sin eventos, pero misma apariencia
   statusOverride?: string;   // permite forzar el status mostrado (p.ej., columnas Pending/Declined)
-}> = ({ item, priorityColor = 'gray', onCardClick, asOverlay, statusOverride }) => {
+  inlineUndo?: boolean;      // muestra botón de deshacer dentro de la card movida
+  onUndo?: () => void;       // callback para deshacer
+}> = ({ item, priorityColor = 'gray', onCardClick, asOverlay, statusOverride, inlineUndo, onUndo }) => {
   const hasRep = Boolean((item as any).representative?.appointment);
   const rep = hasRep && typeof (item as any).representative.appointment === 'object'
     ? (item as any).representative.appointment as RepAppointmentLite
@@ -300,11 +303,27 @@ const AppointmentCard: React.FC<{
           position="absolute"
           bottom="0"
           right="2"
-          zIndex={2}
+          zIndex={3}
           onClick={(e: React.MouseEvent) => e.stopPropagation()}
           onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
         >
-          <ArchiveItemButton id={item._id} modelName="Appointment" />
+          <HStack spacing={2} align="center">
+            {inlineUndo && (
+              <Fade in>
+                <Tooltip label="Undo" placement="top" hasArrow>
+                  <IconButton
+                    aria-label="Undo move"
+                    icon={<RepeatIcon />}
+                    size="sm"
+                    colorScheme="blue"
+                    variant="ghost"
+                    onClick={() => onUndo?.()}
+                  />
+                </Tooltip>
+              </Fade>
+            )}
+            <ArchiveItemButton id={item._id} modelName="Appointment" />
+          </HStack>
         </Box>
       )}
 
@@ -592,14 +611,21 @@ function moveItem(
   if (!item) return data;
 
   if (fromColumnId === toColumnId) {
+    // Movimiento dentro de la misma columna
     const newPatients = [...sourceCol.patients];
-    const currentIndex = newPatients.findIndex(p => p._id === itemId);
-    if (currentIndex === -1) return data;
-    const insertIndex = currentIndex < toIndex ? Math.max(0, toIndex - 1) : toIndex;
-    newPatients.splice(currentIndex, 1);
-    newPatients.splice(insertIndex, 0, item);
+    const oldIndex = newPatients.findIndex(p => p._id === itemId);
+    if (oldIndex === -1) return data;
+
+    // Remover el elemento
+    const [movedItem] = newPatients.splice(oldIndex, 1);
+    
+    // Insertar directamente en toIndex
+    // Ya no necesitamos ajustar porque toIndex viene corregido desde handleDragEnd
+    newPatients.splice(toIndex, 0, movedItem);
+    
     sourceCol.patients = newPatients.map((p, idx) => ({ ...p, position: idx }));
   } else {
+    // Movimiento entre columnas: respetar siempre el índice destino tal cual
     sourceCol.patients = sourceCol.patients.filter(p => p._id !== itemId);
     const newPatients = [...destCol.patients];
     newPatients.splice(toIndex, 0, item);
@@ -646,6 +672,78 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const [columnPages, setColumnPages] = useState<Record<string, number>>({});
   const queryClient = useQueryClient();
   const [lastColPainted, setLastColPainted] = useState(false);
+  // ───────── Undo stack (multi-level) ─────────
+  const historyRef = useRef<GroupedAppointment[][]>([]);
+  const MAX_HISTORY = 10;
+  const [showUndo, setShowUndo] = useState(false);
+  const undoHideTimeoutRef = useRef<number | null>(null);
+  const [lastMovedId, setLastMovedId] = useState<string | null>(null);
+
+  const cloneState = (state: GroupedAppointment[] | null) => {
+    if (!state) return [] as GroupedAppointment[];
+    return state.map(col => ({
+      ...col,
+      patients: col.patients.map(p => ({ ...p }))
+    }));
+  };
+
+  const pushHistory = (prev: GroupedAppointment[] | null) => {
+    if (!prev) return;
+    historyRef.current.unshift(cloneState(prev));
+    if (historyRef.current.length > MAX_HISTORY) historyRef.current.pop();
+    // make visible immediately
+    setShowUndo(true);
+    if (undoHideTimeoutRef.current) window.clearTimeout(undoHideTimeoutRef.current);
+    // keep undo visible longer (20s) after each move
+    undoHideTimeoutRef.current = window.setTimeout(() => setShowUndo(false), 20000);
+  };
+
+  const buildMovesFromSnapshot = (snap: GroupedAppointment[]) => {
+    const moves: PriorityMove[] = [];
+    snap.forEach(col => {
+      col.patients.forEach((p, i) => {
+        moves.push({ id: p._id, position: i, priority: col._id ?? undefined });
+      });
+    });
+    return moves;
+  };
+
+  const handleUndo = () => {
+    // Solo deshacer la última acción (la primera en el historial)
+    const snap = historyRef.current.shift();
+    if (!snap) {
+      setShowUndo(false);
+      return;
+    }
+    const cloned = cloneState(snap);
+    setOptimisticData(cloned);
+    queryClient.setQueryData(['DraggableCards'], cloned);
+    const revertMoves = buildMovesFromSnapshot(cloned);
+    moveMutate(revertMoves, {
+      onError: (error: any) => {
+        toast({
+          title: 'Undo failed',
+          description: error?.message || 'Could not revert positions.',
+          status: 'error',
+          duration: 3000,
+          isClosable: true,
+        });
+      },
+      onSettled: () => {
+        // Ocultar undo inmediatamente después de deshacer
+        setShowUndo(false);
+        setLastMovedId(null);
+        // Limpiar el resto del historial para que solo se deshaga una acción
+        historyRef.current = [];
+      }
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      if (undoHideTimeoutRef.current) window.clearTimeout(undoHideTimeoutRef.current);
+    };
+  }, []);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const { socket, connected } = useSocket();
@@ -726,12 +824,38 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       return;
     }
 
-    const overIndex = destinationCol.patients.findIndex(p => p._id === overId);
-    const index = overIndex === -1 ? destinationCol.patients.length : overIndex;
-
     const fromColumnId = sourceCol._id ?? '';
     const toColumnId = destinationCol._id ?? '';
-    const updatedData = moveItem(optimisticData, activeId, fromColumnId, toColumnId, index);
+
+    // Calcular correctamente el índice de inserción
+    let index: number;
+    
+    if (fromColumnId === toColumnId) {
+      // Movimiento dentro de la misma columna
+      const oldIndex = destinationCol.patients.findIndex(p => p._id === activeId);
+      const overIndex = destinationCol.patients.findIndex(p => p._id === overId);
+      
+      if (overIndex === -1) {
+        index = destinationCol.patients.length;
+      } else if (oldIndex < overIndex) {
+        // Moviendo hacia abajo: insertar DESPUÉS del elemento over
+        index = overIndex;
+      } else {
+        // Moviendo hacia arriba: insertar ANTES del elemento over
+        index = overIndex;
+      }
+    } else {
+      // Movimiento entre columnas: insertar antes del elemento over
+      const overIndex = destinationCol.patients.findIndex(p => p._id === overId);
+      index = overIndex === -1 ? destinationCol.patients.length : overIndex;
+    }
+
+    // Snapshot full state BEFORE applying any movement so undo is exact
+    pushHistory(optimisticData);
+    setLastMovedId(activeId);
+
+    // Apply movement over a cloned copy to avoid mutating history snapshots
+    const updatedData = moveItem(cloneState(optimisticData), activeId, fromColumnId, toColumnId, index);
     setOptimisticData(updatedData);
     queryClient.setQueryData(['DraggableCards'], updatedData);
 
@@ -753,13 +877,15 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     moveMutate(moves, {
       onSuccess: (response: any) => {
         const failed = response?.results?.filter((r: { status: string }) => r.status === 'failed');
-        toast({
-          title: failed?.length ? 'Some updates failed' : 'Update successful',
-          description: failed?.length ? `${failed.length} updates could not be applied.` : 'All changes have been saved.',
-          status: failed?.length ? 'warning' : 'success',
-          duration: 4000,
-          isClosable: true,
-        });
+        if (failed?.length) {
+          toast({
+            title: 'Some updates failed',
+            description: `${failed.length} updates could not be applied.`,
+            status: 'warning',
+            duration: 4000,
+            isClosable: true,
+          });
+        }
       },
       onSettled: () => {
         // Cancel queries related to Pending Approvals and Declined panels before refetch/invalidate
@@ -856,6 +982,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   }
 
   return (
+    <>
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
@@ -967,6 +1094,8 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                             item={item}
                             priorityColor={col.priorityColor}
                             onCardClick={onCardClick}
+                            inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId}
+                            onUndo={handleUndo}
                           />
                         </SortableItem>
                       ))
@@ -1255,7 +1384,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               {(sourcePending)
                 .map((item) => (
                   <Box key={`${item._id}-pending-card`} onClick={() => onCardClick?.(item)}>
-                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Pending" />
+                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Pending" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} />
                   </Box>
                 ))}
             </CardBody>
@@ -1348,7 +1477,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               {(sourceDeclined)
                 .map((item) => (
                   <Box key={`${item._id}-declined-card`} onClick={() => onCardClick?.(item)}>
-                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Declined" />
+                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Declined" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} />
                   </Box>
                 ))}
             </CardBody>
@@ -1473,9 +1602,11 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       {/* Overlay: AHORA ES LA MISMA CARD */}
       <DragOverlay dropAnimation={dropAnimation} adjustScale={false}>
         {activeItem ? (
-          <AppointmentCard item={activeItem} priorityColor={overlayColor} asOverlay />
+                  <AppointmentCard item={activeItem} priorityColor={overlayColor} asOverlay />
         ) : null}
       </DragOverlay>
     </DndContext>
+    {/* Inline undo ahora se muestra dentro de la card movida; se elimina el botón flotante global */}
+    </>
   );
 }

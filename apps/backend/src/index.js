@@ -85,6 +85,7 @@ app.use('/api/appointment-providers', require('./routes/appointmentProviders'));
 app.use('/api/validate', require('./routes/validate'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/reports', require('./routes/reports'));
+app.use('/api/twilio', require('./routes/twilio'));
 
 // manejador de errores (después de rutas)
 app.use((err, _req, res, next) => {

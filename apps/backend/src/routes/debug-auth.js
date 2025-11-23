@@ -3,6 +3,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { decodeToken } = require('../middleware/auth');
 const User = require('../models/User/User');
+const { attachSignedUrls } = require('../helpers/user.helpers');
 const router = express.Router();
 
 // Echo del header (sin auth)
@@ -43,7 +44,9 @@ router.get('/debug/jit', requireAuth, async (req, res) => {
 router.get('/debug/users', async (_req, res) => {
   const docs = await User.find().sort({ createdAt: -1 }).limit(5).lean();
   const count = await User.countDocuments();
-  res.json({ count, docs });
+  // Generate signed URLs for user pictures
+  const docsWithUrls = await attachSignedUrls(docs);
+  res.json({ count, docs: docsWithUrls });
 });
 
 module.exports = router;

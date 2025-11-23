@@ -1,6 +1,7 @@
 // apps/backend/src/middleware/sync-user.js
 const User = require('../models/User/User');
 const UserLoginAudit = require('../models/User/UserLoginAudit');
+const { attachSignedUrls } = require('../helpers/user.helpers');
 
 function getIp(req) {
   return (
@@ -78,6 +79,8 @@ async function syncUserFromToken(req, _res, next) {
       }
     }
 
+    // Generate signed URL for user picture
+    userDoc = await attachSignedUrls(userDoc);
     req.dbUser = userDoc;
     next();
   } catch (err) {

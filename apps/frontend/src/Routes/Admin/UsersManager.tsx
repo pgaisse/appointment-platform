@@ -10,9 +10,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings } from "lucide-react";
 import { useAdminAuth0Api } from "@/Hooks/useAdminAuth0Api";
 import { useAuth0 } from "@auth0/auth0-react";
+import axios from "axios";
 
 type A0User = { user_id: string; email?: string; name?: string; picture?: string };
 type A0Role = { id: string; name: string; description?: string };
+type DbUser = { _id: string; auth0_id: string; picture?: string; name?: string; email?: string };
 
 // Read org_id from the ID Token (namespace)
 function useOrgId(ns = "https://letsmarter.com/") {
@@ -54,6 +56,22 @@ export default function UsersManager() {
   const usersQ = useQuery({
     queryKey: ["a0-users", q, page, perPage, orgId],
     queryFn: () => api.searchUsers(q, page, perPage, orgId || undefined),
+  });
+
+  // Fetch DB users to get avatars with signed URLs
+  const { getAccessTokenSilently } = useAuth0();
+  const dbUsersQ = useQuery({
+    queryKey: ["db-users", q, orgId],
+    queryFn: async () => {
+      const token = await getAccessTokenSilently({
+        authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+      });
+      const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { q, org_id: orgId || undefined, limit: 200 },
+      });
+      return response.data;
+    },
   });
 
   const rolesQ = useQuery({
@@ -114,8 +132,34 @@ export default function UsersManager() {
     },
   });
 
-  // normalize users and meta
-  const users: A0User[] = Array.isArray(usersQ.data?.users) ? usersQ.data.users : [];
+  // normalize users and meta, merge with DB users for avatars
+  const auth0Users: A0User[] = Array.isArray(usersQ.data?.users) ? usersQ.data.users : [];
+  const dbUsers: DbUser[] = Array.isArray(dbUsersQ.data?.users) ? dbUsersQ.data.users : [];
+  
+  // Create a map of auth0_id to DB user for quick lookup
+  const dbUserMap = useMemo(() => {
+    const map = new Map<string, DbUser>();
+    dbUsers.forEach(dbUser => {
+      if (dbUser.auth0_id) {
+        map.set(dbUser.auth0_id, dbUser);
+      }
+    });
+    return map;
+  }, [dbUsers]);
+
+  // Merge Auth0 users with DB users to get avatars with signed URLs
+  const users: A0User[] = useMemo(() => {
+    return auth0Users.map(a0User => {
+      const dbUser = dbUserMap.get(a0User.user_id);
+      return {
+        ...a0User,
+        // Prioritize DB picture (has signed URL) over Auth0 picture
+        picture: dbUser?.picture || a0User.picture,
+        name: dbUser?.name || a0User.name,
+      };
+    });
+  }, [auth0Users, dbUserMap]);
+
   const meta =
     usersQ.data && "total" in usersQ.data
       ? usersQ.data

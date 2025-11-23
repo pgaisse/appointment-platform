@@ -76,8 +76,9 @@ export default function CustomProfile() {
   const dbUser = data?.dbUser || {};
   const stats = data?.stats || { rolesCount: 0, permissionsCount: 0, orgsCount: 0 };
 
-  const name = tokenUser?.name || dbUser?.name || "Your Name";
-  const picture = (dbUser?.picture || tokenUser?.picture) ?? undefined;
+  const name = dbUser?.name || tokenUser?.name || "Your Name";
+  // Prioritize dbUser.picture (has signed URL from S3) over tokenUser.picture (Auth0 cached)
+  const picture = dbUser?.picture || tokenUser?.picture || undefined;
   const email = tokenUser?.email;
   const emailVerified = tokenUser?.emailVerified;
   const orgName = tokenUser?.org_name || dbUser?.org_name || undefined;

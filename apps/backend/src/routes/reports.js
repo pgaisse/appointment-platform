@@ -6,6 +6,7 @@ const { syncUserFromToken } = require('../middleware/sync-user');
 const helpers = require('../helpers');
 const { Appointment, Treatment, PriorityList, ManualContact } = require('../models/Appointments');
 const Provider = require('../models/Provider/Provider');
+const { attachSignedUrlsToPopulated } = require('../helpers/user.helpers');
 
 // Protected routes middleware chain (consistent with other protected routes)
 router.use(jwtCheck, attachUserInfo, ensureUser, syncUserFromToken);
@@ -16,7 +17,7 @@ const RESOURCE_MAP = {
     model: Appointment,
     // Do not include 'user' ref in regex fields to avoid type errors on ObjectId
     fields: ['nameInput', 'lastNameInput', 'phoneInput', 'emailInput', 'sid'],
-    projection: { nameInput: 1, lastNameInput: 1, phoneInput: 1, emailInput: 1, sid: 1, org_id: 1, createdAt: 1, color: 1, treatment: 1, priority: 1, user: 1 },
+    projection: { nameInput: 1, lastNameInput: 1, phoneInput: 1, emailInput: 1, sid: 1, org_id: 1, createdAt: 1, color: 1, treatment: 1, priority: 1, user: 1, selectedAppDates: 1 },
     populate: [
       { path: 'treatment', select: 'name duration color icon' },
       { path: 'priority', select: 'name color id' },
@@ -134,6 +135,21 @@ router.get('/:resource', async (req, res) => {
       filter = { $and: clauses };
     }
 
+    // Filter out providers without basic information (firstName or lastName must exist)
+    if (resource === 'providers') {
+      const providerClauses = [ baseFilter ];
+      if (Object.keys(searchFilter).length) providerClauses.push(searchFilter);
+      // At least one of firstName, lastName, or email must be present
+      providerClauses.push({
+        $or: [
+          { firstName: { $exists: true, $ne: null, $ne: '' } },
+          { lastName: { $exists: true, $ne: null, $ne: '' } },
+          { email: { $exists: true, $ne: null, $ne: '' } }
+        ]
+      });
+      filter = { $and: providerClauses };
+    }
+
     const skip = (page - 1) * limit;
     let sort = { createdAt: -1 }; // default
     const allowedSortFields = [...meta.fields, 'createdAt'];
@@ -148,8 +164,11 @@ router.get('/:resource', async (req, res) => {
       model.countDocuments(filter)
     ]);
 
+    // Generate signed URLs for user pictures in populated items
+    const itemsWithSignedUrls = await attachSignedUrlsToPopulated(items);
+
     return res.json({
-      data: items,
+      data: itemsWithSignedUrls,
       meta: {
         resource,
         page,

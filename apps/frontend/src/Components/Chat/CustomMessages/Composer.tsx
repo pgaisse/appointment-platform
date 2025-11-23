@@ -114,7 +114,7 @@ export const Composer = memo(function Composer({
       >
         <HStack spacing={1}>
           <Tooltip label="Custom Messages">
-            <ShowTemplateButton selectedPatient={patientId} onSelectTemplate={setText} />
+            <ShowTemplateButton selectedPatient={patientId} onSelectTemplate={setText} category="message" />
           </Tooltip>
           <Tooltip label="Create Templates">
             <CreateMessageModal

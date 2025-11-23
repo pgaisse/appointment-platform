@@ -5,6 +5,7 @@ const Topic  = require('../models/Organizer/Topic');
 const Column = require('../models/Organizer/Column');
 const Card   = require('../models/Organizer/Card');
 const { emitInvalidate } = require('../socket/bus');
+const { attachSignedUrlsToPopulated } = require('./user.helpers');
 
 const BASE_GAP = 1000;
 const CARD_GAP = 1000;
@@ -349,15 +350,20 @@ exports.moveCard = async function moveCard({ cardId, toColumnId, before, after }
 
   return { finalSortKey: finalSort };
 };
-function shapeComment(c) {
-  const author = c.author && typeof c.author === 'object'
-    ? {
-        id: String(c.author._id),
-        name: c.author.name || c.author.email || 'User',
-        email: c.author.email || null,
-        picture: c.author.picture || null,
-      }
-    : null;
+async function shapeComment(c) {
+  let author = null;
+  if (c.author && typeof c.author === 'object') {
+    // Generate signed URL for author picture
+    const authorWithUrl = await attachSignedUrlsToPopulated({ user: c.author });
+    const processedAuthor = authorWithUrl.user;
+    
+    author = {
+      id: String(processedAuthor._id),
+      name: processedAuthor.name || processedAuthor.email || 'User',
+      email: processedAuthor.email || null,
+      picture: processedAuthor.picture || null,
+    };
+  }
 
   return {
     id: String(c._id),
@@ -374,7 +380,8 @@ exports.listCardComments = async function listCardComments(cardId) {
     .lean();
   if (!card) throw new Error('Card not found');
 
-  return (card.comments || []).map(shapeComment);
+  // Process comments with signed URLs for author pictures
+  return await Promise.all((card.comments || []).map(c => shapeComment(c)));
 };
 
 exports.addCardComment = async function addCardComment(cardId, userId, text) {
@@ -395,7 +402,7 @@ exports.addCardComment = async function addCardComment(cardId, userId, text) {
 
   if (!updated) throw new Error('Card not found');
   const c = updated.comments[updated.comments.length - 1];
-  return shapeComment(c);
+  return await shapeComment(c);
 };
 
 exports.deleteCardComment = async function deleteCardComment(cardId, commentId, requesterId, isAdmin = false) {

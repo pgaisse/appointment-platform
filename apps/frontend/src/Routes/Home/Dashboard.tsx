@@ -45,6 +45,7 @@ import {
   FiClock,
   FiAlertCircle,
   FiActivity,
+  FiDollarSign,
 } from "react-icons/fi";
 import { StatCard } from "@/Components/Dashboard/StatCard";
 import { QuickAction } from "@/Components/Dashboard/QuickAction";
@@ -66,6 +67,7 @@ import {
 import dayjs from 'dayjs';
 import { useProfile } from "@/Hooks/Query/useProfile";
 import { getAvatarColors } from "@/utils/avatarColors";
+import { useTwilioBalance } from "@/Hooks/Query/useTwilioBalance";
 
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError, error } = useDashboardStats();
@@ -139,6 +141,14 @@ const Dashboard: React.FC = () => {
     isSuccess: isSuccessInvalidSid,
     refetch: refetchInvalidSid,
   } = useInvalidSidCount(false);
+
+  // Twilio balance (only for master users)
+  const {
+    data: twilioBalance,
+    isFetching: isFetchingBalance,
+    isSuccess: isSuccessBalance,
+    refetch: refetchBalance,
+  } = useTwilioBalance(false);
 
   if (isError) {
     return (
@@ -282,6 +292,40 @@ const Dashboard: React.FC = () => {
                   }
                 }}
                 isClickable
+              />
+            )}
+            {hasMaster && (
+              <StatCard
+                title="Twilio Balance"
+                value={(() => {
+                  if (isSuccessBalance && twilioBalance) {
+                    const balance = parseFloat(twilioBalance.balance);
+                    const formatted = balance.toFixed(2);
+                    return `${twilioBalance.currency} ${formatted}`;
+                  }
+                  if (isFetchingBalance) {
+                    const bounce = keyframes`0%{transform:translateY(0);opacity:.6}50%{transform:translateY(-4px);opacity:1}100%{transform:translateY(0);opacity:.6}`;
+                    return (
+                      <HStack spacing={1}>
+                        {[0,1,2].map(i => (
+                          <Box key={i} w="6px" h="6px" borderRadius="full" bg="gray.500" animation={`${bounce} 1.2s ${i*0.15}s infinite`} />
+                        ))}
+                      </HStack>
+                    );
+                  }
+                  return '—';
+                })()}
+                valueFontSize={isSuccessBalance ? undefined : (isFetchingBalance ? undefined : 'xl')}
+                icon={FiDollarSign}
+                color={!isSuccessBalance ? 'gray' : (parseFloat(twilioBalance?.balance || '0') < 10 ? 'red' : 'green')}
+                subtitle={isSuccessBalance ? (parseFloat(twilioBalance?.balance || '0') < 10 ? 'Low balance' : 'Available funds') : (isFetchingBalance ? 'Loading…' : 'Tap to check')}
+                isLoading={false}
+                onClick={() => {
+                  if (!isSuccessBalance && !isFetchingBalance) {
+                    refetchBalance();
+                  }
+                }}
+                isClickable={!isSuccessBalance}
               />
             )}
 

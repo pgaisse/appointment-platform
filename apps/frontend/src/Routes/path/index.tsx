@@ -91,18 +91,6 @@ export const navLinks: NavLink[] = [
     requireAnyPerms: ['chat:read']
 
   },
-  // Chat Health (diagnóstico)
-  {
-    key: "chatHealth",
-    path: paths.chatHealth,
-    label: "Chat Health",
-    icon: MdHealthAndSafety,
-    show: ["sidebar"],
-    order: 31,
-    requireAuth: true,
-    sidebarZone: "main",
-    requireAnyPerms: ["master"]
-  },
   { key: "organizer", 
     path: paths.organizer, 
     label: "Organizer", 
@@ -112,6 +100,19 @@ export const navLinks: NavLink[] = [
     headerZone: "main", 
     sidebarZone: "main" ,
   
+  },
+
+  // Chat Health (movido arriba de Reports)
+  {
+    key: "chatHealth",
+    path: paths.chatHealth,
+    label: "Chat Health",
+    icon: MdHealthAndSafety,
+    show: ["sidebar"],
+    order: 798, // justo antes de Reports (799)
+    requireAuth: true,
+    sidebarZone: "bottom",
+    requireAnyPerms: ["master"]
   },
 
   // Reports
