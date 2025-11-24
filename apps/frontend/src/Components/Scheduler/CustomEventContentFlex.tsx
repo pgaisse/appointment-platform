@@ -106,7 +106,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
       ? s.toFormat("ccc, dd LLL yyyy")
       : `${s.toFormat("ccc, dd LLL yyyy")} → ${e.toFormat("ccc, dd LLL yyyy")}`;
     const timePart = `${s.toFormat("h:mm a")} — ${e.toFormat("h:mm a")}`;
-    return `${dayPart} • ${timePart} (${TZ})`;
+    return `${dayPart} • ${timePart}`;
   };
 
   // (Removed reminder initialization)
@@ -193,7 +193,7 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
       ? S.toFormat("ccc, dd LLL yyyy")
       : `${S.toFormat("ccc, dd LLL yyyy")} → ${E.toFormat("ccc, dd LLL yyyy")}`;
     const timePart = `${S.toFormat("h:mm a")} — ${E.toFormat("h:mm a")}`;
-    return `${dayPart} • ${timePart} (${TZ})`;
+    return `${dayPart} • ${timePart}`;
   };
   const fmtShortRange = (s?: any, e?: any) => {
     if (!s || !e) return null;

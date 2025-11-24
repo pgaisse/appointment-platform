@@ -451,7 +451,7 @@ export default function ProviderSummaryModal({
   const timeOffHoverBg = useColorModeValue("red.50", "whiteAlpha.100");
   const tIndex = useTreatmentIndex(treatments);
 
-  const fullName = provider ? `${provider.firstName ?? ""} ${provider.lastName ?? ""}`.trim() : "";
+  const fullName = provider ? `${capitalize(provider.firstName)} ${capitalize(provider.lastName)}`.trim() : "";
   const { isOpen: isOpenApp, onOpen: onOpenApp, onClose: onCloseApp } = useDisclosure();
 
   // Simplified: remove modal stack gating; show whenever isOpen prop is true.

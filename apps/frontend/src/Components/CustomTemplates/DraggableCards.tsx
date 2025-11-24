@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
 import { PhoneIcon, TimeIcon, RepeatIcon } from '@chakra-ui/icons';
+import { capitalize } from '@/utils/textFormat';
 import {
   Badge,
   Box,
@@ -237,8 +238,7 @@ function buildContactFromAppointment(i: AppointmentForChat) {
 /* ───────────────────────────────────────────────────────────────
    Tarjeta reutilizable: MISMA UI para item y para DragOverlay
    ─────────────────────────────────────────────────────────────── */
-const cap = (s?: string) =>
-  (s ?? '').toLocaleLowerCase().replace(/^\p{L}/u, c => c.toLocaleUpperCase());
+const cap = capitalize;
 
 // Prefer the slot with status "Pending" when present
 const pickPendingSlot = (slots?: any[]) => {

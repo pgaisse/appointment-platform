@@ -24,7 +24,6 @@ function withGate(node: RouteLink, el: JSX.Element): JSX.Element {
     g.requireAuth && g.redirectToOnUnauthed
       ? <Navigate to={g.redirectToOnUnauthed} replace />
       : g.fallback;
-console.log("Este es el g", g)
   return (
     <Gate
       requireAuth={g.requireAuth}

@@ -45,6 +45,7 @@ import { useModalIndex } from "../ModalStack/ModalStackContext";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { RiParentFill } from "react-icons/ri";
 import { useSocket } from "@/Hooks/Query/useSocket";
+import { capitalize } from "@/utils/textFormat";
 
 // — Lazy load del ProviderSummaryModal —
 const ProviderSummaryModalLazy = React.lazy(
@@ -719,7 +720,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                           appointment?.providers && appointment.providers.length ? (
                             <Wrap>
                               {appointment.providers.map((p: Provider) => {
-                                const name = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || "Provider";
+                                const name = `${capitalize(p.firstName)} ${capitalize(p.lastName)}`.trim() || "Provider";
                                 return (
                                   <WrapItem key={String((p as any)._id ?? name)}>
                                     <Button

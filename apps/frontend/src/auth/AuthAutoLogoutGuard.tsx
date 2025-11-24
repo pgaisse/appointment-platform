@@ -12,10 +12,12 @@ export default function AuthAutoLogoutGuard() {
     // chequeo inmediato
     getToken().catch(() => { /* forzado en hook */ });
 
-    // opcional: revalidar periódico (por si expira en background)
+    // Verificar cada 2 minutos para detectar expiración más rápido
     const id = setInterval(() => {
-      getToken().catch(() => {});
-    }, 4 * 60 * 1000);
+      getToken().catch(() => {
+        console.warn('[AuthAutoLogoutGuard] Token validation failed');
+      });
+    }, 2 * 60 * 1000); // Cada 2 minutos
 
     return () => clearInterval(id);
   }, [isAuthenticated, getToken]);

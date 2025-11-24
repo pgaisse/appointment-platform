@@ -53,6 +53,7 @@ import ChatCategorizationPanel from "@/Components/Chat/CustomMessages/ChatCatego
 import AddPatientButton from "@/Components/DraggableCards/AddPatientButton";
 import ContactDetailsPanel from "@/Components/Chat/ContactDetailsPanel";
 import { MESSAGES_OPEN_EVENT, type OpenMessagesPayload } from "@/Lib/messagesBus";
+import { capitalize } from "@/utils/textFormat";
 
 /* --------------------------------- helpers --------------------------------- */
 type Mode = "active" | "only" | "all";
@@ -342,7 +343,7 @@ export default function CustomChat() {
     creatingChatRef.current = true;
 
     const phone = formatToE164(contact.phoneInput || "");
-    const name = `${contact.nameInput} ${contact.lastNameInput}`.trim();
+    const name = `${capitalize(contact.nameInput)} ${capitalize(contact.lastNameInput)}`.trim();
     const localConversationId = `local-${phone}`;
 
     const now = new Date().toISOString();

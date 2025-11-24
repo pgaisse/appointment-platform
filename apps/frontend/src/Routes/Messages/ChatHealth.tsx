@@ -25,6 +25,7 @@ import { RepeatIcon } from '@chakra-ui/icons';
 import { useConversationHealth } from '@/Hooks/Query/useConversationHealth';
 import { useAuthFetch } from '@/api/authFetch';
 import { useMutation } from '@tanstack/react-query';
+import { capitalize } from '@/utils/textFormat';
 import { formatAustralianMobile } from '@/Functions/formatAustralianMobile';
 
 function statusColor(status: string): string {
@@ -37,10 +38,7 @@ function statusColor(status: string): string {
   }
 }
 
-function capitalize(str?: string): string {
-  if (!str) return '';
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-}
+// capitalize function now imported from utils
 
 function formatPhone(phone?: string): string {
   if (!phone) return '-';

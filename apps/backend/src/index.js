@@ -1,6 +1,15 @@
 // apps/backend/index.js
 require('dotenv').config();
 
+// Desactivar todos los console en producción
+if (process.env.NODE_ENV === 'production') {
+  console.log = () => {};
+  console.debug = () => {};
+  console.info = () => {};
+  console.warn = () => {};
+  console.error = () => {};
+}
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');

@@ -14,6 +14,7 @@ import {
 import { View, Views } from "react-big-calendar";
 
 import CustomCalendar, { Data } from "@/Components/Scheduler/CustomCalendar";
+import { capitalize } from "@/utils/textFormat";
 import CustomMinCalendar from "@/Components/Scheduler/CustomMinCalendar";
 import { Appointment } from "@/types";
 import AppointmentModal from "@/Components/Modal/AppointmentModal";
@@ -53,7 +54,7 @@ const AssignedAppointments = () => {
         .filter((s: any) => s?.startDate && s?.endDate)
         .map((s: any) => ({
           _id: ap._id!, // para localizar el Appointment en onSelectEvent
-          title: `${ap.nameInput ?? ""} ${ap.lastNameInput ?? ""}`.trim() || "Appointment",
+          title: `${capitalize(ap.nameInput)} ${capitalize(ap.lastNameInput)}`.trim() || "Appointment",
           start: new Date(s.startDate),
           end: new Date(s.endDate),
           color: (ap as any)?.priority?.color || (ap as any)?.color,

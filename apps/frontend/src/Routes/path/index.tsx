@@ -11,7 +11,7 @@ import { MdHealthAndSafety } from "react-icons/md";
 
 const paths = {
   root: "/",
-  signin: "/signin",
+  signin: "/login",
   profile: "/profile",
   messages: "/messages",
   chat: "/messages/custom-chat",

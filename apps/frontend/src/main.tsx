@@ -10,7 +10,17 @@ import theme from "./Components/Constants/Constants";
 import OrgGate from "./org/OrgGate";
 import AutoProvisionUser from "./Boot/AutoProvisionUser";
 import AuthAutoLogoutGuard from "./auth/AuthAutoLogoutGuard";
+import SessionTimeoutGuard from "./auth/SessionTimeoutGuard";
 import { useSocketInvalidate } from "./lib/useSocketInvalidate";
+
+// Desactivar todos los console en producción
+if (import.meta.env.PROD) {
+  console.log = () => {};
+  console.debug = () => {};
+  console.info = () => {};
+  console.warn = () => {};
+  console.error = () => {};
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,7 +35,7 @@ const queryClient = new QueryClient({
       refetchOnReconnect: false,
       refetchOnMount: false,
       staleTime: 30_000,
-      cacheTime: 5 * 60_000,
+      gcTime: 5 * 60_000,
     },
   },
 });
@@ -44,8 +54,11 @@ function SocketLayer() {
   return null; // no renderiza nada
 }
 
+const isDev = import.meta.env.DEV;
+const AppWrapper = isDev ? StrictMode : ({ children }: { children: React.ReactNode }) => <>{children}</>;
+
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
+  <AppWrapper>
     <ChakraProvider theme={theme}>
       <QueryClientProvider client={queryClient}>
         <Auth0Provider
@@ -67,7 +80,8 @@ createRoot(document.getElementById("root")!).render(
          */
         >
           <AutoProvisionUser />
-           <AuthAutoLogoutGuard />
+          <AuthAutoLogoutGuard />
+          <SessionTimeoutGuard />
           <OrgGate>
             <SocketLayer />
             <RouterProvider router={router} />
@@ -75,5 +89,5 @@ createRoot(document.getElementById("root")!).render(
         </Auth0Provider>
       </QueryClientProvider>
     </ChakraProvider>
-  </StrictMode>
+  </AppWrapper>
 );

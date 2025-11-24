@@ -6,22 +6,33 @@ type ForceOpts = { reason?: string; federated?: boolean };
 export function useForceReauth() {
   const { logout } = useAuth0();
 
-  // Cierra sesión y te manda a /login (donde gatillamos loginWithRedirect)
+  // Cierra sesión localmente y redirige directamente al login
   return useCallback(({ reason, federated }: ForceOpts = {}) => {
     // evita loops si ya estamos reautenticando
     if (sessionStorage.getItem("reauth_in_progress")) return;
     sessionStorage.setItem("reauth_in_progress", "1");
 
-    const returnTo = `${window.location.origin}/login?reason=${encodeURIComponent(
-      reason ?? "session_expired"
-    )}`;
+    // Limpiar estado local
+    localStorage.clear();
+    sessionStorage.clear();
+    sessionStorage.setItem("reauth_in_progress", "1"); // Restaurar flag después de clear
 
-    logout({
-      logoutParams: {
-        returnTo,
-        // Si quieres cerrar sesión SSO del IdP (Google, etc), habilita:
-        ...(federated ? { federated: true } : {}),
-      } as any, // federated es compatible vía query param
-    });
+    // Si necesitas logout completo de Auth0 (federated), usa logout
+    if (federated) {
+      const returnTo = `${window.location.origin}/login?reason=${encodeURIComponent(
+        reason ?? "session_expired"
+      )}`;
+      
+      logout({
+        logoutParams: {
+          returnTo,
+          federated: true,
+        } as any,
+      });
+    } else {
+      // Para expiración de sesión, redirigir directamente a nuestro login personalizado
+      const reasonParam = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+      window.location.href = `/login${reasonParam}`;
+    }
   }, [logout]);
 }

@@ -23,6 +23,7 @@ import { FiCalendar, FiUser, FiPhone } from "react-icons/fi";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import type { Appointment } from "@/types";
 import { getLatestSelectedAppDate } from "@/Functions/getLatestSelectedAppDate";
+import { capitalize } from "@/utils/textFormat";
 
 interface AppointmentDetailsModalProps {
   isOpen: boolean;
@@ -183,7 +184,7 @@ export const AppointmentDetailsModal: React.FC<AppointmentDetailsModalProps> = (
                           })()}
                           <Box>
                             <Text fontWeight="bold" fontSize="lg" textTransform="capitalize">
-                              {apt.nameInput} {apt.lastNameInput}
+                              {capitalize(apt.nameInput)} {capitalize(apt.lastNameInput)}
                             </Text>
                             {apt.representative && (
                               <HStack spacing={1} fontSize="sm" color="gray.500">

@@ -241,7 +241,7 @@ export default function ProviderManager() {
     if (!providers) return [] as Provider[];
     const q = query.trim().toLowerCase();
     if (!q) return providers;
-    return providers.filter((p) => `${p.firstName} ${p.lastName}`.toLowerCase().includes(q));
+    return providers.filter((p) => `${capitalize(p.firstName)} ${capitalize(p.lastName)}`.toLowerCase().includes(q));
   }, [providers, query]);
 
   return (

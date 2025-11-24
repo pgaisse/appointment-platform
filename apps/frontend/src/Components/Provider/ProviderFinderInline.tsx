@@ -41,7 +41,7 @@ export function ProviderFinderInline({
     }
     if (q) {
       const qq = q.trim().toLowerCase();
-      arr = arr.filter((p) => `${p.firstName} ${p.lastName}`.toLowerCase().includes(qq));
+      arr = arr.filter((p) => `${capitalize(p.firstName)} ${capitalize(p.lastName)}`.toLowerCase().includes(qq));
     }
     return arr;
   }, [providers, selectedIds, q, skillId]);

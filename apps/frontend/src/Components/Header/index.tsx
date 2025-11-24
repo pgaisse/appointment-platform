@@ -18,6 +18,7 @@ import {
 } from '@chakra-ui/react';
 import { ChevronDownIcon } from '@chakra-ui/icons';
 import { FiLogOut, FiUser } from 'react-icons/fi';
+import { FaTooth } from 'react-icons/fa';
 import { IconType } from 'react-icons';
 import { Link } from "react-router-dom";
 import { useAuth0 } from '@auth0/auth0-react';
@@ -136,6 +137,11 @@ export default function Header({ linkItems, linkSession }: Props) {
     "linear(to-r, purple.600, pink.500)",
     "linear(to-r, purple.300, pink.300)"
   );
+  const iconColor = useColorModeValue("purple.600", "purple.300");
+  const versionBorderColor = useColorModeValue('purple.200','whiteAlpha.300');
+  const versionBgColor = useColorModeValue('purple.50','whiteAlpha.100');
+  const versionDotColor = useColorModeValue('purple.400','purple.300');
+  const versionTextColor = useColorModeValue('purple.700','purple.200');
 
   // Auth0
   const { isAuthenticated, user } = useAuth0();
@@ -193,17 +199,23 @@ export default function Header({ linkItems, linkSession }: Props) {
     >
       <Flex align="center" justify="space-between" gap={4}>
         <HStack spacing={4} minW={0}>
-          {/* Logo / App Name with subtle gradient branding */}
-          <chakra.span
-            fontWeight="extrabold"
-            fontSize={{ base: "lg", md: "xl" }}
-            bgGradient={logoGradient}
-            bgClip="text"
-            letterSpacing="tight"
-            whiteSpace="nowrap"
-          >
-            App Sys
-          </chakra.span>
+          {/* Logo / App Name with dental icon */}
+          <HStack spacing={2}>
+            <Icon 
+              as={FaTooth} 
+              boxSize={{ base: 6, md: 7 }}
+              color={iconColor}
+            />
+            <chakra.span
+              fontWeight="extrabold"
+              fontSize={{ base: "lg", md: "xl" }}
+              bgGradient={logoGradient}
+              bgClip="text"
+              letterSpacing="tight"
+              whiteSpace="nowrap"
+            >
+            </chakra.span>
+          </HStack>
 
           {/* Navigation Links */}
           <HStack spacing={2} overflow="hidden" flexWrap="wrap">
@@ -227,12 +239,12 @@ export default function Header({ linkItems, linkSession }: Props) {
                 py={1}
                 borderRadius="full"
                 border="1px solid"
-                borderColor={useColorModeValue('purple.200','whiteAlpha.300')}
-                bg={useColorModeValue('purple.50','whiteAlpha.100')}
+                borderColor={versionBorderColor}
+                bg={versionBgColor}
                 boxShadow="0 6px 18px rgba(168,85,247,0.20)"
               >
-                <Box w="8px" h="8px" borderRadius="full" bg={useColorModeValue('purple.400','purple.300')} />
-                <Text fontSize="sm" fontWeight="semibold" color={useColorModeValue('purple.700','purple.200')}>
+                <Box w="8px" h="8px" borderRadius="full" bg={versionDotColor} />
+                <Text fontSize="sm" fontWeight="semibold" color={versionTextColor}>
                   v{version}
                 </Text>
               </HStack>

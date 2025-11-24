@@ -81,7 +81,7 @@ export function ProviderAvailabilityCompareRow({
       <HStack justify="space-between">
         <HStack>
           <Box w="8px" h="8px" borderRadius="full" bg={provider.color || "gray.300"} />
-          <Text textTransform="capitalize">{provider.firstName} {provider.lastName}</Text>
+          <Text>{capitalize(provider.firstName)} {capitalize(provider.lastName)}</Text>
         </HStack>
         <Tag>Pick an appointment date</Tag>
       </HStack>
@@ -99,7 +99,7 @@ export function ProviderAvailabilityCompareRow({
     <HStack justify="space-between" align="center" px={2} py={1} borderRadius="md" _hover={{ bg: "blackAlpha.50" }}>
       <HStack overflow="hidden">
         <Box w="8px" h="8px" borderRadius="full" bg={provider.color || "gray.300"} />
-        <Text noOfLines={1} textTransform="capitalize">{provider.firstName} {provider.lastName}</Text>
+        <Text noOfLines={1}>{capitalize(provider.firstName)} {capitalize(provider.lastName)}</Text>
         <Badge>{provider.initials || ""}</Badge>
       </HStack>
 

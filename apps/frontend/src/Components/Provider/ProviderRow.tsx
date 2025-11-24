@@ -13,7 +13,7 @@ export function ProviderRow({
   onAdd: (p: Provider) => void;
   rightAdornment?: React.ReactNode;
 }) {
-  const label = `${p.firstName} ${p.lastName}`.trim();
+  const label = `${capitalize(p.firstName)} ${capitalize(p.lastName)}`.trim();
 
   const renderHighlighted = (text: string, q?: string) => {
     if (!q) return text;

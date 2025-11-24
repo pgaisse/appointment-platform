@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatDateWS } from "@/Functions/FormatDateWS";
 import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { formatDateSingle } from "@/Functions/FormatDateSingle";
+import { capitalize } from "@/utils/textFormat";
 import { useDeleteItem } from "@/Hooks/Query/useDeleteItem";
 import { Appointment, Provider, TimeBlock, WeekDay } from "@/types";
 import AvailabilityDates2 from "./AvailabilityDates2";
@@ -256,8 +257,8 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                         boxShadow="0 1px 4px rgba(0,0,0,0.1)"
                       />
                       <Box>
-                        <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput}</Text>
-                        <Text fontSize="sm" color="gray.500" textTransform="capitalize">{item.lastNameInput}</Text>
+                        <Text fontWeight="semibold">{capitalize(item.nameInput)}</Text>
+                        <Text fontSize="sm" color="gray.500">{capitalize(item.lastNameInput)}</Text>
                       </Box>
                     </HStack>
                   </Td>
@@ -324,9 +325,8 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                         borderRadius="md"
                         mr={2}
                         mb={2}
-                        textTransform="capitalize"
                       >
-                        {prov.firstName} {prov.lastName}
+                        {capitalize(prov.firstName)} {capitalize(prov.lastName)}
                       </Tag>
                     )) : "-"
 
@@ -360,8 +360,8 @@ function CustomTableApp({ pageSize = 20 }: Props) {
                   <Td>
                     <HStack>
                       {item.representative?.appointment ? <><Tooltip label={`Represented by 
-                        ${item.representative?.appointment.nameInput} 
-                        ${item.representative.appointment.lastNameInput} (${item.representative.relationship})`} fontSize="sm" hasArrow placement="top">
+                        ${capitalize(item.representative?.appointment.nameInput)} 
+                        ${capitalize(item.representative.appointment.lastNameInput)} (${item.representative.relationship})`} fontSize="sm" hasArrow placement="top">
                         <RiParentFill /></Tooltip><Text> {formatAusPhoneNumber(item.representative?.appointment.phoneInput || "")}</Text></> : <Text>{formatAusPhoneNumber(item.phoneInput || "")}</Text>}
                       {item.contactPreference && item.contactPreference === "sms" ? <Icon as={LiaSmsSolid} color="yellow.500" fontSize="20px" /> : item.contactPreference === "call" ? <Icon as={CiPhone} color="green.500" fontSize="20px" /> : null}
                     </HStack>

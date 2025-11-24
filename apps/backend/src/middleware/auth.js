@@ -60,6 +60,44 @@ const jwtCheck = auth({
   clockTolerance: 5, // tolerancia por skew de reloj (segundos)
 });
 
+// ---------------------------
+// Validación de duración máxima de sesión (10 horas)
+// ---------------------------
+const MAX_SESSION_DURATION_SECONDS = 10 * 60 * 60; // 10 horas
+
+const validateSessionDuration = (req, res, next) => {
+  if (!req.auth || !req.auth.payload) return next();
+  
+  const payload = req.auth.payload;
+  const iat = payload.iat; // Issued at time
+  const now = Math.floor(Date.now() / 1000);
+  
+  if (!iat) {
+    console.warn('[validateSessionDuration] Token sin campo iat (issued at)');
+    return next();
+  }
+  
+  const sessionAge = now - iat;
+  
+  if (sessionAge > MAX_SESSION_DURATION_SECONDS) {
+    console.warn(`[validateSessionDuration] Session exceeded 10 hours. Age: ${Math.floor(sessionAge / 3600)} hours`);
+    return res.status(401).json({
+      error: 'session_expired',
+      message: 'Your session has exceeded the maximum duration of 10 hours. Please log in again.',
+      code: 'SESSION_TIMEOUT',
+      sessionAge: Math.floor(sessionAge / 3600) // horas
+    });
+  }
+  
+  // Advertir si quedan menos de 30 minutos
+  const remainingSeconds = MAX_SESSION_DURATION_SECONDS - sessionAge;
+  if (remainingSeconds < 30 * 60 && remainingSeconds > 0) {
+    res.set('X-Session-Warning', `Session expires in ${Math.floor(remainingSeconds / 60)} minutes`);
+  }
+  
+  next();
+};
+
 // Helper para obtener claims con/sin namespace
 function claim(p, key) {
   return p?.[NS + key] ?? p?.[key];
@@ -149,6 +187,13 @@ const ensureUser = async (req, _res, next) => {
 
 // Composición lista para usar en rutas protegidas
 const { syncUserFromToken } = require('./sync-user');
-const requireAuth = [jwtCheck, attachUserInfo, ensureUser, syncUserFromToken];
+const requireAuth = [jwtCheck, validateSessionDuration, attachUserInfo, ensureUser, syncUserFromToken];
 
-module.exports = { jwtCheck, attachUserInfo, ensureUser, requireAuth, decodeToken };
+module.exports = { 
+  jwtCheck, 
+  attachUserInfo, 
+  ensureUser, 
+  requireAuth, 
+  decodeToken,
+  validateSessionDuration 
+};

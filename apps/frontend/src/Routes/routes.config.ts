@@ -50,7 +50,7 @@ export const ROUTE_LINKS: RouteLink[] = [
         path: paths.root, // "/"
         componentKey: "Layout",
         // si quieres obligar login para TODO el arbol, puedes poner:
-        // gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
+        // gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
         children: [
             {
                 key: "home",
@@ -65,7 +65,7 @@ export const ROUTE_LINKS: RouteLink[] = [
 
             // Auth
             {
-                key: "signin",
+                key: "login",
                 path: paths.signin,
                 componentKey: "SignIn",
                 label: "Sign in",
@@ -81,7 +81,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 label: "Profile",
                 icon: FaUserCircle,
                 show: [], // oculto de menús
-                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
+                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
 
             // Appointments (grupo)
@@ -92,7 +92,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 icon: FiCalendar,
                 show: ["header", "sidebar"],
                 order: 20,
-                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
+                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
                 children: [
                     { key: "appointments.index", path: "", componentKey: "Appointments" },
                     {
@@ -143,7 +143,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 icon: MdTextsms,
                 show: ["header", "sidebar"],
                 order: 30,
-                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
+                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
             {
                 key: "chatHealth",
@@ -156,7 +156,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 gate: {
                     requireAuth: true,
                     source: "all",
-                    // no redirectToOnUnauthed aquí para evitar mandar a /signin si falta permiso
+                    // no redirectToOnUnauthed aquí para evitar mandar a /login si falta permiso
                     requireAnyPerms: ["master"],
                 },
             },
@@ -170,7 +170,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 icon: FaRegCalendarCheck,
                 show: ["header", "sidebar"],
                 order: 40,
-                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
+                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
 
             // Reports
@@ -186,7 +186,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                     requireAuth: true,
                     source: "all",
                     requireAnyPerms: ["master"],
-                    redirectToOnUnauthed: "/signin"
+                    redirectToOnUnauthed: "/login"
                 }
             },
 
@@ -205,7 +205,7 @@ export const ROUTE_LINKS: RouteLink[] = [
 
                     // ✅ exige login y redirige si no hay sesión
                     requireAuth: true,
-                    redirectToOnUnauthed: "/signin",
+                    redirectToOnUnauthed: "/login",
 
                     // ✅ permisos o rol (cualquiera de los dos te habilita)
                     
@@ -229,7 +229,7 @@ export const ROUTE_LINKS: RouteLink[] = [
 
                     // ✅ exige login y redirige si no hay sesión
                     requireAuth: true,
-                    redirectToOnUnauthed: "/signin",
+                    redirectToOnUnauthed: "/login",
 
                     // ✅ permisos o rol (cualquiera de los dos te habilita)
                     
@@ -248,7 +248,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 icon: FaUserCircle,
                 show: ["header"],
                 order: 999,
-                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/signin" },
+                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
         ],
     },

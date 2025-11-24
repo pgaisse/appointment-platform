@@ -9,10 +9,8 @@ import {
   Text,
   useDisclosure,
 } from "@chakra-ui/react";
-import { useAuth0 } from "@auth0/auth0-react";
 
 const LogOutRedirect = () => {
-  const { logout } = useAuth0();
   const { isOpen, onOpen } = useDisclosure();
   const [hasStartedLogout, setHasStartedLogout] = useState(false);
 
@@ -20,12 +18,17 @@ const LogOutRedirect = () => {
     onOpen(); // open the modal
     setHasStartedLogout(true);
 
+    // Limpiar todo el storage local
+    localStorage.clear();
+    sessionStorage.clear();
+
     const timer = setTimeout(() => {
-      logout({ logoutParams: { returnTo: window.location.origin } });
-    }, 2000); // wait 2 seconds before logging out
+      // Redirigir directamente a nuestro login sin pasar por Auth0
+      window.location.href = '/login';
+    }, 2000); // wait 2 seconds before redirecting
 
     return () => clearTimeout(timer);
-  }, [logout, onOpen]);
+  }, [onOpen]);
 
   if (!hasStartedLogout) return null;
 

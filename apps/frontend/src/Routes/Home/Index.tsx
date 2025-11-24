@@ -6,13 +6,14 @@ import {
   AlertIcon,
   AlertTitle,
   Box,
-  Button,
   Center,
   Spinner,
   useToast,
 } from "@chakra-ui/react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useNavigate } from "react-router-dom";
 import Dashboard from "./Dashboard";
+import DevTools from "@/dev/DevTools";
 
 /**
  * Lee config de runtime si existe (tu app usa window.__ENV__).
@@ -35,12 +36,12 @@ const AUDIENCE =
  */
 const Index: React.FC = () => {
   const toast = useToast();
+  const navigate = useNavigate();
   const {
     isLoading: authLoading,
     isAuthenticated,
     error: authError,
     getAccessTokenSilently,
-    loginWithRedirect,
   } = useAuth0();
 
   const [tokenReady, setTokenReady] = React.useState(false);
@@ -56,9 +57,9 @@ const Index: React.FC = () => {
         });
         if (!cancelled) setTokenReady(true);
       } catch (e: any) {
-        // Si el silent flow falla, forzamos login interactivo
+        // Si el silent flow falla, redirigimos al login
         if (e?.error === "login_required" || e?.message?.includes("login_required")) {
-          await loginWithRedirect({ authorizationParams: { audience: AUDIENCE } });
+          navigate("/login");
           return;
         }
         console.error("Error getting access token:", e);
@@ -77,7 +78,7 @@ const Index: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, getAccessTokenSilently, loginWithRedirect, toast]);
+  }, [isAuthenticated, getAccessTokenSilently, navigate, toast]);
 
   // --- Renders ---
 
@@ -103,23 +104,18 @@ const Index: React.FC = () => {
     );
   }
 
-  // C) No autenticado
+  // C) No autenticado - Redirigir al login personalizado
+  React.useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate("/login");
+    }
+  }, [authLoading, isAuthenticated, navigate]);
+
   if (!isAuthenticated) {
     return (
-      <Box p={10}>
-        <Alert status="warning">
-          <AlertIcon />
-          <AlertTitle>Not authenticated</AlertTitle>
-          <AlertDescription>Please sign in to continue.</AlertDescription>
-        </Alert>
-        <Button
-          mt={4}
-          colorScheme="blue"
-          onClick={() => loginWithRedirect({ authorizationParams: { audience: AUDIENCE } })}
-        >
-          Sign in
-        </Button>
-      </Box>
+      <Center minH="100vh">
+        <Spinner size="xl" />
+      </Center>
     );
   }
 
@@ -132,7 +128,19 @@ const Index: React.FC = () => {
     );
   }
 
-  return <Dashboard />;
+  const isDev = import.meta.env.DEV;
+
+  return (
+    <Box position="relative">
+      <Dashboard />
+      {/* DevTools solo en desarrollo */}
+      {isDev && (
+        <Box position="fixed" bottom={4} right={4} zIndex={9999}>
+          <DevTools isDev={isDev} />
+        </Box>
+      )}
+    </Box>
+  );
 };
 
 export default Index;

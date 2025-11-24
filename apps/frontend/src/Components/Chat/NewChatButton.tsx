@@ -28,6 +28,7 @@ import { formatToE164 } from "@/Functions/formatToE164";
 import type { Message, ConversationChat } from "@/types";
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 import type { ConversationsPage } from "@/Hooks/Query/useConversationsInfinite";
+import { capitalize } from "@/utils/textFormat";
 
  type ContactDoc = {
   _id: string;
@@ -295,7 +296,7 @@ export default function NewChatButton({ setChat, dataConversation, iconOnly = fa
                     </Box>
                     <Box>
                       <Text fontWeight="medium" textTransform="capitalize">
-                        {contact.nameInput} {contact.lastNameInput}
+                        {capitalize(contact.nameInput)} {capitalize(contact.lastNameInput)}
                       </Text>
                       <Text fontSize="sm" color="gray.500">
                         {formatAustralianMobile(contact.phoneInput || "")}

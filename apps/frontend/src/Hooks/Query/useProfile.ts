@@ -29,11 +29,25 @@ export type DbUser = {
   orgs?: string[];
   roles?: string[];
   permissions?: string[];
-  org_name?:string
+  org_name?: string;
   status?: string;
   createdAt?: string;
   updatedAt?: string;
   lastLoginAt?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  mobile?: string;
+  position?: string;
+  department?: string;
+  location?: string;
+  timezone?: string;
+  language?: string;
+  bio?: string;
+  website?: string;
+  linkedin?: string;
+  emailNotifications?: boolean;
+  smsNotifications?: boolean;
 };
 
 type ProfileResp = {

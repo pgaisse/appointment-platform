@@ -104,6 +104,7 @@ const byOrderThenLabel = (
 // ───────────────────────── Layout ─────────────────────────
 export default function Layout({ children }: { children?: React.ReactNode }) {
   const { isAuthenticated, user, getAccessTokenSilently } = useAuth0();
+  const [hideNavigation, setHideNavigation] = useState(false);
 
   // Claims desde el ACCESS TOKEN (Auth0 Management/API audience)
   const [accessPerms, setAccessPerms] = useState<string[]>([]);
@@ -288,52 +289,58 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
 
   return (
     <>
-      {/* Header en flujo normal; su altura define el offset del sidebar */}
-      <Box
-        ref={headerRef}
-        as="header"
-        zIndex={1100}
-        position="relative"
-        bg="white"
-        // sombra sutil premium
-        boxShadow="sm"
-      >
-        <Header linkItems={headerItems} linkSession={linkSession} />
-      </Box>
+      {/* Header fijo en la parte superior */}
+      {!hideNavigation && (
+        <Box
+          ref={headerRef}
+          as="header"
+          position="fixed"
+          top={0}
+          left={0}
+          right={0}
+          zIndex={1100}
+          bg="white"
+          boxShadow="sm"
+        >
+          <Header linkItems={headerItems} linkSession={linkSession} />
+        </Box>
+      )}
 
       {/* Sidebar fijo, ANCHO DINÁMICO (se adapta a sus iconos) */}
-      <Box
-        ref={sidebarShellRef}
-        as="aside"
-        position="fixed"
-        left={0}
-        top={`${headerHeight}px`} // empieza justo debajo del header
-        height={`calc(100vh - ${headerHeight}px)`}
-        // w auto + minW max-content → shrink-to-fit al contenido (iconos + padding)
-        w="auto"
-        minW="max-content"
-        overflow="hidden"
-        bg="white"
-        borderRight="1px solid"
-        borderColor="gray.200"
-        zIndex={1000} // debajo del header
-      >
-        <SideBar linkItems={sidebarMain} linkConfig={sidebarBottom} />
-      </Box>
+      {!hideNavigation && (
+        <Box
+          ref={sidebarShellRef}
+          as="aside"
+          position="fixed"
+          left={0}
+          top={`${headerHeight}px`} // empieza justo debajo del header
+          height={`calc(100vh - ${headerHeight}px)`}
+          // w auto + minW max-content → shrink-to-fit al contenido (iconos + padding)
+          w="auto"
+          minW="max-content"
+          overflow="hidden"
+          bg="white"
+          borderRight="1px solid"
+          borderColor="gray.200"
+          zIndex={1000} // debajo del header
+        >
+          <SideBar linkItems={sidebarMain} linkConfig={sidebarBottom} />
+        </Box>
+      )}
 
       {/* Contenido principal desplazado EXACTAMENTE el ancho del sidebar en desktop */}
       <Box
         as="main"
-        ml={{ base: 0, md: `${sidebarWidth}px` }}
-        height={`calc(100dvh - ${headerHeight}px)`} // ocupa todo el alto menos el header
+        ml={{ base: 0, md: hideNavigation ? 0 : `${sidebarWidth}px` }}
+        mt={hideNavigation ? 0 : `${headerHeight}px`}
+        minHeight={hideNavigation ? "100vh" : `calc(100vh - ${headerHeight}px)`}
         overflowY="auto"                            // scroll dentro de main
-        px={{ base: 3, md: 6 }}
-        py={{ base: 3, md: 4 }}
+        px={hideNavigation ? 0 : { base: 3, md: 6 }}
+        py={hideNavigation ? 0 : { base: 3, md: 4 }}
         bg="white"
-        h={"full"}
       >
         <SocketNotification />
-        <Outlet />
+        <Outlet context={{ setHideNavigation }} />
         {children}
       </Box>
     </>
