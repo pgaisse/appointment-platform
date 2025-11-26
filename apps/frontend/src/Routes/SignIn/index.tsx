@@ -19,7 +19,6 @@ import {
   Link,
   Stack,
   Text,
-  useColorModeValue,
   VStack,
   useToast,
   Spinner,
@@ -37,12 +36,10 @@ import {
 } from "react-icons/fa";
 import { useNavigate, useSearchParams, useOutletContext } from "react-router-dom";
 
-const AUTH0_DOMAIN = import.meta.env.VITE_AUTH0_DOMAIN;
-const AUTH0_CLIENT_ID = import.meta.env.VITE_AUTH0_CLIENT_ID;
 const AUTH0_AUDIENCE = import.meta.env.VITE_AUTH0_AUDIENCE || "https://api.dev.iconicsmiles";
 
 export default function Login() {
-  const { isAuthenticated, isLoading, loginWithRedirect, loginWithPopup, getAccessTokenSilently } = useAuth0();
+  const { isAuthenticated, isLoading, loginWithPopup, getAccessTokenSilently } = useAuth0();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const toast = useToast();
@@ -152,20 +149,32 @@ export default function Login() {
       setIsLoggingIn(true);
       setLoginError("");
 
-      // Usar Universal Login con Auth0 (método seguro y recomendado)
-      await loginWithRedirect({
+      // Intentar login directo con username y password usando loginWithPopup
+      await loginWithPopup({
         authorizationParams: {
           audience: AUTH0_AUDIENCE,
           scope: "openid profile email offline_access",
-          screen_hint: "login", // Muestra pantalla de login directamente
-          login_hint: email, // Pre-llena el email
-          prompt: "login", // Fuerza autenticación
+          login_hint: email,
         },
-        appState: { returnTo: "/" },
       });
+
+      // Obtener token para confirmar autenticación
+      const token = await getAccessTokenSilently({ 
+        authorizationParams: { audience: AUTH0_AUDIENCE } 
+      });
+
+      if (token) {
+        toast({
+          title: "Welcome!",
+          description: "You have successfully signed in",
+          status: "success",
+          duration: 3000,
+        });
+        navigate("/");
+      }
     } catch (error: any) {
       console.error("Error en login:", error);
-      const errorMessage = error.message || "Could not initiate login";
+      const errorMessage = error.message || "Invalid credentials";
       setLoginError(errorMessage);
 
       toast({
@@ -174,6 +183,7 @@ export default function Login() {
         status: "error",
         duration: 5000,
       });
+    } finally {
       setIsLoggingIn(false);
     }
   };
