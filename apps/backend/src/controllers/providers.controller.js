@@ -56,73 +56,106 @@ async function getProvider(req, res, next) {
 
 async function getProviderAppointments(req, res, next) {
   try {
-    // Nuevo enfoque: buscamos las asignaciones en AppointmentProvider
-    // y devolvemos sólo las que tengan un appointment poblado (no huérfanas).
     const providerOid = validateObjectId(req.params.id, 'provider');
-
     const { from, to } = req.query || {};
-    const filter = { provider: providerOid };
-    if (from && to) {
-      const fromD = new Date(from);
-      const toD = new Date(to);
-      filter.$and = [{ startDate: { $lt: toD } }, { endDate: { $gt: fromD } }];
-    } else if (from) {
-      filter.endDate = { $gt: new Date(from) };
-    } else if (to) {
-      filter.startDate = { $lt: new Date(to) };
-    }
-
-    // Seleccionamos la asignación y poblamos appointment (con prioridad)
-    const assignments = await AppointmentProvider.find(filter)
-      .sort({ startDate: 1 })
-      .populate({
-        path: 'appointment',
-        select: {
-          _id: 1,
-          providers: 1,
-          startUtc: 1,
-          endUtc: 1,
-          start: 1,
-          end: 1,
-          selectedAppDates: 1,
-          selectedDates: 1,
-          title: 1,
-          notes: 1,
-          patient: 1,
-          patientName: 1,
-          nameInput: 1,
-          lastNameInput: 1,
-          treatmentName: 1,
-          color: 1,
-          colorScheme: 1,
-          priority: 1,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-        populate: {
-          path: 'priority',
-          select: 'name color durationHours order isActive',
-        },
-      })
+    
+    // Query para buscar appointments en ambos esquemas:
+    // 1. Legacy: providers en root
+    // 2. Nuevo: selectedAppDates.providers
+    // NOTA: NO filtramos por fecha aquí porque un appointment puede tener múltiples slots
+    // y necesitamos encontrar todos los appointments donde el provider esté en CUALQUIER slot,
+    // luego filtraremos los slots específicos que coincidan con las fechas Y el provider
+    
+    const appointments = await Appointment.find({
+      $or: [
+        { providers: providerOid },
+        { 'selectedAppDates.providers': providerOid },
+      ],
+    })
+      .populate('priority', 'name color durationHours order isActive')
+      .populate('treatment', 'name duration')
+      .populate('providers', '_id firstName lastName')
+      .populate('selectedAppDates.treatment', 'name duration')
+      .populate('selectedAppDates.priority', 'name color')
+      .populate('selectedAppDates.providers', '_id firstName lastName')
+      .sort({ 'selectedAppDates.startDate': 1 })
       .lean();
 
-    // Filtramos asignaciones cuyo appointment no existe (referencia huérfana)
-    const valid = (assignments || []).filter((ap) => ap && ap.appointment);
+    console.log(`[getProviderAppointments] Found ${appointments.length} appointments for provider ${providerOid}`);
+    console.log(`[getProviderAppointments] Date range filter: from=${from}, to=${to}`);
+    
 
-    // Mapeamos a la forma que el frontend espera: devolvemos por cada
-    // appointment-provider una entrada con selectedAppDates usando las fechas de la asignación.
-    const mapped = valid.map((ap) => {
-      const a = ap.appointment;
-      return {
-        ...a,
-        // los rangos del provider para esa cita concreta
-        selectedAppDates: [{ startDate: ap.startDate, endDate: ap.endDate }],
-        // para rastrear el origen si hace falta
-        _appointmentProviderId: ap._id,
-      };
-    });
+console.log("appointments", appointments)
+    
+    const fromD = from ? new Date(from) : null;
+    const toD = to ? new Date(to) : null;
+    
+    // Filtrar y transformar: solo devolver los slots donde este provider está asignado
+    // Y que coincidan con el rango de fechas (si se especifica)
+    const result = [];
+    for (const apt of appointments) {
+      const slots = apt.selectedAppDates || [];
+      
+      console.log(`[getProviderAppointments] Processing appointment ${apt._id} (${apt.nameInput} ${apt.lastNameInput})`);
+      console.log(`[getProviderAppointments]   - Total slots: ${slots.length}`);
+      
+      // Filtrar slots que tienen este provider Y que coinciden con las fechas
+      const relevantSlots = slots.filter((slot, idx) => {
+        const slotProviders = slot.providers || [];
+        console.log(`[getProviderAppointments]   - Slot ${idx} dates: ${slot.startDate} to ${slot.endDate}`);
+        console.log(`[getProviderAppointments]   - Slot ${idx} providers:`, slotProviders.map(p => ({ id: String(p._id || p), name: p.firstName || 'unknown' })));
+        
+        // Verificar si el provider está en este slot
+        const hasProvider = slotProviders.some(p => {
+          const pId = String(p._id || p);
+          const match = pId === String(providerOid);
+          if (match) console.log(`[getProviderAppointments]   - MATCH provider in slot ${idx}!`);
+          return match;
+        });
+        
+        if (!hasProvider) {
+          console.log(`[getProviderAppointments]   - Slot ${idx}: provider NOT found, skipping`);
+          return false;
+        }
+        
+        // Si hay filtro de fechas, verificar que el slot esté en el rango
+        if (fromD && toD) {
+          const slotStart = new Date(slot.startDate);
+          const slotEnd = new Date(slot.endDate);
+          const inRange = slotStart < toD && slotEnd > fromD;
+          console.log(`[getProviderAppointments]   - Slot ${idx}: date range check = ${inRange}`);
+          return inRange;
+        }
+        
+        return true;
+      });
 
-    res.json({ data: mapped, total: mapped.length });
+      console.log(`[getProviderAppointments]   - Relevant slots found: ${relevantSlots.length}`);
+
+      // Si no hay slots con este provider, verificar si está en root (legacy)
+      if (relevantSlots.length === 0) {
+        const rootProviders = apt.providers || [];
+        console.log(`[getProviderAppointments]   - Checking root providers:`, rootProviders.map(p => ({ id: String(p._id || p), name: p.firstName || 'unknown' })));
+        const hasInRoot = rootProviders.some(p => String(p._id || p) === String(providerOid));
+        
+        if (hasInRoot && slots.length > 0) {
+          console.log(`[getProviderAppointments]   - Provider found in root (legacy), adding all slots`);
+          result.push(apt);
+        } else {
+          console.log(`[getProviderAppointments]   - Provider NOT found in root or slots, SKIPPING`);
+        }
+      } else {
+        console.log(`[getProviderAppointments]   - Adding appointment with ${relevantSlots.length} filtered slots`);
+        // Nuevo esquema: devolver una copia del appointment con solo los slots relevantes
+        result.push({
+          ...apt,
+          selectedAppDates: relevantSlots,
+        });
+      }
+    }
+
+    console.log(`[getProviderAppointments] Returning ${result.length} appointments with filtered slots`);
+    res.json({ data: result, total: result.length });
   } catch (err) {
     console.log('[getProviderAppointments] error:', err?.message || err);
     next(err);

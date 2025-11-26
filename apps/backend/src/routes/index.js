@@ -863,6 +863,17 @@ router.delete("/:id", jwtCheck, async (req, res) => {
     });
   } catch (err) {
     console.error("[DELETE /delete/:id] Error:", err.stack || err);
+    
+    // Manejar error de representante con dependientes
+    if (err.name === 'DependentConstraintError') {
+      return res.status(409).json({
+        error: "DependentConstraintError",
+        name: "DependentConstraintError",
+        message: err.message,
+        details: "This patient is a representative for one or more dependents. Please reassign or unlink dependents before deleting."
+      });
+    }
+    
     return res.status(500).json({
       error: "Internal server error",
       details: err.message,
@@ -1034,7 +1045,22 @@ router.get('/appointments/:id', async (req, res) => {
         model: 'TimeBlock',
         select: '_id org_id blockNumber label short from to',
       })
-
+      // ✨ NUEVO: populate nested fields en selectedAppDates
+      .populate({
+        path: 'selectedAppDates.priority',
+        model: 'PriorityList',
+        select: 'id description notes durationHours name color org_id',
+      })
+      .populate({
+        path: 'selectedAppDates.treatment',
+        model: 'Treatment',
+        select: '_id name duration icon minIcon color category active',
+      })
+      .populate({
+        path: 'selectedAppDates.providers',
+        model: 'Provider',
+        select: '_id firstName lastName email phone',
+      })
       .lean({ virtuals: true });
 
     if (!doc) return res.status(404).json({ error: 'Appointment not found' });

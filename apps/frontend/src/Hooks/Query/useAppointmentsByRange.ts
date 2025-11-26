@@ -1,5 +1,4 @@
 // apps/frontend/src/Hooks/Query/useAppointmentsByRange.ts
-import { useMemo } from "react";
 import { useQuery, UseQueryResult } from "@tanstack/react-query";
 import { View, Views } from "react-big-calendar";
 
@@ -7,14 +6,16 @@ import { View, Views } from "react-big-calendar";
 import { useAuth0 } from "@auth0/auth0-react";
 
 // Ajusta si tienes un cliente axios centralizado
-async function fetchAppointmentsByRange(params: {
+export type AppointmentsRangeParams = {
   start: string; // YYYY-MM-DD inclusive
   end: string;   // YYYY-MM-DD exclusive
   tz?: string;
   populate?: string[];
   limit?: number;
   token?: string;
-}) {
+};
+
+async function fetchAppointmentsByRange(params: AppointmentsRangeParams) {
   const url = new URL("/api/appointments-range", window.location.origin);
   console.log(url)
   url.searchParams.set("start", params.start);
@@ -82,7 +83,7 @@ function startOfMonthSydney(date: Date) {
   return first;
 }
 
-function rangeFor(date: Date, view: View) {
+export function computeRangeForView(date: Date, view: View) {
   if (view === Views.DAY) {
     const s = toSydneyYMD(date);
     const e = addDaysYMD(s, 1); // exclusivo
@@ -104,35 +105,41 @@ function rangeFor(date: Date, view: View) {
   return { start: s, end: e };
 }
 
-export function useAppointmentsByRange(opts: {
+export type UseCalendarAppointmentsOptions = {
   date: Date;
   view: View;
   populate?: string[]; // ['priority','treatment']
   limit?: number;
-}): UseQueryResult<any[], Error> {
-  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
-  const { start, end } = useMemo(() => rangeFor(opts.date, opts.view), [opts.date, opts.view]);
+};
 
-  // Key estable y pequeña
-  const queryKey = useMemo(
-    () => ['appointments-range', start, end, opts.view, (opts.populate || []).join(','), opts.limit || 300],
-    [start, end, opts.view, opts.populate, opts.limit]
-  );
+// New hook focused on calendar ranges; easy to cancel via 'appointments-range' prefix
+export function useCalendarAppointments(opts: UseCalendarAppointmentsOptions): UseQueryResult<any[], Error> {
+  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const { start, end } = computeRangeForView(opts.date, opts.view);
 
   return useQuery({
-    queryKey,
+    queryKey: ["appointments-range", start, end, opts.view],
     queryFn: async () => {
       const token = isAuthenticated ? await getAccessTokenSilently().catch(() => undefined) : undefined;
       return fetchAppointmentsByRange({
         start,
         end,
         tz: SYD_TZ,
-        populate: opts.populate || ['priority', 'treatment'],
+        populate: opts.populate || ["priority", "treatment"],
         limit: opts.limit || 300,
         token,
       });
     },
-    staleTime: 15_000,
+    staleTime: 1000, // 1 segundo - marca como stale rápidamente para detectar cambios
+    gcTime: 5 * 60 * 1000, // 5 minutos en caché - suficiente tiempo para cancelar/invalidar queries
     refetchOnWindowFocus: false,
+    refetchOnMount: true, // Siempre refetch al montar el componente
   });
+}
+
+// Backwards-compatible alias so existing imports keep working
+export type UseAppointmentsByRangeOptions = UseCalendarAppointmentsOptions;
+
+export function useAppointmentsByRange(opts: UseAppointmentsByRangeOptions): UseQueryResult<any[], Error> {
+  return useCalendarAppointments(opts);
 }

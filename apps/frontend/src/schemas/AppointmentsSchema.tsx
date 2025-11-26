@@ -73,17 +73,17 @@ function buildBaseSchema() {
       errorMap: () => ({ message: "Select call or sms" }),
     }),
 
+    // DEPRECATED: Ahora priority y treatment viven en cada slot (selectedAppDates)
+    // Mantener opcional para compatibilidad durante migración
     priority: z
       .string()
-      .min(1, "Priority is required")
-      .max(100, "Priority must be at most 100 characters")
-      .transform((val) => val.trim().replace(/\s+/g, " ")),
+      .optional()
+      .transform((val) => val ? val.trim().replace(/\s+/g, " ") : undefined),
 
     treatment: z
       .string()
-      .min(1, "Treatment is required")
-      .max(100, "Treatment must be at most 100 characters")
-      .transform((val) => val.trim().replace(/\s+/g, " ")),
+      .optional()
+      .transform((val) => val ? val.trim().replace(/\s+/g, " ") : undefined),
 
     selectedDates: z.object({
       startDate: z.coerce.date({ required_error: "Start date is required" }),
@@ -109,6 +109,15 @@ function buildBaseSchema() {
         z.object({
           startDate: z.coerce.date({ required_error: "Start date is required" }),
           endDate: z.coerce.date({ required_error: "End date is required" }),
+          // Nuevos campos por slot (opcional durante migración)
+          treatment: z.string().optional(),
+          priority: z.string().optional(),
+          providers: z.array(z.string()).optional().default([]),
+          duration: z.number().optional(),
+          providerNotes: z.string().optional(),
+          status: z.string().optional(),
+          _id: z.string().optional(),
+          slotId: z.string().optional(),
         })
       )
       .min(1, "At least one date must be selected")

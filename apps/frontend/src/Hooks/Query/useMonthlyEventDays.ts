@@ -40,7 +40,9 @@ export function useMonthlyEventDays(date: Date) {
       const token = isAuthenticated ? await getAccessTokenSilently().catch(() => undefined) : undefined;
       return fetchMonthDays({ month, tz: SYD_TZ, token });
     },
-    staleTime: 30_000,
+    staleTime: 1000, // 1 segundo - marca como stale rápidamente
+    gcTime: 5 * 60 * 1000, // 5 minutos en caché
     refetchOnWindowFocus: false,
+    refetchOnMount: true, // Siempre refetch al montar
   });
 }

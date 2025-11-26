@@ -119,6 +119,21 @@ function CustomTableApp({ pageSize = 20 }: Props) {
       await queryClient.invalidateQueries({ queryKey: ["appointments"] });
       await refetchPage();
     }
+
+    // Además, invalida/cancela todas las queries relacionadas con appointments
+    // para mantener sincronizados otros hooks (rangos, mini-calendarios, etc.).
+    await queryClient.cancelQueries({
+      // Cancela cualquier variante de useAppointmentsByRange
+      predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "appointments-range",
+    });
+    await queryClient.cancelQueries({ queryKey: ["appointments-month-days"] });
+    await queryClient.cancelQueries({ queryKey: ["Appointment"] });
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["appointments-range"] }),
+      queryClient.invalidateQueries({ queryKey: ["appointments-month-days"] }),
+      queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+    ]);
   };
 
   const { openEditor, AppointmentEditor } = useAppointmentEditor({
@@ -158,19 +173,63 @@ function CustomTableApp({ pageSize = 20 }: Props) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [itemToDelete, setItemToDelete] = useState<string>("");
 
-  const { deleteById } = useDeleteItem({
+  const { deleteByIdAsync } = useDeleteItem({
     modelName: "Appointment",
     refetch: isSearching ? refetchSearch : refetchPage,
   });
 
-  const confirmDelete = (id: string) => { setItemToDelete(id); deleteDisclosure.onOpen(); };
+  const [deleteError, setDeleteError] = useState<string>("");
+
+  const confirmDelete = (id: string) => { 
+    setItemToDelete(id); 
+    setDeleteError("");
+    deleteDisclosure.onOpen(); 
+  };
+  
   const handleDelete = async () => {
-    if (deleteById && itemToDelete) {
-      await deleteById(itemToDelete);
+    if (!deleteByIdAsync || !itemToDelete) return;
+
+    try {
+      await deleteByIdAsync(itemToDelete);
+      setQuery("");
+      await hardRefresh();
+      setDeleteError("");
+      deleteDisclosure.onClose();
+    } catch (error: any) {
+      console.error("❌ Error deleting appointment:", error);
+      
+      // Axios coloca la respuesta del servidor en error.response.data
+      const responseData = error?.response?.data;
+      const statusCode = error?.response?.status;
+      const errorName = responseData?.name || responseData?.error || error?.name || "";
+      const errorMessage = responseData?.message || responseData?.details || error?.message || String(error);
+      
+      console.log("📋 Error details:", { 
+        statusCode, 
+        errorName, 
+        errorMessage, 
+        responseData,
+        fullError: error 
+      });
+      
+      // Detectar si es un error 409 de representante/dependiente
+      if (
+        statusCode === 409 ||
+        errorName === "DependentConstraintError" || 
+        errorMessage.includes("representante de dependientes") ||
+        errorMessage.includes("representative") || 
+        errorMessage.includes("dependent") ||
+        errorMessage.includes("Reasigna o desvincula")
+      ) {
+        setDeleteError(
+          "This patient cannot be deleted because they are currently representing another patient. " +
+          "Please remove the representative link from their dependents before deleting this patient."
+        );
+      } else {
+        setDeleteError(errorMessage || "An error occurred while deleting the patient.");
+      }
+      // NO cerramos el modal - el usuario ve el error en el mismo diálogo
     }
-    setQuery("");
-    await hardRefresh();
-    deleteDisclosure.onClose();
   };
 
   // Si cambia modo búsqueda, resetea página
@@ -427,11 +486,42 @@ function CustomTableApp({ pageSize = 20 }: Props) {
       <AlertDialog isOpen={deleteDisclosure.isOpen} leastDestructiveRef={cancelRef} onClose={deleteDisclosure.onClose}>
         <AlertDialogOverlay>
           <AlertDialogContent>
-            <AlertDialogHeader fontSize="lg" fontWeight="bold">Confirm Deletion</AlertDialogHeader>
-            <AlertDialogBody>Are you sure? This action cannot be undone.</AlertDialogBody>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              {deleteError ? "Cannot Delete Patient" : "Confirm Deletion"}
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              {deleteError ? (
+                <Box>
+                  <Text color="red.500" fontWeight="semibold" mb={2}>
+                    {deleteError}
+                  </Text>
+                  <Text fontSize="sm" color="gray.600">
+                    To delete this patient, you must first:
+                  </Text>
+                  <Box as="ul" pl={4} mt={2} fontSize="sm" color="gray.600">
+                    <li>Remove the representative link from their dependents, or</li>
+                    <li>Assign a different representative to their dependents</li>
+                  </Box>
+                </Box>
+              ) : (
+                "Are you sure? This action cannot be undone."
+              )}
+            </AlertDialogBody>
             <AlertDialogFooter>
-              <Button ref={cancelRef} onClick={deleteDisclosure.onClose}>Cancel</Button>
-              <Button colorScheme="red" onClick={handleDelete} ml={3}>Delete</Button>
+              <Button 
+                ref={cancelRef} 
+                onClick={() => {
+                  setDeleteError("");
+                  deleteDisclosure.onClose();
+                }}
+              >
+                {deleteError ? "Close" : "Cancel"}
+              </Button>
+              {!deleteError && (
+                <Button colorScheme="red" onClick={handleDelete} ml={3}>
+                  Delete
+                </Button>
+              )}
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialogOverlay>

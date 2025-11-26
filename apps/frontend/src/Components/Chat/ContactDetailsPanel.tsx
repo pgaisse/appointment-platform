@@ -132,9 +132,12 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
   // Determine if the person is a patient (requires treatment, priority, and at least one appointment date)
   const isPatient = useMemo(() => {
     if (!appointment) return false;
-    const hasTreatment = Boolean(appointment.treatment);
-    const hasPriority = Boolean(appointment.priority);
     const hasDate = Array.isArray(appointment.selectedAppDates) && appointment.selectedAppDates.length > 0;
+    if (!hasDate) return false;
+    // Verificar si el primer slot tiene treatment y priority (nueva estructura)
+    const firstSlot = appointment.selectedAppDates[0];
+    const hasTreatment = Boolean(firstSlot?.treatment || appointment.treatment);
+    const hasPriority = Boolean(firstSlot?.priority || appointment.priority);
     return hasTreatment && hasPriority && hasDate;
   }, [appointment]);
 
@@ -240,46 +243,57 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
           {appointment && (
             <>
               {/* Treatment & Priority */}
-              {appointment?.treatment&&<Box bg={sectionBg} p={4} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
-                <Text fontSize="sm" fontWeight="bold" mb={3} textTransform="uppercase" letterSpacing="wide">
-                  Treatment Plan
-                </Text>
-                <VStack align="stretch" spacing={3}>
-                  {appointment.treatment && (
-                    <HStack spacing={3} align="start">
-                      <Icon as={FaNotesMedical} color={textMuted} boxSize={4} mt={0.5} />
-                      <VStack align="start" spacing={0} flex="1">
-                        <Text fontSize="sm" fontWeight="medium">
-                          {appointment.treatment.name}
-                        </Text>
-                        {appointment.treatment.duration && (
-                          <Text fontSize="xs" color={textMuted}>
-                            Duration: {appointment.treatment.duration} mins
-                          </Text>
-                        )}
-                      </VStack>
-                    </HStack>
-                  )}
-                  {appointment.priority && (
-                    <HStack spacing={3} align="start">
-                      <Icon as={FaCalendarAlt} color={textMuted} boxSize={4} mt={0.5} />
-                      <VStack align="start" spacing={0} flex="1">
-                        <Text fontSize="sm" fontWeight="medium">
-                          {appointment.priority.name}
-                        </Text>
-                        {appointment.priority.durationHours && (
-                          <Text fontSize="xs" color={textMuted}>
-                            {appointment.priority.durationHours} hours priority window
-                          </Text>
-                        )}
-                      </VStack>
-                      {appointment.priority.color && (
-                        <Box w={3} h={3} borderRadius="full" bg={appointment.priority.color} />
+              {(() => {
+                const firstSlot = appointment.selectedAppDates?.[0];
+                const treatment = firstSlot?.treatment || appointment.treatment;
+                const priority = firstSlot?.priority || appointment.priority;
+                const duration = firstSlot?.duration || treatment?.duration;
+                
+                if (!treatment) return null;
+                
+                return (
+                  <Box bg={sectionBg} p={4} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
+                    <Text fontSize="sm" fontWeight="bold" mb={3} textTransform="uppercase" letterSpacing="wide">
+                      Treatment Plan
+                    </Text>
+                    <VStack align="stretch" spacing={3}>
+                      {treatment && (
+                        <HStack spacing={3} align="start">
+                          <Icon as={FaNotesMedical} color={textMuted} boxSize={4} mt={0.5} />
+                          <VStack align="start" spacing={0} flex="1">
+                            <Text fontSize="sm" fontWeight="medium">
+                              {treatment.name}
+                            </Text>
+                            {duration && (
+                              <Text fontSize="xs" color={textMuted}>
+                                Duration: {duration} mins
+                              </Text>
+                            )}
+                          </VStack>
+                        </HStack>
                       )}
-                    </HStack>
-                  )}
-                </VStack>
-              </Box>}
+                      {priority && (
+                        <HStack spacing={3} align="start">
+                          <Icon as={FaCalendarAlt} color={textMuted} boxSize={4} mt={0.5} />
+                          <VStack align="start" spacing={0} flex="1">
+                            <Text fontSize="sm" fontWeight="medium">
+                              {priority.name}
+                            </Text>
+                            {priority.durationHours && (
+                              <Text fontSize="xs" color={textMuted}>
+                                {priority.durationHours} hours priority window
+                              </Text>
+                            )}
+                          </VStack>
+                          {priority.color && (
+                            <Box w={3} h={3} borderRadius="full" bg={priority.color} />
+                          )}
+                        </HStack>
+                      )}
+                    </VStack>
+                  </Box>
+                );
+              })()}
 
               {/* Representative Information */}
                   {appointment.representative?.appointment && (
@@ -410,13 +424,19 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
               )}
 
               {/* Providers */}
-              {appointment.providers && appointment.providers.length > 0 && (
-                <Box bg={sectionBg} p={4} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
-                  <Text fontSize="sm" fontWeight="bold" mb={2} textTransform="uppercase" letterSpacing="wide">
-                    Assigned Providers
-                  </Text>
-                  <VStack align="stretch" spacing={2}>
-                    {appointment.providers.map((provider: any, idx: number) => {
+              {(() => {
+                const firstSlot = appointment.selectedAppDates?.[0];
+                const providers = firstSlot?.providers || appointment.providers;
+                
+                if (!providers || providers.length === 0) return null;
+                
+                return (
+                  <Box bg={sectionBg} p={4} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
+                    <Text fontSize="sm" fontWeight="bold" mb={2} textTransform="uppercase" letterSpacing="wide">
+                      Assigned Providers
+                    </Text>
+                    <VStack align="stretch" spacing={2}>
+                      {providers.map((provider: any, idx: number) => {
                       const fullProviderNameRaw = `${provider.firstName || ""} ${provider.lastName || ""}`.trim();
                       if (!fullProviderNameRaw) return null; // hide empty provider rows
                       const fullProviderName = toTitleCase(fullProviderNameRaw);
@@ -445,8 +465,9 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
                       );
                     })}
                   </VStack>
-                </Box>
-              )}
+                  </Box>
+                );
+              })()}
 
               {/* Patient Notes */}
               {appointment.note && (

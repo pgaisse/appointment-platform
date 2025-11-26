@@ -8,6 +8,7 @@ import { HiOutlineClipboardDocumentCheck } from "react-icons/hi2";
 import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
 import { IoSettingsOutline } from "react-icons/io5";
 import { MdHealthAndSafety } from "react-icons/md";
+import { FcGoogle } from "react-icons/fc";
 
 const paths = {
   root: "/",
@@ -21,6 +22,7 @@ const paths = {
   appointmentList: "/appointments/priority-list",
   patientFinder: "/appointments/patient-finder",
   assignedAppointments: "/appointments/assigned-appointments",
+  googleCalendar: "/google-calendar",
   organizer: "/organizer",
   reports: "/reports",
   settings: "/settings",
@@ -76,6 +78,9 @@ export const navLinks: NavLink[] = [
   { key: "appointments.manager", path: paths.appointmentManager, label: "Appointment Manager", icon: LuCalendarCog, show: ["sidebar"], order: 22, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.patientFinder", path: paths.patientFinder, label: "Patient Finder", icon: LuUserRoundSearch, show: ["sidebar"], order: 23, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.assigned", path: paths.assignedAppointments, label: "Assigned Appointments", icon: HiOutlineClipboardDocumentCheck, show: ["sidebar"], order: 24, requireAuth: true, sidebarZone: "main" },
+
+  // Google Calendar
+  { key: "googleCalendar", path: paths.googleCalendar, label: "Google Calendar", icon: FcGoogle, show: ["sidebar"], order: 25, requireAuth: true, sidebarZone: "main" },
 
   // Messages / Organizer (privadas) → header "main", sidebar "main"
   {

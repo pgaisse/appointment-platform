@@ -93,7 +93,11 @@ router.get('/appointments-range', jwtCheck, ensureUser, attachUserInfo, async (r
             status: 1,
             rescheduleRequested: 1,
             confirmation: 1,
-            proposed: 1
+            proposed: 1,
+            // ✨ NUEVO: campos de treatment/priority/duration por slot
+            priority: 1,
+            treatment: 1,
+            duration: 1
           },
           priority: 1,
           treatment: 1
@@ -110,6 +114,16 @@ router.get('/appointments-range', jwtCheck, ensureUser, attachUserInfo, async (r
     }
     if (populate.includes('treatment')) {
       popSpec.push({ path: 'treatment', select: '_id name notes duration icon color minIcon' });
+    }
+    // ✨ NUEVO: populate nested fields en selectedAppDates
+    if (populate.includes('selectedAppDates.priority')) {
+      popSpec.push({ path: 'selectedAppDates.priority', select: 'id description notes durationHours name color' });
+    }
+    if (populate.includes('selectedAppDates.treatment')) {
+      popSpec.push({ path: 'selectedAppDates.treatment', select: '_id name notes duration icon color minIcon category active' });
+    }
+    if (populate.includes('selectedAppDates.providers')) {
+      popSpec.push({ path: 'selectedAppDates.providers', select: '_id firstName lastName email phone' });
     }
     if (popSpec.length) {
       docs = await Appointment.populate(docs, popSpec);

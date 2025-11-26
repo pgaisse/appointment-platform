@@ -65,6 +65,14 @@ const SelectedAppDateSchema = new Schema({
   endDate: { type: Date },
   status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NoContacted },
   rescheduleRequested: { type: Boolean, default: false },
+  
+  // ⬇️ NUEVO: Cada slot tiene su propio treatment, priority, providers y duration
+  treatment: { type: Schema.Types.ObjectId, ref: 'Treatment', default: null },
+  priority: { type: Schema.Types.ObjectId, ref: 'PriorityList', default: null },
+  providers: [{ type: Schema.Types.ObjectId, ref: 'Provider', default: [] }],
+  duration: { type: Number, default: 60 }, // duración en minutos
+  providerNotes: { type: String, default: '' },
+  
   // Sentinel para conservar la ventana ORIGINAL sobre la cual se generó la propuesta
   origin: {
     startDate: { type: Date }, // copia inmutable de startDate previo a la primera propuesta
@@ -110,10 +118,11 @@ const AppointmentsSchema = new Schema({
 
   // Entrada original
   nameInput: String,
+  
   lastNameInput: String,
   emailInput: String,
   // Nota: no usar default '' para permitir documentos sin el campo cuando es dependiente
-  phoneInput: { type: String, index: true },
+  phoneInput: { type: String, index: true }, 
 
   // Normalizados para unicidad
   phoneE164: { type: String, default: '', index: true },
@@ -121,8 +130,12 @@ const AppointmentsSchema = new Schema({
 
   textAreaInput: String,
 
+  // ⬇️ DEPRECATED: treatment, priority y providers movidos a selectedAppDates (cada slot tiene los suyos)
+  // Mantener por compatibilidad temporal durante migración
   treatment: { type: Schema.Types.ObjectId, ref: 'Treatment', default: null },
   priority: { type: Schema.Types.ObjectId, ref: 'PriorityList', default: null },
+  providers: [{ type: Schema.Types.ObjectId, ref: 'Provider', default: [] }],
+  
   note: String,
   color: String,
 
@@ -145,22 +158,117 @@ const AppointmentsSchema = new Schema({
 
   selectedAppDates: { type: [SelectedAppDateSchema], default: [] },
 
-  // DEPRECATED: Per-slot provider assignments (now handled by AppointmentProvider collection)
-  // providersAssignments: [{
-  //   slotId: { type: Schema.Types.ObjectId }, // _id of SelectedAppDate subdocument (filled when available)
-  //   provider: { type: Schema.Types.ObjectId, ref: 'Provider', required: true },
-  //   startDate: { type: Date }, // snapshot of slot start at assignment time
-  //   endDate: { type: Date },   // snapshot of slot end at assignment time
-  //   createdAt: { type: Date, default: Date.now },
-  //   updatedAt: { type: Date, default: Date.now },
-  // }],
-
-  providers: [{ type: Schema.Types.ObjectId, ref: 'Provider', default: [] }],
+  // DEPRECATED: Per-slot provider assignments (now handled by selectedAppDates.providers)
   providerNotes: { type: String, default: '' },
   isProviderLocked: { type: Boolean, default: false },
   location: { type: Schema.Types.ObjectId, ref: 'Location', default: null },
   chair: { type: Schema.Types.ObjectId, ref: 'Chair', default: null },
 }, { timestamps: true });
+
+// ──────────────── Migration Helpers ────────────────
+// 📝 IMPORTANTE: Los campos treatment, priority, providers están DEPRECATED en el root.
+// Ahora cada slot en selectedAppDates tiene sus propios treatment/priority/providers/duration.
+
+/**
+ * Virtual: Devuelve el treatment del primer slot si existe, sino el del root (deprecated)
+ * Útil para compatibilidad durante la migración
+ */
+AppointmentsSchema.virtual('effectiveTreatment').get(function() {
+  return this.selectedAppDates?.[0]?.treatment || this.treatment;
+});
+
+/**
+ * Virtual: Devuelve el priority del primer slot si existe, sino el del root (deprecated)
+ */
+AppointmentsSchema.virtual('effectivePriority').get(function() {
+  return this.selectedAppDates?.[0]?.priority || this.priority;
+});
+
+/**
+ * Virtual: Devuelve los providers del primer slot si existen, sino los del root (deprecated)
+ */
+AppointmentsSchema.virtual('effectiveProviders').get(function() {
+  const slotProviders = this.selectedAppDates?.[0]?.providers;
+  return (slotProviders && slotProviders.length > 0) ? slotProviders : this.providers;
+});
+
+/**
+ * Método de instancia: Migra treatment/priority/providers del root al PRIMER slot únicamente.
+ * Útil para actualizar appointments existentes del formato legacy.
+ */
+AppointmentsSchema.methods.migrateToSlotFields = function() {
+  if (!this.selectedAppDates || this.selectedAppDates.length === 0) {
+    return false;
+  }
+
+  let modified = false;
+  const rootTreatment = this.treatment;
+  const rootPriority = this.priority;
+  const rootProviders = this.providers || [];
+
+  // ⚠️ SOLO migrar al PRIMER slot
+  const firstSlot = this.selectedAppDates[0];
+  
+  if (!firstSlot.treatment && rootTreatment) {
+    firstSlot.treatment = rootTreatment;
+    modified = true;
+  }
+  if (!firstSlot.priority && rootPriority) {
+    firstSlot.priority = rootPriority;
+    modified = true;
+  }
+  if ((!firstSlot.providers || firstSlot.providers.length === 0) && rootProviders.length > 0) {
+    firstSlot.providers = [...rootProviders];
+    modified = true;
+  }
+  if (!firstSlot.duration) {
+    // Intentar obtener duration del treatment si está poblado
+    const treatmentDuration = typeof rootTreatment === 'object' && rootTreatment?.duration
+      ? rootTreatment.duration
+      : 60;
+    firstSlot.duration = treatmentDuration;
+    modified = true;
+  }
+
+  return modified;
+};
+
+/**
+ * Método estático: Migra todos los appointments de una organización
+ * del formato antiguo (campos en root) al nuevo (campos en slots)
+ */
+AppointmentsSchema.statics.migrateBulkToSlotFields = async function(org_id, dryRun = true) {
+  const appointments = await this.find({
+    org_id,
+    selectedAppDates: { $exists: true, $ne: [] }
+  });
+
+  const results = {
+    total: appointments.length,
+    modified: 0,
+    errors: [],
+    dryRun
+  };
+
+  for (const appt of appointments) {
+    try {
+      const wasModified = appt.migrateToSlotFields();
+      if (wasModified) {
+        results.modified++;
+        if (!dryRun) {
+          await appt.save();
+        }
+      }
+    } catch (err) {
+      results.errors.push({
+        appointmentId: appt._id,
+        error: err.message
+      });
+    }
+  }
+
+  return results;
+};
 
 /* ---------- Virtual: provider assignments via AppointmentProvider collection ---------- */
 AppointmentsSchema.virtual('providersAssignments', {

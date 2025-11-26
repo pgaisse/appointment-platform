@@ -15,7 +15,6 @@ import {
   Tag,
   TagLabel,
   Avatar,
-  Grid,
   Button,
   Tooltip,
   useClipboard,
@@ -26,6 +25,11 @@ import {
   Icon,
   Skeleton,
   useDisclosure,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
 } from "@chakra-ui/react";
 import { FiCalendar, FiClock, FiClipboard, FiInfo } from "react-icons/fi";
 import { PhoneIcon } from "@chakra-ui/icons";
@@ -159,14 +163,14 @@ export interface ContactLog {
 const fmtDateTime = (d?: Date | string | number) =>
   d
     ? new Date(d).toLocaleString("en-AU", {
-        timeZone: "Australia/Sydney",
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      })
+      timeZone: "Australia/Sydney",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
     : "—";
 
 function contrastText(hex?: string): string {
@@ -185,7 +189,7 @@ function contrastText(hex?: string): string {
 
 function enrichAvatarColor(color?: string): { bg: string; color: string; borderColor: string } {
   if (!color) return { bg: "gray.500", color: "white", borderColor: "gray.700" };
-  
+
   // Si es un color de Chakra (e.g., "blue", "red")
   if (!color.startsWith('#') && !color.includes('.')) {
     return {
@@ -194,7 +198,7 @@ function enrichAvatarColor(color?: string): { bg: string; color: string; borderC
       borderColor: `${color}.700`,
     };
   }
-  
+
   // Si ya viene con nivel (e.g., "blue.500"), lo mantenemos
   if (color.includes(".")) {
     const [base] = color.split(".");
@@ -204,7 +208,7 @@ function enrichAvatarColor(color?: string): { bg: string; color: string; borderC
       borderColor: `${base}.700`,
     };
   }
-  
+
   // Si es hex, calculamos contraste y añadimos borde oscuro
   const textColor = contrastText(color);
   return {
@@ -260,8 +264,8 @@ const LabeledRow: React.FC<{
     typeof value === "string"
       ? value
       : typeof value === "number"
-      ? String(value)
-      : "";
+        ? String(value)
+        : "";
   const { onCopy } = useClipboard(copyText);
   const sub = useColorModeValue("gray.600", "gray.300");
   return (
@@ -370,6 +374,10 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     { path: "priority", select: "id description notes durationHours name color org_id" },
     { path: "treatment", select: "_id name duration icon minIcon color category active" },
     { path: "providers" },
+    // ✨ NUEVO: populate de campos en cada slot
+    { path: "selectedAppDates.treatment", select: "_id name duration icon minIcon color category active" },
+    { path: "selectedAppDates.priority", select: "id description notes durationHours name color org_id" },
+    { path: "selectedAppDates.providers", select: "_id firstName lastName email phone" },
     { path: "selectedDates.days.timeBlocks", select: "_id org_id blockNumber label short from to" },
     { path: "user", select: "auth0_id name email" },
     // Necesitamos los datos del representante para mostrar el teléfono efectivo
@@ -412,7 +420,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     if (!contacted) return [];
     return (contacted as ContactAppointmentSlim[]).map((log) => {
       const rawSel = log?.selectedAppDate as string | AppointmentSlot | undefined;
-      const selId = typeof rawSel === 'string' ? rawSel : (rawSel as AppointmentSlot | undefined)?. _id ? String((rawSel as AppointmentSlot)._id) : "";
+      const selId = typeof rawSel === 'string' ? rawSel : (rawSel as AppointmentSlot | undefined)?._id ? String((rawSel as AppointmentSlot)._id) : "";
       const populatedApp = log?.appointment as { selectedAppDates?: AppointmentSlot[] } | undefined;
       const list: AppointmentSlot[] = Array.isArray(populatedApp?.selectedAppDates)
         ? populatedApp!.selectedAppDates!
@@ -504,7 +512,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
   return (
     <>
       {/* 🔑 Importante: cuando isProviderOpen === true, este Modal se "cierra" */}
-  <Modal isOpen={isTopOpen && !isProviderOpen} onClose={onClose} size="6xl" closeOnOverlayClick={false}>
+      <Modal isOpen={isTopOpen && !isProviderOpen} onClose={onClose} size="6xl" closeOnOverlayClick={false}>
         <ModalOverlay backdropFilter="blur(6px)" />
         <ModalContent
           overflow="hidden"
@@ -524,9 +532,9 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
           >
             <HStack spacing={4} align="center" justify="space-between">
               <HStack spacing={4} align="center">
-                <Avatar 
-                  name={appointment?.nameInput?.[0] || fullName} 
-                  {...enrichAvatarColor(appointment?.color)} 
+                <Avatar
+                  name={appointment?.nameInput?.[0] || fullName}
+                  {...enrichAvatarColor(appointment?.color)}
                   size="lg"
                   boxShadow="0 2px 8px rgba(0,0,0,0.15)"
                 />
@@ -535,7 +543,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                     <Text fontSize="xl" fontWeight="extrabold">
                       {fullName}
                     </Text>
-                    <PriorityTag priority={appointment?.priority ?? null} />
+
                     {appointment?.unknown ? (
                       <Badge colorScheme="orange" rounded="full">
                         Unknown
@@ -577,7 +585,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
               </HStack>
               {/* 🔗 Acceso rápido al chat desde el header */}
               {appointment && (
-                  <ChatLauncher
+                <ChatLauncher
                   item={appointment}
                   tooltip="Open chat"
                   buildContact={(i: Appointment) => {
@@ -673,83 +681,269 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                 <Skeleton h="220px" />
               </VStack>
             ) : (
-              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={5}>
-                {/* Columna izquierda */}
-                <VStack align="stretch" spacing={5}>
-                  <SectionCard
-                    title={
-                      <HStack>
-                        <Icon as={FiInfo} />
-                        <Text>Treatment</Text>
-                      </HStack>
-                    }
-                    right={
-                      appointment?.treatment?.active === false ? (
-                        <Badge colorScheme="orange" rounded="full">
-                          Inactive
-                        </Badge>
-                      ) : (
-                        <Badge colorScheme="green" rounded="full">
-                          Active
-                        </Badge>
-                      )
-                    }
-                  >
-                    <Grid
-                      templateColumns={{ base: "1fr", sm: "1fr 1fr" }}
-                      gap={4}
-                    >
-                      <LabeledRow label="Name" value={appointment?.treatment?.name} />
-                      <LabeledRow
-                        label="Duration"
-                        value={
-                          appointment?.treatment?.duration
-                            ? `${appointment?.treatment?.duration} min`
-                            : "—"
-                        }
-                      />
-                      <LabeledRow
-                        label="Category"
-                        value={appointment?.treatment?.category}
-                      />
+              <VStack align="stretch" spacing={5} w="full">
+                {/* Selected Appointment Dates - Full Width con Tabs */}
+                <SectionCard
+                  title={
+                    <HStack>
+                      <Icon as={FiCalendar} />
+                      <Text>Selected Appointment Dates</Text>
+                    </HStack>
+                  }
+                  
+                >
+                  {(appointment?.selectedAppDates ?? []).length === 0 ? (
+                    <Text>—</Text>
+                  ) : (
+                    <>
+                      {(() => {
+                                const display = pickDisplaySlot(appointment?.selectedAppDates ?? []);
+                                // (removed unused oidTime helper)
 
-                      {/* ——— Provider como links (abre ProviderSummaryModal lazy) ——— */}
-                      <LabeledRow
-                        label="Provider"
-                        value={
-                          appointment?.providers && appointment.providers.length ? (
-                            <Wrap>
-                              {appointment.providers.map((p: Provider) => {
-                                const name = `${capitalize(p.firstName)} ${capitalize(p.lastName)}`.trim() || "Provider";
+                                // 1) Ordenar SOLO por updatedAt (más reciente primero). Si falta updatedAt, tratamos como 0.
+                                const updatedAtTs = (s: any): number => {
+                                  if (s?.updatedAt) {
+                                    const t = new Date(s.updatedAt).getTime();
+                                    return Number.isFinite(t) ? t : 0;
+                                  }
+                                  return 0;
+                                };
+
+                                const sorted = [...(appointment?.selectedAppDates ?? [])]
+                                  .sort((a: any, b: any) => updatedAtTs(b) - updatedAtTs(a));
+
+                                // 2) Deduplicar por rango top-level (startDate-endDate) conservando el más reciente
+                                const seen = new Set<string>();
+                                const deduped = [] as any[];
+                                for (const s of sorted) {
+                                  const hasTopDates = s?.startDate && s?.endDate;
+                                  const key = hasTopDates
+                                    ? `${new Date(s.startDate as any).getTime()}|${new Date(s.endDate as any).getTime()}`
+                                    : `__unique__${String((s as any)?._id ?? Math.random())}`; // si no hay ambas fechas, no deduplicamos
+                                  if (seen.has(key)) continue;
+                                  seen.add(key);
+                                  deduped.push(s);
+                                }
+
+                                // 3) Asegurar orden final: más reciente arriba
+                                const finalList = deduped.sort((a: any, b: any) => updatedAtTs(b) - updatedAtTs(a));
+
                                 return (
-                                  <WrapItem key={String((p as any)._id ?? name)}>
-                                    <Button
-                                      variant="link"
-                                      size="sm"
-                                      colorScheme="teal"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openProvider(p);
-                                      }}
-                                    >
-                                      {name}
-                                    </Button>
-                                  </WrapItem>
-                                );
-                              })}
-                            </Wrap>
-                          ) : (
-                            "—"
-                          )
-                        }
-                      />
+                                  <Tabs isLazy colorScheme="purple" w="full">
+                                    <TabList overflowX="auto" overflowY="hidden">
+                                      {finalList.map((it: any, idx: number) => {
+                                        const s = getSlotStart(it);
+                                        const e = getSlotEnd(it);
+                                        const startVal = s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate;
+                                        const endVal = e ?? it?.endDate ?? it?.propEndDate ?? it?.proposed?.endDate;
+                                        const displayId = display ? String((display as any)?._id ?? "") : "";
+                                        const isLatest = String(it?._id ?? '') === displayId;
+                                        
+                                        let dateLabel = "—";
+                                        if (startVal && endVal) {
+                                          try {
+                                            const start = new Date(startVal);
+                                            dateLabel = start.toLocaleDateString("en-AU", {
+                                              day: "numeric",
+                                              month: "short",
+                                              year: "numeric"
+                                            });
+                                          } catch {
+                                            dateLabel = `Slot ${idx + 1}`;
+                                          }
+                                        } else {
+                                          dateLabel = `Slot ${idx + 1}`;
+                                        }
 
-                      <HStack>
-                        <LabeledRow label="Color" value={appointment?.treatment?.color} />
-                        <ColorSwatch color={appointment?.treatment?.color} />
-                      </HStack>
-                    </Grid>
-                  </SectionCard>
+                                        return (
+                                          <Tab key={it?._id ?? idx} whiteSpace="nowrap">
+                                            <HStack spacing={2}>
+                                              <Text>{dateLabel}</Text>
+                                              {isLatest && (
+                                                <Badge colorScheme="blue" variant="subtle" rounded="full" fontSize="xx-small">
+                                                  Latest
+                                                </Badge>
+                                              )}
+                                            </HStack>
+                                          </Tab>
+                                        );
+                                      })}
+                                    </TabList>
+                                    <TabPanels>
+                                      {finalList.map((it: any, idx: number) => {
+                                        const s = getSlotStart(it);
+                                        const e = getSlotEnd(it);
+                                        // Determinar un status efectivo si falta el campo
+                                        const rawStatusOriginal = it?.status;
+                                        let effectiveStatus = rawStatusOriginal;
+                                        if (!effectiveStatus || !String(effectiveStatus).trim()) {
+                                          // Si tiene propuesta y aún no hay confirmación => Pending
+                                          if (it?.proposed && !it?.confirmation) {
+                                            effectiveStatus = 'Pending';
+                                          } else if (it?.confirmation?.status) {
+                                            effectiveStatus = it.confirmation.status;
+                                          } else {
+                                            effectiveStatus = 'Unknown';
+                                          }
+                                        }
+                                        const rawStatus = effectiveStatus ?? 'Unknown';
+                                        const sk = statusKey(rawStatus);
+                                        const colorSchemeMap: Record<string, string> = {
+                                          confirmed: 'green',
+                                          declined: 'red',
+                                          rejected: 'red',
+                                          reschedule: 'orange',
+                                          pending: 'purple',
+                                          nocontacted: 'gray',
+                                          'no contacted': 'gray',
+                                          unknown: 'gray',
+                                        };
+                                        const colorScheme = colorSchemeMap[sk] ?? 'gray';
+                                        console.log("it", it)
+
+                                        // ✨ Obtener datos específicos del slot
+                                        const slotTreatment = it?.treatment;
+                                        const slotPriority = it?.priority;
+                                        const slotProviders = it?.providers || [];
+                                        const slotDuration = it?.duration;
+
+                                        return (
+                                          <TabPanel key={it?._id ?? idx} px={0}>
+                                            <VStack align="stretch" spacing={4}>
+                                              {/* Status y Badges */}
+                                              <HStack justify="flex-start" align="center" flexWrap="wrap" spacing={2}>
+                                                <Tooltip label={`Created at ${fmtDateTime(it?.updatedAt)}`}>
+                                                  <Badge rounded="full" colorScheme={colorScheme} fontSize="sm" px={3} py={1}>
+                                                    {capStatus(rawStatus)}
+                                                  </Badge>
+                                                </Tooltip>
+                                                {it?.rescheduleRequested && (
+                                                  <Badge colorScheme="orange" rounded="full" fontSize="sm" px={3} py={1}>
+                                                    Reschedule requested
+                                                  </Badge>
+                                                )}
+                                              </HStack>
+
+                                              {/* Contenido en Grid */}
+                                              <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
+                                                <LabeledRow
+                                                  icon={FiClock}
+                                                  label="Range"
+                                                  value={(() => {
+                                                    const startVal = s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate;
+                                                    const endVal = e ?? it?.endDate ?? it?.propEndDate ?? it?.proposed?.endDate;
+                                                    if (startVal && endVal) {
+                                                      try {
+                                                        return formatDateWS({ startDate: new Date(startVal), endDate: new Date(endVal) });
+                                                      } catch {
+                                                        return "—";
+                                                      }
+                                                    }
+                                                    return "—";
+                                                  })()}
+                                                />
+
+                                                {/* ✨ Treatment del slot */}
+                                                {slotTreatment ? (
+                                                  <LabeledRow
+                                                    label="Treatment"
+                                                    value={
+                                                      <HStack spacing={2}>
+                                                        <Text fontWeight="semibold">{slotTreatment.name}</Text>
+                                                        {slotTreatment.active === false && (
+                                                          <Badge colorScheme="orange" size="sm">Inactive</Badge>
+                                                        )}
+                                                      </HStack>
+                                                    }
+                                                  />
+                                                ) : null}
+
+                                                {/* ✨ Priority del slot */}
+                                                {slotPriority ? (
+                                                  <LabeledRow
+                                                    label="Priority"
+                                                    value={<PriorityTag priority={slotPriority} />}
+                                                  />
+                                                ) : null}
+
+                                                {/* ✨ Duration del slot */}
+                                                {slotDuration ? (
+                                                  <LabeledRow
+                                                    label="Duration"
+                                                    value={`${slotDuration} min`}
+                                                  />
+                                                ) : null}
+
+                                                {/* ✨ Providers del slot */}
+                                                {slotProviders.length > 0 ? (
+                                                  <LabeledRow
+                                                    label="Providers"
+                                                    value={
+                                                      <Wrap>
+                                                        {slotProviders.map((p: Provider) => {
+                                                          const name = `${capitalize(p.firstName)} ${capitalize(p.lastName)}`.trim() || "Provider";
+                                                          return (
+                                                            <WrapItem key={String((p as any)._id ?? name)}>
+                                                              <Button
+                                                                variant="link"
+                                                                size="sm"
+                                                                colorScheme="teal"
+                                                                onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  openProvider(p);
+                                                                }}
+                                                              >
+                                                                {name}
+                                                              </Button>
+                                                            </WrapItem>
+                                                          );
+                                                        })}
+                                                      </Wrap>
+                                                    }
+                                                  />
+                                                ) : null}
+                                              </SimpleGrid>
+
+                                              {/* Información adicional */}
+                                              {(it?.proposed || it?.confirmation) && (
+                                                <VStack align="stretch" spacing={2} mt={2}>
+                                                  {it?.proposed && (
+                                                    <Box>
+                                                      <Text fontSize="xs" color={sub}>
+                                                        {it?.confirmation?.sentAt ? `Sent at: ${fmtDateTime(it?.confirmation?.sentAt)}` : ""}
+                                                        {it?.proposed?.createdAt ? ` · ${fmtDateTime(it?.proposed.createdAt)}` : ""}
+                                                      </Text>
+                                                      {it?.proposed?.reason && (
+                                                        <Text fontSize="sm">Reason: {it?.proposed.reason}</Text>
+                                                      )}
+                                                    </Box>
+                                                  )}
+                                                  {it?.confirmation && (
+                                                    <Box>
+                                                      <Text fontSize="xs" color={sub}>
+                                                        Decided at: {fmtDateTime(it?.confirmation.decidedAt)}
+                                                        {it?.confirmation.lateResponse ? " · Late response" : ""}
+                                                      </Text>
+                                                    </Box>
+                                                  )}
+                                                </VStack>
+                                              )}
+                                            </VStack>
+                                          </TabPanel>
+                                        );
+                                      })}
+                                    </TabPanels>
+                                  </Tabs>
+                                );
+                              })()}
+                    </>
+                  )}
+                </SectionCard>
+
+                {/* Sección de Notes */}
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={5}>
+                  <VStack align="stretch" spacing={5}>
+                  
 
                   <SectionCard
                     title={
@@ -781,7 +975,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                       </HStack>
                     }
                     right={(() => {
-                      console.log("contacted",contacted)
+                      console.log("contacted", contacted)
                       const list = (contactedSlim ?? []) as any[];
                       const total = list.length;
                       const confirmed = list.filter((l) => statusKey((l as any).status) === "confirmed").length;
@@ -825,20 +1019,20 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                                   const bg = isConfirmed
                                     ? "green.100"
                                     : isPending
-                                    ? "purple.100"
-                                    : isRejected
-                                    ? "red.100"
-                                    : "gray.100";
+                                      ? "purple.100"
+                                      : isRejected
+                                        ? "red.100"
+                                        : "gray.100";
                                   const color = isConfirmed
                                     ? "green.800"
                                     : isPending
-                                    ? "purple.800"
-                                    : isRejected
-                                    ? "red.800"
-                                    : "gray.800";
+                                      ? "purple.800"
+                                      : isRejected
+                                        ? "red.800"
+                                        : "gray.800";
                                   return (
                                     <Badge rounded="xl" px={2} py={1} bg={bg} color={color} fontSize="xs" fontWeight="bold" textTransform="uppercase">
-                                        {capStatus(status)}
+                                      {capStatus(status)}
                                     </Badge>
                                   );
                                 })()}
@@ -972,222 +1166,68 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                       </VStack>
                     )}
                   </SectionCard>
-                </VStack>
+                  </VStack>
 
-                {/* Columna derecha */}
-                <VStack align="stretch" spacing={5}>
-                  <SectionCard
-                    title={
-                      <HStack>
-                        <Icon as={FiCalendar} />
-                        <Text>Selected Appointment Dates</Text>
-                      </HStack>
-                    }
-                    right={
-                      <Badge
-                        colorScheme={appointment?.reschedule ? "orange" : "purple"}
-                        rounded="full"
-                      >
-                        {appointment?.reschedule ? "Reschedule" : "New"}
-                      </Badge>
-                    }
-                  >
-                    <VStack align="stretch" spacing={3}>
-                      {(appointment?.selectedAppDates ?? []).length === 0 ? (
-                        <Text>—</Text>
-                      ) : (
-                        <>
-                          {/* Timeline list: Latest is indicated inline with a blue badge, same style as others */}
-                          <Box maxH="320px" overflowY="auto" pr={1}
-                            sx={{ "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-thumb": { backgroundColor: "#a0aec0", borderRadius: "4px" }, "&::-webkit-scrollbar-track": { backgroundColor: "#edf2f7" } }}
-                          >
-                            <VStack align="stretch" spacing={2}>
-                              {(() => {
-                                const display = pickDisplaySlot(appointment?.selectedAppDates ?? []);
-                                const displayId = display ? String((display as any)?._id ?? "") : "";
-                                // (removed unused oidTime helper)
-
-                                // 1) Ordenar SOLO por updatedAt (más reciente primero). Si falta updatedAt, tratamos como 0.
-                                const updatedAtTs = (s: any): number => {
-                                  if (s?.updatedAt) {
-                                    const t = new Date(s.updatedAt).getTime();
-                                    return Number.isFinite(t) ? t : 0;
-                                  }
-                                  return 0;
-                                };
-
-                                const sorted = [...(appointment?.selectedAppDates ?? [])]
-                                  .sort((a: any, b: any) => updatedAtTs(b) - updatedAtTs(a));
-
-                                // 2) Deduplicar por rango top-level (startDate-endDate) conservando el más reciente
-                                const seen = new Set<string>();
-                                const deduped = [] as any[];
-                                for (const s of sorted) {
-                                  const hasTopDates = s?.startDate && s?.endDate;
-                                  const key = hasTopDates
-                                    ? `${new Date(s.startDate as any).getTime()}|${new Date(s.endDate as any).getTime()}`
-                                    : `__unique__${String((s as any)?._id ?? Math.random())}`; // si no hay ambas fechas, no deduplicamos
-                                  if (seen.has(key)) continue;
-                                  seen.add(key);
-                                  deduped.push(s);
-                                }
-
-                                // 3) Asegurar orden final: más reciente arriba
-                                const finalList = deduped.sort((a: any, b: any) => updatedAtTs(b) - updatedAtTs(a));
-
-                                return finalList
-                                .map((it: any, idx: number) => {
-                                  const s = getSlotStart(it);
-                                  const e = getSlotEnd(it);
-                                  // Determinar un status efectivo si falta el campo
-                                  const rawStatusOriginal = it?.status;
-                                  let effectiveStatus = rawStatusOriginal;
-                                  if (!effectiveStatus || !String(effectiveStatus).trim()) {
-                                    // Si tiene propuesta y aún no hay confirmación => Pending
-                                    if (it?.proposed && !it?.confirmation) {
-                                      effectiveStatus = 'Pending';
-                                    } else if (it?.confirmation?.status) {
-                                      effectiveStatus = it.confirmation.status;
-                                    } else {
-                                      effectiveStatus = 'Unknown';
-                                    }
-                                  }
-                                  const rawStatus = effectiveStatus ?? 'Unknown';
-                                  const sk = statusKey(rawStatus);
-                                  const colorSchemeMap: Record<string, string> = {
-                                    confirmed: 'green',
-                                    declined: 'red',
-                                    rejected: 'red',
-                                    reschedule: 'orange',
-                                    pending: 'purple',
-                                    nocontacted: 'gray',
-                                    'no contacted': 'gray',
-                                    unknown: 'gray',
-                                  };
-                                  const colorScheme = colorSchemeMap[sk] ?? 'gray';
-                                  console.log("it",it)
-                                  const isLatest = String(it?._id ?? '') === displayId; // mark display slot as Latest
-                                  return (
-                                    <Box key={it?._id ?? idx} border="1px solid" borderColor={border} rounded="xl" p={3}>
-                                      <HStack justify="space-between" align="center" mb={1}>
-                                        <HStack spacing={2}>
-                                          <Tooltip  label={`Create at ${fmtDateTime(it?.updatedAt)}`}   ><Badge rounded="full" colorScheme={colorScheme}>{capStatus(rawStatus)}</Badge></Tooltip>
-                                          {it?.rescheduleRequested ? (
-                                            <Badge colorScheme="orange" rounded="full">Reschedule requested</Badge>
-                                          ) : null}
-                                          {isLatest ? (
-                                            <Badge colorScheme="blue" variant="subtle" rounded="full">Latest</Badge>
-                                          ) : null}
-                                        </HStack>
-                       
-                                      </HStack>
-                                      <VStack align="stretch" spacing={2}>
-                                        <LabeledRow
-                                          icon={FiClock}
-                                          label="Range"
-                                          value={(() => {
-                                            const startVal = s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate;
-                                            const endVal = e ?? it?.endDate ?? it?.propEndDate ?? it?.proposed?.endDate;
-                                            if (startVal && endVal) {
-                                              try {
-                                                return formatDateWS({ startDate: new Date(startVal), endDate: new Date(endVal) });
-                                              } catch {
-                                                return "—";
-                                              }
-                                            }
-                                            return "—";
-                                          })()}
-                                        />
-                                       
-                                      </VStack>
-                                      {it?.proposed && (
-                                        <Box mt={2}>
-                                          <Text fontSize="xs" color={sub}>
-                                            {it?.confirmation?.sentAt ? `Sent at: ${fmtDateTime(it?.confirmation?.sentAt)}` : ""}
-                                            {it?.proposed?.createdAt ? ` · ${fmtDateTime(it?.proposed.createdAt)}` : ""}
-                                          </Text>
-                                          {it?.proposed?.reason && (
-                                            <Text fontSize="sm">Reason: {it?.proposed.reason}</Text>
-                                          )}
-                                        </Box>
-                                      )}
-                                      {it?.confirmation && (
-                                        <Box mt={2}>
-                                          <Text fontSize="xs" color={sub}>
-                                            Decided at: {fmtDateTime(it?.confirmation.decidedAt)}
-                                            {it?.confirmation.lateResponse ? " · Late response" : ""}
-                                          </Text>
-                                         
-                                        </Box>
-                                      )}
-                                    </Box>
-                                  );
-                                })
-                              })()}
-                            </VStack>
-                          </Box>
-                        </>
-                      )}
-                    </VStack>
-                  </SectionCard>
-
-                  <SectionCard
-                    title={
-                      <HStack>
-                        <Icon as={FiCalendar} />
-                        <Text>Selected Dates Pattern</Text>
-                      </HStack>
-                    }
-                  >
-                    <VStack align="stretch" spacing={3}>
-                      <VStack align="stretch" spacing={2}>
-                        <LabeledRow
-                          label="Range"
-                          value={(() => {
-                            const s = appointment?.selectedDates?.startDate;
-                            const e = appointment?.selectedDates?.endDate;
-                            return s && e
-                              ? formatDateWS({ startDate: new Date(s as any), endDate: new Date(e as any) })
-                              : "—";
-                          })()}
-                        />
+                  {/* Columna derecha - Selected Dates Pattern */}
+                  <VStack align="stretch" spacing={5}>
+                    <SectionCard
+                      title={
+                        <HStack>
+                          <Icon as={FiCalendar} />
+                          <Text>Selected Dates Pattern</Text>
+                        </HStack>
+                      }
+                    >
+                      <VStack align="stretch" spacing={3}>
+                        <VStack align="stretch" spacing={2}>
+                          <LabeledRow
+                            label="Range"
+                            value={(() => {
+                              const s = appointment?.selectedDates?.startDate;
+                              const e = appointment?.selectedDates?.endDate;
+                              return s && e
+                                ? formatDateWS({ startDate: new Date(s as any), endDate: new Date(e as any) })
+                                : "—";
+                            })()}
+                          />
+                        </VStack>
+                        <VStack align="stretch" spacing={2}>
+                          {(appointment?.selectedDates?.days ?? []).map((d, idx) => (
+                            <HStack
+                              key={idx}
+                              justify="space-between"
+                              border="1px solid"
+                              borderColor={border}
+                              rounded="lg"
+                              p={2}
+                            >
+                              <Text fontWeight="semibold" w="150px">
+                                {(d as any).weekDay}
+                              </Text>
+                              <Wrap>
+                                {((d as any).timeBlocks ?? []).map((tb: TimeBlock, j: number) => (
+                                  <WrapItem key={j}>
+                                    <Tag
+                                      size="sm"
+                                      variant="subtle"
+                                      colorScheme="purple"
+                                      rounded="full"
+                                    >
+                                      <TagLabel>{`${tb.short || tb.label}: ${to12Hour(
+                                        tb.from
+                                      )} — ${to12Hour(tb.to)}`}</TagLabel>
+                                    </Tag>
+                                  </WrapItem>
+                                ))}
+                              </Wrap>
+                            </HStack>
+                          ))}
+                        </VStack>
                       </VStack>
-                      <VStack align="stretch" spacing={2}>
-                        {(appointment?.selectedDates?.days ?? []).map((d, idx) => (
-                          <HStack
-                            key={idx}
-                            justify="space-between"
-                            border="1px solid"
-                            borderColor={border}
-                            rounded="lg"
-                            p={2}
-                          >
-                            <Text fontWeight="semibold" w="150px">
-                              {(d as any).weekDay}
-                            </Text>
-                            <Wrap>
-                              {((d as any).timeBlocks ?? []).map((tb: TimeBlock, j: number) => (
-                                <WrapItem key={j}>
-                                  <Tag
-                                    size="sm"
-                                    variant="subtle"
-                                    colorScheme="purple"
-                                    rounded="full"
-                                  >
-                                    <TagLabel>{`${tb.short || tb.label}: ${to12Hour(
-                                      tb.from
-                                    )} — ${to12Hour(tb.to)}`}</TagLabel>
-                                  </Tag>
-                                </WrapItem>
-                              ))}
-                            </Wrap>
-                          </HStack>
-                        ))}
-                      </VStack>
-                    </VStack>
-                  </SectionCard>
-                </VStack>
-              </SimpleGrid>
+                    </SectionCard>
+                  </VStack>
+                </SimpleGrid>
+              </VStack>
             )}
           </ModalBody>
 
@@ -1211,7 +1251,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
       {selectedProvider && (
         <Suspense
           fallback={
-            <Modal isOpen={isProviderOpen} onClose={() => {}} isCentered>
+            <Modal isOpen={isProviderOpen} onClose={() => { }} isCentered>
               <ModalOverlay />
               <ModalContent>
                 <ModalBody p={6}>
@@ -1243,7 +1283,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
       {rep && (
         <Suspense
           fallback={
-            <Modal isOpen={isRepOpen} onClose={() => {}} isCentered>
+            <Modal isOpen={isRepOpen} onClose={() => { }} isCentered>
               <ModalOverlay />
               <ModalContent>
                 <ModalBody p={6}>

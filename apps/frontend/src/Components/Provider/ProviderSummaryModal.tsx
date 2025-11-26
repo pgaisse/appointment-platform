@@ -73,6 +73,7 @@ import { Provider } from "@/types";
 // Carga perezosa para evitar ciclos estáticos con AppointmentModal ⇄ ProviderSummaryModal
 const AppointmentModalLazy = React.lazy(() => import("../Modal/AppointmentModal"));
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
+import { capitalize } from "@/utils/textFormat";
 
 /* ====================================================================== */
 /* Tipos y constantes                                                      */
@@ -529,7 +530,7 @@ export default function ProviderSummaryModal({
     isFetching: _apptsLoading,
     error: apptsError,
   } = useProviderAppointments(provider?._id, weekParams);
-
+console.log("appts",appts)
   const { data: timeOff = [], isFetching: timeOffLoading } = useProviderTimeOff(
     provider?._id,
     { from: weekParams.from, to: weekParams.to }
@@ -640,12 +641,12 @@ export default function ProviderSummaryModal({
                 {provider?.acceptingNewPatients ? (
                   <Badge colorScheme="green">ACCEPTING NEW PATIENTS</Badge>
                 ) : (
-                  <Badge>Not accepting new</Badge>
+                  <Badge colorScheme="orange">NOT ACCEPTING NEW PATIENTS</Badge>
                 )}
                 {provider?.isActive ? (
                   <Badge colorScheme="green">ACTIVE</Badge>
                 ) : (
-                  <Badge>Inactive</Badge>
+                  <Badge colorScheme="gray">INACTIVE</Badge>
                 )}
               </HStack>
             </VStack>

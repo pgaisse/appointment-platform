@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import ProviderPerDate, { type PendingAssignment } from "./ProviderPerDate";
+import AppointmentSlotEditor, { type PendingAssignment } from "./AppointmentSlotEditor";
 import { useCreateAppointmentProvider, type CreateAppointmentProviderData } from "@/Hooks/Query/useAppointmentProviders";
 
 import DOMPurify from "dompurify";
@@ -43,7 +43,7 @@ import {
   SimpleGrid,
   Spinner,
   Tag,
-  TagLabel,
+  // REMOVED: TagLabel - not used
   InputGroup,
   InputLeftElement,
   Text,
@@ -56,6 +56,13 @@ import {
   Avatar,
   useDisclosure,
   useToast,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverHeader,
+  PopoverBody,
+  PopoverArrow,
+  Portal,
 } from "@chakra-ui/react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -80,7 +87,7 @@ import {
   MdExpandMore,
   MdExpandLess,
 } from "react-icons/md";
-import CustomButtonGroup from "../Form/CustomButtonGroup";
+// REMOVED: CustomButtonGroup, TreatmentSelector, useProvidersList - not used, improved performance
 import CustomCheckbox from "../Form/CustomCheckbox";
 import CustomTextArea from "../Form/CustomTextArea";
 import { DateRange } from "./CustomBestApp";
@@ -99,10 +106,8 @@ import {
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
 import AvailabilityDates2 from "./AvailabilityDates2";
 import { useInsertToCollection } from "@/Hooks/Query/useInsertToCollection";
-import { TreatmentSelector } from "../Treatments/TreatmentSelector";
 import PhoneInput from "../Form/PhoneInput";
 import { ContactForm, contactsSchema } from "@/schemas/ContactSchema";
-import { useProvidersList } from "@/Hooks/Query/useProviders";
 // Provider availability hooks removed (now handled inside ProviderPerDate)
 // Server-side suggest types no longer used (multi-window handled client-side)
 import CustomCalendarEntryForm from "../Scheduler/CustomCalendarEntryForm";
@@ -122,6 +127,8 @@ import CreateMessageModal from "../Chat/CustomMessages/CreateCustomMessageModal2
 // ⬇️ SMS hook
 import { useSendAppointmentSMS } from "@/Hooks/Query/useSendAppointmentSMS";
 import ShowTemplateButtonWithData from "../Chat/CustomMessages/ShowTemplateButtonWithData";
+import { TreatmentPopoverSelector } from "../Treatments/TreatmentPopoverSelector";
+import { PriorityPopoverSelector } from "../Form/PriorityPopoverSelector";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -389,8 +396,10 @@ function CustomEntryForm({
   // REMOVED: providersAssignments: providersAssignmentsProp,
 }: Props) {
   const topRef = useRef<HTMLDivElement | null>(null);
-  const { data: allProviders = [] } = useProvidersList({ active: true });
+  // REMOVED: allProviders query - not used, was causing unnecessary re-renders
   const { onOpen: onOpenApp, onClose: onCloseApp, isOpen: isOpenApp } =
+    useDisclosure();
+  const { isOpen: isOpenDates, onOpen: onOpenDates, onClose: onCloseDates } =
     useDisclosure();
   const [isAnAppointment, setIsAnAppointment] = useState(!onlyPatient);
   const onToggle = useCallback(() => setIsAnAppointment((s) => !s), []);
@@ -453,7 +462,7 @@ function CustomEntryForm({
     [checkPhoneUnique, isCreation]
   );
 
-  const validateTwilioWindowStrict = (d: dayjs.Dayjs | null) => {
+  const validateTwilioWindowStrict = useCallback((d: dayjs.Dayjs | null) => {
     if (!d || !d.isValid()) return { ok: false, error: "invalid" as const };
     const now = dayjs().tz(SYD_TZ).second(0).millisecond(0);
     const minsAhead = d.diff(now, "minute", true);
@@ -461,15 +470,18 @@ function CustomEntryForm({
     if (minsAhead < 15) return { ok: false, error: "tooSoon" as const };
     if (daysAhead > 35) return { ok: false, error: "tooFar" as const };
     return { ok: true as const };
-  };
+  }, []);
 
-  // normaliza representative para defaultValues
-  const normalizedRepresentative: Representative | undefined = representative
-    ? ({
-      ...representative,
-      appointment: normalizeId((representative as any).appointment) || "",
-    } as unknown as Representative)
-    : undefined;
+  // normaliza representative para defaultValues - memoizado
+  const normalizedRepresentative: Representative | undefined = useMemo(
+    () => representative
+      ? ({
+        ...representative,
+        appointment: normalizeId((representative as any).appointment) || "",
+      } as unknown as Representative)
+      : undefined,
+    [representative]
+  );
 
   const {
     register,
@@ -723,7 +735,7 @@ function CustomEntryForm({
   useEffect(() => {
     if (!isCreation) return;
 
-    // Subscribe directly to the field changes instead of using watch
+    // Subscribe directly to phoneInput field only - optimized for performance
     const subscription = watch((value, { name }) => {
       // Only process phoneInput changes
       if (name !== "phoneInput") return;
@@ -731,7 +743,7 @@ function CustomEntryForm({
       const raw = String(value.phoneInput ?? "").replace(/\s+/g, "");
       if (phoneTimerRef.current) clearTimeout(phoneTimerRef.current);
 
-      phoneTimerRef.current = setTimeout(async () => {
+      phoneTimerRef.current = setTimeout(async () =>{
         const repId = (getValues("representative") as any)?.appointment;
         if ((isChild || !!repId) && !raw) {
           const errType = getFieldState("phoneInput").error?.type;
@@ -793,31 +805,33 @@ function CustomEntryForm({
   ]);
 
   const appointmentErrors = errors as FieldErrors<AppointmentForm>;
-  const [duration, setDuration] = useState<number>(
-    priorityVal?.durationHours || 0
-  );
-  const [, setIdpriority] = useState<string>("");
-  const [color, setColor] = useState<string>("");
-  const [, setTreatment] = useState<Treatment | undefined>(treatmentBack);
-  const [selected, setSelected] = useState<number>(priorityVal?.id ?? -1);
-  const [selectedTreatment] = useState<number>(priorityVal?.id ?? -1);
+  const [duration, setDuration] = useState<number>(0); // Duration is set manually, not from priority
+  // REMOVED: unused state variables - setIdpriority, color, treatment, priority, selected, selectedTreatment
+  // These were causing unnecessary re-renders
 
   useEffect(() => {
     if (!priorityVal) return;
-    const current = getValues("priority") as unknown as string | undefined;
     const next = (priorityVal as any)._id ?? "";
-    if (!current && next) {
+    if (next) {
       setValue("priority", next, { shouldDirty: false, shouldTouch: false });
-      trigger("priority");
     }
-  }, [priorityVal, getValues, setValue, trigger]);
+    // Solo ejecutar al montar o cuando priorityVal cambie
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priorityVal?._id]);
 
+  // Ref para tracking de cambios previos
+  const prevProviderIdsRef = useRef<string>("");
+  
   useEffect(() => {
-    if (mode === "EDITION") {
-      setValue("providers", providerIdsFromProps, {
-        shouldDirty: false,
-        shouldTouch: false,
-      });
+    if (mode === "EDITION" && providerIdsFromProps.length > 0) {
+      const currentIds = providerIdsFromProps.join(",");
+      if (prevProviderIdsRef.current !== currentIds) {
+        prevProviderIdsRef.current = currentIds;
+        setValue("providers", providerIdsFromProps, {
+          shouldDirty: false,
+          shouldTouch: false,
+        });
+      }
     }
   }, [mode, providerIdsFromProps, setValue]);
 
@@ -842,7 +856,9 @@ function CustomEntryForm({
   // Appointment window (single) deprecated: we now compute allAppointmentWindows instead
 
   const appointmentStartLocal = useMemo(() => {
+    if (!selectedAppDates?.length) return null;
     const latest = getLatestSelectedAppDate(selectedAppDates as any);
+    if (!latest) return null;
     const start = (latest as any)?.startDate ?? (latest as any)?.propStartDate ?? (latest as any)?.proposed?.startDate;
     return start ? dayjs.utc(start).tz(SYD_TZ) : null;
   }, [selectedAppDates]);
@@ -862,8 +878,9 @@ function CustomEntryForm({
 
   dayjs.extend(customParseFormat);
 
-  const fmtHuman = (d: dayjs.Dayjs | null) =>
-    d && d.isValid() ? d.tz(SYD_TZ).format("ddd, DD MMM YYYY • h:mm A") : "—";
+  const fmtHuman = useCallback((d: dayjs.Dayjs | null) =>
+    d && d.isValid() ? d.tz(SYD_TZ).format("ddd, DD MMM YYYY • h:mm A") : "—",
+  []);
 
   // Recordatorio calculado a partir del turno y el offset
   const selectedReminder = useMemo(() => {
@@ -875,7 +892,7 @@ function CustomEntryForm({
   }, [reminderEnabled, appointmentStartLocal, reminderOffsetH]);
 
   // Validación/ajuste ventana Twilio
-  const enforceTwilioWindow = (d: dayjs.Dayjs | null) => {
+  const enforceTwilioWindow = useCallback((d: dayjs.Dayjs | null) => {
     if (!d || !d.isValid()) return { ok: false as const, error: "invalid" as const };
 
     const now = dayjs().tz(SYD_TZ).second(0).millisecond(0);
@@ -895,7 +912,7 @@ function CustomEntryForm({
       isoUtc: chosen.toDate().toISOString(),
       adjusted,
     };
-  };
+  }, []);
 
   // Opciones (1..5h) y bloqueo si no hay tiempo suficiente para Twilio
   const REMINDER_OPTIONS = [1, 2, 3, 4, 5] as const;
@@ -913,7 +930,7 @@ function CustomEntryForm({
     return map;
   }, [appointmentStartLocal]);
 
-  // Trigger estable para CreateMessageModal
+  // Trigger estable para CreateMessageModal - memoizado para prevenir re-renders
   const createTemplateTrigger = useMemo(
     () => (
       <IconButton
@@ -928,63 +945,52 @@ function CustomEntryForm({
     ),
     []
   );
-  const formId = watch("id");
   const [createdIdState, setCreatedIdState] = useState<string | undefined>();
   const validPatientIdForTemplates = useMemo(() => {
-    const raw = createdIdState ?? (formId as string | undefined) ?? idVal;
+    const raw = createdIdState ?? idVal;
     return raw && isObjectId(raw) ? raw : undefined;
-  }, [createdIdState, formId, idVal]);
+  }, [createdIdState, idVal]);
 
 
   // Datos que usarán las plantillas cuando aún no hay _id en BD
   // Snapshot ligero de campos para plantillas, sólo cuando el panel está abierto
   const [tokensSnapshot, setTokensSnapshot] = useState<Record<string, any>>({});
-  const tokensTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // REMOVED: tokensTimerRef - no longer needed after optimizing tokens subscription
 
   // REMOVED: providersAssignments prefill useEffect - now handled by AppointmentProvider collection
 
   useEffect(() => {
     if (!messagingOpen) return;
-    const sub = watch((vals) => {
-      if (tokensTimerRef.current) clearTimeout(tokensTimerRef.current);
-      tokensTimerRef.current = setTimeout(() => {
-        setTokensSnapshot({
-          nameInput: (vals as any)?.nameInput ?? "",
-          lastNameInput: (vals as any)?.lastNameInput ?? "",
-          phoneInput: (vals as any)?.phoneInput ?? "",
-          emailInput: (vals as any)?.emailInput ?? "",
-          note: (vals as any)?.note ?? "",
-          contactPreference: (vals as any)?.contactPreference ?? "sms",
-          treatment: (vals as any)?.treatment,
-          priority: (vals as any)?.priority,
-          providers: (vals as any)?.providers ?? [],
-          representative: (vals as any)?.representative ?? undefined,
-        });
-      }, 150);
+    
+    // Solo capturar el snapshot inicial cuando se abre el panel
+    const vals = getValues();
+    setTokensSnapshot({
+      nameInput: (vals as any)?.nameInput ?? "",
+      lastNameInput: (vals as any)?.lastNameInput ?? "",
+      phoneInput: (vals as any)?.phoneInput ?? "",
+      emailInput: (vals as any)?.emailInput ?? "",
+      note: (vals as any)?.note ?? "",
+      contactPreference: (vals as any)?.contactPreference ?? "sms",
+      treatment: (vals as any)?.treatment,
+      priority: (vals as any)?.priority,
+      providers: (vals as any)?.providers ?? [],
+      representative: (vals as any)?.representative ?? undefined,
     });
-    return () => {
-      sub.unsubscribe();
-      if (tokensTimerRef.current) clearTimeout(tokensTimerRef.current);
-    };
-  }, [messagingOpen, watch]);
+  }, [messagingOpen, getValues]);
 
   const dataForTokens = useMemo(() => {
     if (!messagingOpen) return {} as Record<string, any>;
-    const selectedAppDatesForTokens = selectedAppDates?.map((d) => ({
-      startDate: d.startDate,
-      endDate: d.endDate,
-    })) ?? [];
-    return {
-      ...tokensSnapshot,
-      selectedAppDates: selectedAppDatesForTokens,
-      timezone: "Australia/Sydney",
-    } as Record<string, any>;
-  }, [messagingOpen, tokensSnapshot, selectedAppDates]);
+    // dataForTokens es solo un placeholder - getDataForTokens obtiene los valores frescos
+    return tokensSnapshot;
+  }, [messagingOpen, tokensSnapshot]);
 
+  // Memoizado para evitar recálculos innecesarios
   const templateKey = useMemo(
     () => validPatientIdForTemplates ?? "__NEW__",
     [validPatientIdForTemplates]
   );
+  
+  // Memoizado para estabilidad de referencia
   const handleSelectTemplate = useCallback((tpl: any) => {
     if (typeof tpl === "string") {
       setSelectedTemplate({ raw: tpl });
@@ -993,72 +999,57 @@ function CustomEntryForm({
     }
   }, []);
 
-  const tooltipForThis =
-    selectedTemplate?.raw ??
-    templateTextByPatient[templateKey] ??
-    "";
+  const tooltipForThis = useMemo(
+    () => selectedTemplate?.raw ?? templateTextByPatient[templateKey] ?? "",
+    [selectedTemplate?.raw, templateTextByPatient, templateKey]
+  );
 
-  const iconColorForThis =
-    (selectedTemplate?.raw || templateTextByPatient[templateKey])
-      ? "green.500"
-      : "red.500";
+  const iconColorForThis = useMemo(
+    () => (selectedTemplate?.raw || templateTextByPatient[templateKey]) ? "green.500" : "red.500",
+    [selectedTemplate?.raw, templateTextByPatient, templateKey]
+  );
 
-  const showTemplatesButtonNode = useMemo(() => {
-    const commonProps = {
-      category: "confirmation" as const,
-      onSelectTemplate: handleSelectTemplate,
-      tooltipText: tooltipForThis,
-      colorIcon: iconColorForThis,
-    };
+  const getDataForTokens = useCallback(() => {
+    const vals = getValues();
+    const selectedAppDatesForTokens = selectedAppDates?.map((d) => ({
+      startDate: d.startDate,
+      endDate: d.endDate,
+    })) ?? [];
+    return {
+      nameInput: (vals as any)?.nameInput ?? "",
+      lastNameInput: (vals as any)?.lastNameInput ?? "",
+      phoneInput: (vals as any)?.phoneInput ?? "",
+      emailInput: (vals as any)?.emailInput ?? "",
+      note: (vals as any)?.note ?? "",
+      contactPreference: (vals as any)?.contactPreference ?? "sms",
+      treatment: (vals as any)?.treatment,
+      priority: (vals as any)?.priority,
+      providers: (vals as any)?.providers ?? [],
+      representative: (vals as any)?.representative ?? undefined,
+      selectedAppDates: selectedAppDatesForTokens,
+      timezone: SYD_TZ,
+    } as Record<string, any>;
+  }, [getValues, selectedAppDates]);
 
-    return (
-      <>
-        {/**
-       * Templates: usamos ShowTemplateButtonWithData con getDataForTokens
-       * para leer valores frescos del formulario justo antes de abrir.
-       * Esto evita suscripciones globales (watch all) y previene lag en los inputs,
-       * además de que los tokens (name/lastName/fechas) se apliquen al primer intento.
-       */}
-        <ShowTemplateButtonWithData
-        {...commonProps}
-        dataForTokens={dataForTokens}
-        getDataForTokens={() => {
-          const vals = getValues();
-          const selectedAppDatesForTokens = selectedAppDates?.map((d) => ({
-            startDate: d.startDate,
-            endDate: d.endDate,
-          })) ?? [];
-          return {
-            nameInput: (vals as any)?.nameInput ?? "",
-            lastNameInput: (vals as any)?.lastNameInput ?? "",
-            phoneInput: (vals as any)?.phoneInput ?? "",
-            emailInput: (vals as any)?.emailInput ?? "",
-            note: (vals as any)?.note ?? "",
-            contactPreference: (vals as any)?.contactPreference ?? "sms",
-            treatment: (vals as any)?.treatment,
-            priority: (vals as any)?.priority,
-            providers: (vals as any)?.providers ?? [],
-            representative: (vals as any)?.representative ?? undefined,
-            selectedAppDates: selectedAppDatesForTokens,
-            timezone: SYD_TZ,
-          } as Record<string, any>;
-        }}
-      />
-      </>
-    );
-  }, [
-    validPatientIdForTemplates,
+  const showTemplatesButtonNode = useMemo(() => (
+    <ShowTemplateButtonWithData
+      category="confirmation"
+      onSelectTemplate={handleSelectTemplate}
+      tooltipText={tooltipForThis}
+      colorIcon={iconColorForThis}
+      dataForTokens={dataForTokens}
+      getDataForTokens={getDataForTokens}
+    />
+  ), [
     handleSelectTemplate,
     tooltipForThis,
     iconColorForThis,
     dataForTokens,
+    getDataForTokens,
   ]);
 
 
-  const selectedTreatmentId = ((): string | undefined => {
-    const v = getValues("treatment") as unknown as string | undefined;
-    return v;
-  })();
+  // REMOVED: selectedTreatmentId - not used, was causing unnecessary recalculations
 
   // Multi-window suggestion support was moved into the ProviderPerDate component
 
@@ -1068,7 +1059,8 @@ function CustomEntryForm({
   // const currentProviderIds = watch("providers"); // unused after refactor
 
   /* —— submit helpers —— */
-  const sanitize = (data: any) => {
+  // Memoizado con useCallback para evitar recreación innecesaria
+  const sanitize = useCallback((data: any) => {
     const repApp = (data?.representative?.appointment ?? "").trim();
 
     if (isAlreadyRepresentative) {
@@ -1153,7 +1145,7 @@ function CustomEntryForm({
 
     // REMOVED: providersAssignments - now handled by AppointmentProvider collection
     return cleaned;
-  };
+  }, [isAlreadyRepresentative, isChild, mode]);
 
   // 🔔 flujo de notificaciones: SOLO recordatorio
   const scheduledKeysRef = useRef<Set<string>>(new Set());
@@ -1238,7 +1230,7 @@ function CustomEntryForm({
     [selectedTemplate, reminderEnabled, selectedReminder, sendSMSAsync, toast]
   );
 
-  // Hard reset of UI and local states + scroll to top
+  // Hard reset of UI and local states + scroll to top - memoizado para estabilidad
   const hardResetUI = useCallback(() => {
     try {
       reset();
@@ -1252,9 +1244,7 @@ function CustomEntryForm({
       setSelectedTemplate(null);
       setMessagingOpen(false);
       setDuration(0);
-      setColor("");
-      setSelected(-1);
-      setTreatment(undefined);
+      // REMOVED: setColor, setSelected, setTreatment - variables eliminated
       setIsAnAppointment(!onlyPatient);
       scheduledKeysRef.current = new Set();
       setTokensSnapshot({});
@@ -1271,13 +1261,15 @@ function CustomEntryForm({
     } catch {}
   }, [onlyPatient, reset]);
 
-  const extractCreatedId = (resp: any) =>
+  // Memoizado para evitar recreación en cada render
+  const extractCreatedId = useCallback((resp: any) =>
     normalizeId(resp?.document?._id) ??
     normalizeId(resp?.document?.id) ??
     normalizeId(resp?.insertedId) ??
     normalizeId(resp?._id) ??
     normalizeId(resp?.id) ??
-    normalizeId(resp?.result?.insertedId);
+    normalizeId(resp?.result?.insertedId),
+  []);
 
   // Function to create provider assignments after appointment creation
   const createPendingProviderAssignments = useCallback(async (appointmentId: string, selectedAppDates: any[]) => {
@@ -1290,7 +1282,6 @@ function CustomEntryForm({
         selectedAppDates: selectedAppDates.map((slot, idx) => ({ 
           index: idx, 
           _id: slot._id, 
-          slotId: slot.slotId, 
           startDate: slot.startDate, 
           endDate: slot.endDate 
         }))
@@ -1298,25 +1289,30 @@ function CustomEntryForm({
 
       // Create assignments for each pending assignment
       const promises = pendingProviderAssignments.map(async (assignment) => {
+        // Match the slot by index from the server response (which has MongoDB-generated _id)
         const slotData = selectedAppDates[assignment.slotIndex];
-        if (!slotData) return;
+        if (!slotData) {
+          console.warn(`Slot at index ${assignment.slotIndex} not found in server response`);
+          return;
+        }
 
-        // Use the actual slot data's ID if it exists and is a valid ObjectId
-        const slotId = slotData._id || slotData.slotId;
+        // CRITICAL: slotData._id is the MongoDB-generated ObjectId for this slot in selectedAppDates array
+        const slotId = slotData._id;
+        
+        if (!slotId) {
+          console.error(`Slot at index ${assignment.slotIndex} has no _id - cannot create AppointmentProvider`);
+          return;
+        }
 
         const assignmentData: CreateAppointmentProviderData = {
           appointment: appointmentId,
           provider: assignment.providerId,
+          slotId: String(slotId), // This links to the specific slot in selectedAppDates
           startDate: assignment.startDate,
           endDate: assignment.endDate,
         };
 
-        // Only include slotId if it's a valid ObjectId format (24 hex characters)
-        if (slotId && /^[0-9a-fA-F]{24}$/.test(String(slotId))) {
-          assignmentData.slotId = String(slotId);
-        }
-        // If no valid slotId, let the server generate one or handle it appropriately
-
+        console.log('Creating AppointmentProvider:', assignmentData);
         return createProviderAssignment(assignmentData);
       });
 
@@ -1378,8 +1374,11 @@ function CustomEntryForm({
           });
 
           if (isAnAppointment && createdId) {
-            // Create provider assignments before sending notifications
-            await createPendingProviderAssignments(createdId, cleanedData.selectedAppDates || []);
+            // CRITICAL: Use the selectedAppDates from the server response which has the generated _id for each slot
+            const slotsWithIds = resp?.document?.selectedAppDates || [];
+            
+            // Create provider assignments using slots with their MongoDB-generated _id
+            await createPendingProviderAssignments(createdId, slotsWithIds);
             
             await sendNotificationsFlow(createdId);
           }
@@ -1812,162 +1811,274 @@ function CustomEntryForm({
       <Collapse in={isAnAppointment} animateOpacity>
         <Divider my={5} />
 
-        {/* Priority */}
-        <FormControl
-          mt="2%"
-          isInvalid={!!(appointmentErrors && appointmentErrors.priority)}
-        >
-          <FormLabel>Priority Level</FormLabel>
-          <Controller
-            name="priority"
-            control={control}
-            render={({ field }) => (
-              <Box role="group" aria-label="Priority level selector" p={1}>
-                <CustomButtonGroup
-                  selected={selected}
-                  setSelected={setSelected}
-                  isPending={formBusy}
-                  error={asFieldError(appointmentErrors?.priority)}
-                  value={(field.value as string) || ""}
-                  onChange={(id, _name, colorSel, durationSel) => {
-                    setIdpriority(id);
-                    field.onChange(id);
-                    setDuration(durationSel ? durationSel : 0);
-                    setColor(colorSel ? colorSel : "gray");
-                    trigger("priority");
-                  }}
-                />
-              </Box>
-            )}
+        {/* Note Section */}
+        <Box mb={4}>
+          <CustomTextArea
+            isPending={formBusy}
+            resize="none"
+            name={"note"}
+            pb={5}
+            px={5}
+            placeholder="Note for this appointment"
+            register={register}
+            error={asFieldError((appointmentErrors as any)?.note)}
+            spellCheck
+            autoComplete="off"
           />
-        </FormControl>
+        </Box>
 
-        <Divider my={5} />
+        {/* 1. Treatment & Priority Selection - FIRST STEP */}
+        <Box borderWidth="1px" borderRadius="md" p={4} mb={4} bg="blue.50">
+          <Text fontSize="md" fontWeight="bold" mb={3}>
+            Step 1: Configure Your Appointment
+          </Text>
+          <SimpleGrid columns={3} spacing={4}>
+            <FormControl isInvalid={!!appointmentErrors?.priority}>
+              <FormLabel>Priority</FormLabel>
+              <Controller
+                name="priority"
+                control={control}
+                render={({ field }) => (
+                  <PriorityPopoverSelector
+                    value={field.value as string}
+                    onChange={(id, _name, _color, _duration) => {
+                      field.onChange(id);
+                      // Duration from priority is deprecated - do not set duration automatically
+                    }}
+                    isDisabled={formBusy}
+                  />
+                )}
+              />
+              <FormErrorMessage>
+                <FormErrorIcon mr="1" />
+                {errMsg(appointmentErrors?.priority)}
+              </FormErrorMessage>
+            </FormControl>
 
-        {/* Treatment */}
-        <FormControl
-          mt="2%"
-          isInvalid={!!(appointmentErrors && appointmentErrors.treatment)}
-        >
-          <FormLabel>Treatment Type</FormLabel>
-          <Controller
-            name="treatment"
-            control={control}
-            render={({ field }) => (
-              <Box role="group" aria-label="Treatment selector">
-                <TreatmentSelector
-                  onSelect={(t) => setTreatment(t)}
-                  selectedId={field.value}
-                  selected={selectedTreatment}
-                  {...field}
-                  onChange={(id, _val, _c, _d) => {
-                    setIdpriority(id);
-                    field.onChange(id);
-                    trigger("treatment");
-                  }}
-                />
-              </Box>
-            )}
-          />
-        </FormControl>
+            <FormControl isInvalid={!!appointmentErrors?.treatment}>
+              <FormLabel>Treatment</FormLabel>
+              <Controller
+                name="treatment"
+                control={control}
+                render={({ field }) => (
+                  <TreatmentPopoverSelector
+                    value={field.value as string}
+                    onChange={(treatmentId, treatment) => {
+                      field.onChange(treatmentId);
+                      // REMOVED: setTreatment - optimized
+                      if (treatment) {
+                        // Solo actualizar prioridad si no hay una seleccionada previamente
+                        const currentPriority = getValues("priority");
+                        if (!currentPriority) {
+                          setValue("priority", (treatment as any).priority?._id ?? "", {
+                            shouldDirty: true,
+                          });
+                          // REMOVED: setSelected, setColor - optimized
+                        }
+                        // Usar la duración del tratamiento (en minutos) convertida a horas
+                        const durationMinutes = (treatment as any).duration || 0;
+                        setDuration(durationMinutes / 60);
+                        trigger("priority");
+                      }
+                    }}
+                    isDisabled={formBusy}
+                  />
+                )}
+              />
+              <FormErrorMessage>
+                <FormErrorIcon mr="1" />
+                {errMsg(appointmentErrors?.treatment)}
+              </FormErrorMessage>
+            </FormControl>
 
-        <Divider my={5} />
+            <FormControl>
+              <FormLabel>Duration (minutes)</FormLabel>
+              <Controller
+                name="duration"
+                control={control}
+                render={({ field }) => (
+                  <input
+                    type="number"
+                    {...field}
+                    value={duration ? Math.round(duration * 60) : ''}
+                    onChange={(e) => {
+                      const minutes = parseInt(e.target.value) || 0;
+                      setDuration(minutes / 60);
+                      field.onChange(minutes);
+                    }}
+                    disabled={formBusy}
+                    placeholder="Duration in minutes"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '0.875rem',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '6px',
+                      backgroundColor: formBusy ? '#F7FAFC' : 'white',
+                    }}
+                  />
+                )}
+              />
+            </FormControl>
+          </SimpleGrid>
+        </Box>
 
-        {/* Appointment Date */}
-        <SimpleGrid columns={2} spacing={4} my={2}>
-          <Box pt={1}>
-            <CustomTextArea
-              isPending={formBusy}
-              resize="none"
-              name={"note"}
-              pb={5}
-              px={5}
-              placeholder="Note for this appointment"
-              register={register}
-              error={asFieldError((appointmentErrors as any)?.note)}
-              spellCheck
-              autoComplete="off"
-            />
-          </Box>
-
-          <Box p={1}>
-            <Controller
-              name="selectedAppDates"
-              control={control}
-              render={({ field }) => (
-                <FormControl isInvalid={!!appointmentErrors?.selectedAppDates}>
-                  <FormLabel>
-                    Appointment Date
-                    <Tag ml={2} size="sm" colorScheme="gray" variant="subtle">
-                      {((field.value as any[]) || []).length || 0}/10
-                    </Tag>
-                  </FormLabel>
-                  <Flex wrap="wrap" gap={2}>
-                    {((field.value as any[]) || [])?.map((item: DateRange & { status?: string }, index: number) => {
-                      const start = dayjs.utc(item.startDate).tz(SYD_TZ);
-                      const end = dayjs.utc(item.endDate).tz(SYD_TZ);
-                      const sameDay = start.format("YYYY-MM-DD") === end.format("YYYY-MM-DD");
-                      const display = sameDay
-                        ? `${start.format("ddd, DD MMM • h:mm A")} – ${end.format("h:mm A")}`
-                        : `${start.format("ddd, DD MMM • h:mm A")} → ${end.format("ddd, DD MMM • h:mm A")}`;
-                      const full = sameDay
-                        ? `${start.format("ddd, DD MMM YYYY • h:mm A")} – ${end.format("h:mm A")}`
-                        : `${start.format("ddd, DD MMM YYYY • h:mm A")} → ${end.format("ddd, DD MMM YYYY • h:mm A")}`;
-                      
-                      // En modo CREATION, usar fondo azul y no mostrar status
-                      const statusRaw = mode === "CREATION" ? "new" : String(item.status || '').toLowerCase();
-                      const colorScheme = SLOT_STATUS_COLOR[statusRaw] || (mode === "CREATION" ? 'blue' : 'gray');
-                      const statusLabel = mode === "CREATION" ? "" : (item.status || 'Unknown');
+        {/* Appointment Dates Section */}
+        <Box borderWidth="1px" borderRadius="md" p={4} mb={4} bg="gray.50">
+          <FormControl>
+            <FormLabel>
+              Appointment Dates
+              <Tag ml={2} size="sm" colorScheme="gray" variant="subtle">
+                {selectedAppDates.length || 0}/10
+              </Tag>
+            </FormLabel>
+              {mode === "EDITION" ? (
+                <Alert status="info" rounded="md" size="sm">
+                  <AlertIcon />
+                  <Text fontSize="xs">Read-only in edit mode</Text>
+                </Alert>
+              ) : (
+                <>
+                  <HStack spacing={2}>
+                    {(() => {
+                      const count = selectedAppDates.length;
+                      const atLimit = count >= 10;
+                      const hasTreatmentAndPriority = !!getValues("treatment") && !!getValues("priority");
                       
                       return (
-                        <Tooltip key={`${start.toISOString()}-${index}`} label={full} hasArrow>
-                          <Tag size="sm" colorScheme={colorScheme} borderRadius="md" maxW="260px" display="flex" alignItems="center" gap={1}>
-                            <TagLabel isTruncated>{display}</TagLabel>
-                            {statusLabel && (
-                              <Box as="span" fontSize="0.65rem" opacity={0.85}>{statusLabel}</Box>
-                            )}
-                          </Tag>
-                        </Tooltip>
+                        <>
+                          <Tooltip
+                            isDisabled={hasTreatmentAndPriority && !atLimit}
+                            label={
+                              !hasTreatmentAndPriority
+                                ? "Select priority and treatment first"
+                                : atLimit
+                                ? "Maximum 10 slots"
+                                : ""
+                            }
+                            hasArrow
+                          >
+                            <Button
+                              type="button"
+                              onClick={onOpenApp}
+                              isDisabled={formBusy || atLimit || !hasTreatmentAndPriority}
+                              colorScheme={hasTreatmentAndPriority ? "blue" : "gray"}
+                              size="sm"
+                              flex={1}
+                            >
+                              Add Dates ({count}/10)
+                            </Button>
+                          </Tooltip>
+                          
+                          <Popover
+                            isOpen={isOpenDates}
+                            onClose={onCloseDates}
+                            placement="bottom-start"
+                            closeOnBlur={true}
+                            isLazy
+                          >
+                            <PopoverTrigger>
+                              <Button
+                                type="button"
+                                onClick={onOpenDates}
+                                isDisabled={count === 0}
+                                colorScheme="teal"
+                                variant="outline"
+                                size="sm"
+                                flex={1}
+                              >
+                                View Selected ({count})
+                              </Button>
+                            </PopoverTrigger>
+                            
+                            <Portal>
+                              <PopoverContent
+                                maxW="500px"
+                                borderRadius="xl"
+                                boxShadow="2xl"
+                                border="1px solid"
+                                borderColor="gray.200"
+                                bg="white"
+                              >
+                                <PopoverArrow />
+                                <PopoverHeader
+                                  fontWeight="bold"
+                                  fontSize="lg"
+                                  borderBottomWidth="1px"
+                                  bg="teal.50"
+                                  borderTopRadius="xl"
+                                  py={3}
+                                >
+                                  <HStack justify="space-between">
+                                    <Text>Selected Appointment Dates</Text>
+                                    <Badge colorScheme="teal" fontSize="md" px={2} py={1}>
+                                      {count} {count === 1 ? 'date' : 'dates'}
+                                    </Badge>
+                                  </HStack>
+                                </PopoverHeader>
+                                
+                                <PopoverBody maxH="400px" overflowY="auto" p={4}>
+                                  {count === 0 ? (
+                                    <Text textAlign="center" py={6} color="gray.500">
+                                      No dates selected yet
+                                    </Text>
+                                  ) : (
+                                    <VStack spacing={3} align="stretch">
+                                      {selectedAppDates.map((item: DateRange & { status?: string }, index: number) => {
+                                        const start = dayjs.utc(item.startDate).tz(SYD_TZ);
+                                        const end = dayjs.utc(item.endDate).tz(SYD_TZ);
+                                        const sameDay = start.format("YYYY-MM-DD") === end.format("YYYY-MM-DD");
+                                        const display = sameDay
+                                          ? `${start.format("ddd, DD MMM • h:mm A")} – ${end.format("h:mm A")}`
+                                          : `${start.format("ddd, DD MMM • h:mm A")} → ${end.format("ddd, DD MMM • h:mm A")}`;
+                                        const full = sameDay
+                                          ? `${start.format("ddd, DD MMM YYYY • h:mm A")} – ${end.format("h:mm A")}`
+                                          : `${start.format("ddd, DD MMM YYYY • h:mm A")} → ${end.format("ddd, DD MMM YYYY • h:mm A")}`;
+                                        
+                                        const statusRaw = mode === "CREATION" ? "new" : String(item.status || '').toLowerCase();
+                                        const colorScheme = SLOT_STATUS_COLOR[statusRaw] || (mode === "CREATION" ? 'blue' : 'gray');
+                                        const statusLabel = mode === "CREATION" ? "" : (item.status || 'Unknown');
+                                        
+                                        return (
+                                          <Box
+                                            key={`${start.toISOString()}-${index}`}
+                                            p={3}
+                                            borderRadius="lg"
+                                            border="1px solid"
+                                            borderColor={`${colorScheme}.200`}
+                                            bg={`${colorScheme}.50`}
+                                            _hover={{ bg: `${colorScheme}.100`, borderColor: `${colorScheme}.300` }}
+                                            transition="all 0.2s"
+                                          >
+                                            <HStack justify="space-between" align="start">
+                                              <VStack align="start" spacing={1} flex={1}>
+                                                <Text fontWeight="semibold" fontSize="sm" color="gray.700">
+                                                  {display}
+                                                </Text>
+                                                <Text fontSize="xs" color="gray.500">
+                                                  {full}
+                                                </Text>
+                                              </VStack>
+                                              {statusLabel && (
+                                                <Badge colorScheme={colorScheme} fontSize="xs">
+                                                  {statusLabel}
+                                                </Badge>
+                                              )}
+                                            </HStack>
+                                          </Box>
+                                        );
+                                      })}
+                                    </VStack>
+                                  )}
+                                </PopoverBody>
+                              </PopoverContent>
+                            </Portal>
+                          </Popover>
+                        </>
                       );
-                    })}
-                  </Flex>
-                  <FormErrorMessage>
-                    <FormErrorIcon mr="1" />
-                    {errMsg(appointmentErrors?.selectedAppDates)}
-                  </FormErrorMessage>
-                </FormControl>
-              )}
-            />
-
-            <FormControl pt={4}>
-              {mode === "EDITION" ? (
-                <Alert status="info" rounded="10px" mt={2}>
-                  <AlertIcon />
-                  Appointment date is read-only in edit mode.
-                </Alert>
-              ) : selected > 0 ? (
-                <>
-                  {(() => {
-                    const values = (getValues("selectedAppDates") as any[]) || [];
-                    // In creation mode count all selected slots; in edit mode selectedAppDates is read-only (already confirmed)
-                    const count = values.length;
-                    const atLimit = count >= 10;
-                    return (
-                      <Tooltip
-                        isDisabled={!atLimit}
-                        label={atLimit ? "You can add up to 10 appointment slots" : ""}
-                        hasArrow
-                      >
-                        <Button
-                          type="button"
-                          onClick={onOpenApp}
-                          isDisabled={formBusy || atLimit}
-                        >
-                          Add Appointment ({count}/10)
-                        </Button>
-                      </Tooltip>
-                    );
-                  })()}
+                    })()}
+                  </HStack>
+                  
                   <Modal
                     isOpen={isOpenApp}
                     onClose={onCloseApp}
@@ -1983,7 +2094,7 @@ function CustomEntryForm({
                       <ModalCloseButton />
                       <ModalBody p={0}>
                         <CustomCalendarEntryForm
-                          colorEvent={color}
+                          colorEvent={priorityVal?.color || "gray"}
                           height="50vh"
                           offset={duration}
                           selectedAppDates={selectedAppDates}
@@ -2007,26 +2118,34 @@ function CustomEntryForm({
                     </ModalContent>
                   </Modal>
                 </>
-              ) : (
-                <Alert status="warning" rounded={"10px"}>
-                  <AlertIcon />
-                  You must select a category
-                </Alert>
               )}
-            </FormControl>
-          </Box>
-        </SimpleGrid>
+            {!getValues("treatment") || !getValues("priority") ? (
+              <Alert status="warning" mt={3} borderRadius="md">
+                <AlertIcon />
+                Please select both priority and treatment to add appointment dates
+              </Alert>
+            ) : null}
+          </FormControl>
+        </Box>
 
-        {/* Per-date Provider Assignment */}
-        <ProviderPerDate
-          key={`provider-per-date-${resetKey}`}
+        {/* 2. Per-slot Configuration: Providers - SECOND STEP */}
+        <AppointmentSlotEditor
+          key={`slot-editor-${resetKey}`}
           mode={mode}
           tz={SYD_TZ}
-          selectedAppDates={selectedAppDates}
-          allProviders={allProviders as any}
-          selectedTreatmentId={selectedTreatmentId}
+          selectedAppDates={selectedAppDates as any}
+          onSlotChange={(index, updates) => {
+            const newDates = [...selectedAppDates];
+            newDates[index] = { ...newDates[index], ...updates };
+            setSelectedAppDates(newDates);
+            setValue("selectedAppDates", newDates as any, { shouldDirty: true });
+          }}
           appointmentId={(getValues("id") as any) || (idVal as any)}
+          formBusy={formBusy}
           onPendingAssignmentsChange={handlePendingAssignmentsChange}
+          globalDuration={duration}
+          globalTreatmentId={getValues("treatment") as string}
+          globalPriorityId={getValues("priority") as string}
         />
 
         {/* Reminder Section */}
@@ -2141,11 +2260,6 @@ function CustomEntryForm({
             </VStack>
           </Collapse>
         </Box>
-
-        <Divider my={5} />
-
-        {/* Providers (global, optional; auto-synced with per-date assignments) */}
-        
 
         <Divider my={5} />
 

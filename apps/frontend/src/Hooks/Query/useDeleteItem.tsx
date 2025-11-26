@@ -46,6 +46,7 @@ export const useDeleteItem = ({ modelName, refetch }: Props) => {
 
   const {
     mutate: deleteById,
+    mutateAsync: deleteByIdAsync,
     isPending,
     error,
   } = useMutation({
@@ -71,6 +72,7 @@ export const useDeleteItem = ({ modelName, refetch }: Props) => {
 
   return {
     deleteById,
+    deleteByIdAsync,
     isPending,
     error,
   };

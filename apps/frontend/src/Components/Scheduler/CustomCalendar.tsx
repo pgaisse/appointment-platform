@@ -8,9 +8,11 @@ import {
   View,
   EventProps,
 } from "react-big-calendar";
+import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import { format, parse, startOfWeek, getDay, isToday } from "date-fns";
 import { enUS } from "date-fns/locale/en-US";
 import "react-big-calendar/lib/css/react-big-calendar.css";
+import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 import "./CustomCalendar.css";
 
 import CustomDayHeader from "./CustomDayHeader";
@@ -44,6 +46,8 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
+const DnDCalendar = withDragAndDrop(Calendar);
+
 export type Data = {
   title: string;
   start: Date;
@@ -74,6 +78,8 @@ type Props = {
   onSelectSlot?: (slotInfo: SlotInfo) => void;
   onSelectEvent?: (event: Data) => void;
   onClick?: (event: { start: Date; end: Date }) => void;
+  onEventDrop?: (args: { event: Data; start: Date; end: Date }) => void;
+  onEventResize?: (args: { event: Data; start: Date; end: Date }) => void;
 };
 /* ======================= EVENT RENDERER ======================= */
 interface RbcEventProps extends EventProps<Data> {
@@ -230,6 +236,8 @@ const CustomCalendar = ({
   onNavigate,
   onSelectSlot,
   onSelectEvent,
+  onEventDrop,
+  onEventResize,
 }: Props) => {
   const [currentDate, setCurrentDate] = useState<Date>(date ?? new Date());
   const [currentView, setCurrentView] = useState<View>(calView);
@@ -361,7 +369,7 @@ const CustomCalendar = ({
           </Center>
         )}
 
-        <Calendar
+        <DnDCalendar
           formats={formats}
           localizer={localizer}
           events={memoizedEvents}
@@ -381,6 +389,10 @@ const CustomCalendar = ({
           onSelectSlot={handleSelectSlot}
           onSelectEvent={handleSelectEvent}
           toolbar={false}
+          draggableAccessor={() => true}
+          resizable
+          onEventDrop={onEventDrop}
+          onEventResize={onEventResize}
           // Wrapper sin estilos propios (para que nuestro Tag ocupe todo):
           eventPropGetter={() => ({
             style: {

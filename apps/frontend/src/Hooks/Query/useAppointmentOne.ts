@@ -9,6 +9,9 @@ const POPULATE = [
   { path: "treatment",      select: "_id name duration icon minIcon color category active" },
   { path: "selectedDates.days.timeBlocks", select: "_id org_id blockNumber label short from to" },
   { path: "selectedAppDates.contactedId",  select: "status startDate endDate context cSid pSid createdAt updatedAt" },
+  // ✨ NUEVO: populate nested fields en selectedAppDates
+  { path: "selectedAppDates.priority",     select: "id description notes durationHours name color org_id" },
+  { path: "selectedAppDates.treatment",    select: "_id name duration icon minIcon color category active" },
 ] as const;
 
 function buildQueryParams(id: string) {

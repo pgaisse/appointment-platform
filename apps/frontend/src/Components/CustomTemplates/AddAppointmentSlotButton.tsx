@@ -29,6 +29,7 @@ import dayjs from "dayjs";
 import { Appointment, ContactStatus } from "@/types";
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
 import CustomCalendarEntryForm from "../Scheduler/CustomCalendarEntryForm";
+import { useQueryClient } from "@tanstack/react-query";
 
 // Quitamos plugins de timezone: no se requiere TZ explícita
 
@@ -47,6 +48,7 @@ export default function AddAppointmentSlotButton({ appointment, onSaved }: Props
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
   const { mutateAsync, isPending } = useUpdateItems();
+  const queryClient = useQueryClient();
 
   // Estado del calendario embebido
   const [selectedAppDates, setSelectedAppDates] = useState<{ startDate: Date; endDate: Date }[]>([]);
@@ -110,6 +112,16 @@ export default function AddAppointmentSlotButton({ appointment, onSaved }: Props
       ];
 
       await mutateAsync(payload as any);
+      // Solo si el mutate fue exitoso, sincronizamos todas las queries relacionadas
+      await queryClient.cancelQueries({
+        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "appointments-range",
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["appointments-range"] }),
+        queryClient.invalidateQueries({ queryKey: ["appointments-month-days"] }),
+        queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+      ]);
 
       toast({ status: "success", title: "Appointment date added" });
       resetLocal();
@@ -137,7 +149,7 @@ export default function AddAppointmentSlotButton({ appointment, onSaved }: Props
         />
       </Tooltip>
 
-      <Modal isOpen={isOpen} onClose={isPending ? () => {} : () => { resetLocal(); onClose(); }} size="6xl" isCentered>
+      <Modal isOpen={isOpen} onClose={isPending ? () => { } : () => { resetLocal(); onClose(); }} size="6xl" isCentered>
         <ModalOverlay />
         <ModalContent borderRadius="2xl" shadow="2xl" bg="white" maxW="1200px">
           <ModalHeader fontWeight="bold">Add appointment date</ModalHeader>

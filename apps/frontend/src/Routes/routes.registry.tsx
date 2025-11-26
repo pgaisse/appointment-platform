@@ -8,6 +8,7 @@ import AppointmentList from "./Appointments/AppointmentList";
 import AppointmentManager from "./Appointments/AppointmentManager";
 import PatientFinder from "./Appointments/PatientFinder";
 import AssignedAppointments from "./Appointments/AssignedAppointments";
+import GoogleCalendar from "./GoogleCalendar/GoogleCalendarPage";
 import CustomChat from "./Messages/CustomChat";
 import ChatHealth from "./Messages/ChatHealth";
 import Organizer from "./Organizer";
@@ -26,6 +27,7 @@ const registry = {
   AppointmentManager: <AppointmentManager />,
   PatientFinder: <PatientFinder />,
   AssignedAppointments: <AssignedAppointments />,
+  GoogleCalendar: <GoogleCalendar />,
   CustomChat: <CustomChat />,
   ChatHealth: <ChatHealth />,
   Organizer: <Organizer />,

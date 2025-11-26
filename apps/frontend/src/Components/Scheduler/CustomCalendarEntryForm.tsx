@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo, useCallback, memo } from "react";
 import {
   Calendar as BaseCalendar,
   Views,
@@ -26,7 +26,7 @@ import { AppointmentForm } from "@/schemas/AppointmentsSchema";
 // Locales para date-fns
 const locales = { "en-US": enUS };
 
-// Localizador de fechas (firma correcta del startOfWeek)
+// Localizador de fechas (firma correcta del startOfWeek) - memoizado fuera del componente
 const localizer = dateFnsLocalizer({
   format,
   parse,
@@ -35,8 +35,15 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-// Wrap del Calendar para habilitar drag & drop
+// Wrap del Calendar para habilitar drag & drop - memoizado fuera del componente
 const Calendar = withDragAndDrop<CalendarEvent>(BaseCalendar);
+
+// Constantes fuera del componente para evitar recreación
+const MAX_SLOTS = 10;
+const TIME_SLOTS = 12; // 12 slots de 5 min = 60 min (1 hora)
+const STEP = 5;
+const DAY_START_HOUR = 6;
+const DAY_END_HOUR = 23;
 
 // ---------- Utils de fecha seguros ----------
 const toDate = (v: unknown): Date | null => {
@@ -60,11 +67,18 @@ const coerceRange = (r: DateRange): DateRange | null => {
 };
 // --------------------------------------------
 
-// 🔹 Helper para armar el título: "{min} min (hh:mm a–hh:mm a)"
+// 🔹 Helper para armar el título: "{min} min" - optimizado fuera del componente
 const makeEventTitle = (start: Date, end: Date) => {
   const mins = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
   return `${mins} min`;
 };
+
+// TimeLabel component memoizado fuera del componente principal
+const TimeLabel = memo(({ value, localizer }: { value?: Date; localizer: DateLocalizer }) => {
+  const txt = value ? localizer.format(value, "h:mm a") : "";
+  return <div style={{ fontSize: 12, textAlign: "center", color: "gray" }}>{txt}</div>;
+});
+TimeLabel.displayName = "TimeLabel";
 
 type Props = {
   setSelectedAppDates?: React.Dispatch<React.SetStateAction<DateRange[]>>;
@@ -79,8 +93,6 @@ type Props = {
   onClose?: () => void;
 };
 
-const MAX_SLOTS = 10;
-
 function CustomCalendarEntryForm({
   onClose: _onClose,
   setValue,
@@ -93,40 +105,41 @@ function CustomCalendarEntryForm({
   toolbar = true,
   calView = Views.WEEK,
 }: Props) {
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [currentView, setCurrentView] = useState<View>(Views.WEEK);
-  // removed unused selectedDate state
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+  const [currentView, setCurrentView] = useState<View>(calView);
+  
+  const toast = useToast();
 
-  // ✅ Normaliza de entrada lo que venga por props
-  const initialRange: DateRange[] | null =
+  // ✅ Normaliza de entrada lo que venga por props - memoizado
+  const initialRange = useMemo<DateRange[] | null>(() => 
     selectedAppDates
       ? (selectedAppDates.map(coerceRange).filter(Boolean) as DateRange[])
-      : null;
+      : null,
+    [] // Solo ejecutar una vez al montar
+  );
 
   const [range, setRange] = useState<DateRange[] | null>(initialRange);
 
   // ✅ events como array (no undefined)
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
-  const timeSlots = 4;
-  const step = 15;
-
-  // min/max anclados al día visible
-  const dayMin = new Date(currentDate);
-  dayMin.setHours(9, 30, 0, 0);
-  const dayMax = new Date(currentDate);
-  dayMax.setHours(18, 0, 0, 0);
+  // 🔹 Rango horario extendido: 6:00 AM - 11:00 PM - memoizado
+  const { dayMin, dayMax } = useMemo(() => {
+    const min = new Date(currentDate);
+    min.setHours(DAY_START_HOUR, 0, 0, 0);
+    const max = new Date(currentDate);
+    max.setHours(DAY_END_HOUR, 0, 0, 0);
+    return { dayMin: min, dayMax: max };
+  }, [currentDate]);
 
   // mark onClose consumed to avoid unused warnings
   void _onClose;
 
-  const handleNavigate = (newDate: Date): void => {
+  const handleNavigate = useCallback((newDate: Date): void => {
     setCurrentDate(newDate);
-  };
+  }, []);
 
-  const toast = useToast();
-
-  const handleSelectSlot = (slotInfo: SlotInfo): void => {
+  const handleSelectSlot = useCallback((slotInfo: SlotInfo): void => {
     const start = toDate(slotInfo.start);
     if (!start) return;
     const end = new Date(start.getTime() + offset * 60 * 60 * 1000);
@@ -156,9 +169,9 @@ function CustomCalendarEntryForm({
       }
       return [...list, { startDate: start, endDate: end }];
     });
-  };
+  }, [offset, toast]);
 
-  const handleSelectEvent = (ev: CalendarEvent): void => {
+  const handleSelectEvent = useCallback((ev: CalendarEvent): void => {
     const startTime = ev.start?.getTime();
     const endTime = ev.end?.getTime();
     if (!startTime || !endTime) return;
@@ -176,9 +189,9 @@ function CustomCalendarEntryForm({
         (r) => r.startDate.getTime() !== startTime || r.endDate.getTime() !== endTime
       )
     );
-  };
+  }, []);
 
-  const handleEventDrop = (args: EventInteractionArgs<CalendarEvent>) => {
+  const handleEventDrop = useCallback((args: EventInteractionArgs<CalendarEvent>) => {
     const { event: droppedEvent, start, end } = args;
     const startDate = toDate(start);
     const endDate = toDate(end);
@@ -201,9 +214,9 @@ function CustomCalendarEntryForm({
           : r
       )
     );
-  };
+  }, []);
 
-  const handleEventResize = (args: EventInteractionArgs<CalendarEvent>) => {
+  const handleEventResize = useCallback((args: EventInteractionArgs<CalendarEvent>) => {
     const { event: resizedEvent, start, end } = args as EventResizeDoneArg<CalendarEvent>;
     const startDate = toDate(start);
     const endDate = toDate(end);
@@ -226,14 +239,14 @@ function CustomCalendarEntryForm({
           : r
       )
     );
-  };
+  }, []);
 
-  // ✅ Cada vez que cambia range, re-construimos events con fechas coaccionadas a Date
-  useEffect(() => {
-    const newEvents = (range ?? [])
+  // ✅ Memoizar events para evitar recalcular en cada render
+  const memoizedEvents = useMemo(() => {
+    return (range ?? [])
       .map((item) =>
         coerceEvent({
-          title: makeEventTitle(item.startDate, item.endDate), // 🔹 aquí armamos el título
+          title: makeEventTitle(item.startDate, item.endDate),
           start: item?.startDate,
           end: item?.endDate,
           desc: "Date Selected",
@@ -241,40 +254,56 @@ function CustomCalendarEntryForm({
         })
       )
       .filter(Boolean) as CalendarEvent[];
+  }, [range, colorEvent]);
 
-    setEvents(newEvents);
+  // ✅ Sincronizar events con el memo - solo cuando cambien los memoized events
+  useEffect(() => {
+    setEvents(memoizedEvents);
+  }, [memoizedEvents]);
 
+  // ✅ Sincronizar con form - separado y optimizado con refs estables
+  useEffect(() => {
     if (setSelectedAppDates && range) setSelectedAppDates(range);
-    if (setValue) setValue("selectedAppDates", range);
+    if (setValue && range !== null) setValue("selectedAppDates", range);
     if (trigger) trigger("selectedAppDates");
-  }, [range, colorEvent, setSelectedAppDates, setValue, trigger]);
+  }, [range, setSelectedAppDates, setValue, trigger]);
 
-  // 🏷️ Etiqueta simple de tiempos (sin chocar nombres)
-  const TimeLabel = ({ value, localizer }: { value?: Date; localizer: DateLocalizer }) => {
-    const txt = value ? localizer.format(value, "h:mm a") : "";
-    return <div style={{ fontSize: 12, textAlign: "center", color: "gray" }}>{txt}</div>;
-  };
-
-  const TimeSlotWrapperAdapter: React.FC = (props) => {
+  // 🏷️ Adapter memoizado para TimeLabel
+  const TimeSlotWrapperAdapter = useCallback<React.FC>((props) => {
     return <TimeLabel {...(props as any)} localizer={localizer} />;
-  };
+  }, []);
+
+  // Memoizar accesores de eventos para evitar recreación
+  const startAccessor = useCallback((e: CalendarEvent) => toDate(e.start)!, []);
+  const endAccessor = useCallback((e: CalendarEvent) => toDate(e.end)!, []);
+  const draggableAccessor = useCallback(() => true, []);
+  const handleViewChange = useCallback((view: View) => setCurrentView(view), []);
+
+  // Memoizar views array
+  const views = useMemo(() => [Views.WEEK, Views.DAY], []);
+
+  // Memoizar components object para evitar recreación
+  const calendarComponents = useMemo(() => ({
+    header: CustomDayHeader,
+    timeSlotWrapper: TimeSlotWrapperAdapter,
+    timeGutterHeader: CustomTimeGutterHeader,
+  }), [TimeSlotWrapperAdapter]);
 
   return (
     <Box w="100%" overflow="auto" height={height}>
       <Calendar
         localizer={localizer}
-        events={events} // ✅ array siempre
-        // ✅ accesores en forma de función: convierten por si acaso
-        startAccessor={(e) => toDate(e.start)!}
-        endAccessor={(e) => toDate(e.end)!}
+        events={events}
+        startAccessor={startAccessor}
+        endAccessor={endAccessor}
         date={currentDate}
         view={currentView}
         defaultView={calView}
-        onView={(view: View) => setCurrentView(view)}
+        onView={handleViewChange}
         onNavigate={handleNavigate}
-        views={[Views.WEEK, Views.DAY]}
-        step={step}
-        timeslots={timeSlots}
+        views={views}
+        step={STEP}
+        timeslots={TIME_SLOTS}
         min={dayMin}
         max={dayMax}
         onSelectSlot={handleSelectSlot}
@@ -282,15 +311,11 @@ function CustomCalendarEntryForm({
         onEventDrop={handleEventDrop}
         onEventResize={handleEventResize}
         resizable
-        draggableAccessor={() => true}
+        draggableAccessor={draggableAccessor}
         toolbar={toolbar}
         selectable="ignoreEvents"
         eventPropGetter={eventStyleGetter}
-        components={{
-          header: CustomDayHeader,
-          timeSlotWrapper: TimeSlotWrapperAdapter,
-          timeGutterHeader: CustomTimeGutterHeader,
-        }}
+        components={calendarComponents}
       />
     </Box>
   );

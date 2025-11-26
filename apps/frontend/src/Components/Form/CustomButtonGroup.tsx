@@ -221,7 +221,7 @@ function CustomButtonGroup({
   return (
     <Flex wrap="wrap" gap={gap}>
       {updatedOptions.map((option) => {
-        const isSel = selected === option.id || value === option.name;
+        const isSel = selected === option.id || value === option.name || value === option._id || value === String(option._id);
         const { chakraProps } = getTagStyles(option.color, isSel);
 
         return (

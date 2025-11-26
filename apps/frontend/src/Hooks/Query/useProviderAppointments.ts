@@ -59,53 +59,81 @@ function patientLabel(a: Appointment): string {
 }
 
 /** Normaliza { data: Appointment[] } a CalendarData[] */
-function normalizeAppointments(raw: Appointment[] = []): CalendarData[] {
+function normalizeAppointments(raw: Appointment[] = [], providerId?: string): CalendarData[] {
   const out: CalendarData[] = [];
 
-  const pushEvent = (a: Appointment, s?: string | Date, e?: string | Date) => {
-    if (!s || !e) return;
-    const start = new Date(s);
-    const end = new Date(e);
-
-    // title: preferimos título explícito si existiera; si no, paciente; fallback "Appointment"
+  for (const a of raw) {
     const patient = patientLabel(a);
-    const t = (a.treatment as unknown as Treatment | undefined);
     const title = patient || "Appointment";
 
-    // desc SIEMPRE string (evita error de tipos en el calendario)
-    const descParts: string[] = [];
-    if (t && (t as any).name) descParts.push(`Treatment: ${(t as any).name}`);
-    if (a.note) descParts.push(a.note);
-
-    out.push({
-      _id: String(a._id),
-      title,
-      start,
-      end,
-      desc: descParts.join(" · ") || "",
-      color: a.priority.color,
-    });
-  };
-
-  for (const a of raw) {
-    // 1) selectedAppDates (tu modelo principal de citas agendadas)
+    // 1) selectedAppDates (modelo principal con slots)
     if (Array.isArray(a.selectedAppDates) && a.selectedAppDates.length) {
-      for (const r of a.selectedAppDates) {
-        // usa startDate/endDate; si no vienen, intenta propStartDate/propEndDate
-        const s = (r as any)?.startDate ?? (r as any)?.propStartDate;
-        const e = (r as any)?.endDate ?? (r as any)?.propEndDate;
-        if (s && e) pushEvent(a, s, e);
+      for (const slot of a.selectedAppDates) {
+        const s = (slot as any)?.startDate ?? (slot as any)?.propStartDate;
+        const e = (slot as any)?.endDate ?? (slot as any)?.propEndDate;
+        if (!s || !e) continue;
+
+        // Verificar si este slot tiene el provider (solo para appointments del nuevo esquema)
+        const slotProviders = (slot as any)?.providers || [];
+        const hasProviderInSlot = providerId && slotProviders.some(
+          (p: any) => String(p?._id || p) === String(providerId)
+        );
+
+        // Si no está en el slot, verificar root (legacy)
+        const rootProviders = (a as any)?.providers || [];
+        const hasProviderInRoot = providerId && rootProviders.some(
+          (p: any) => String(p?._id || p) === String(providerId)
+        );
+
+        // Solo agregar si el provider está en este slot o en root
+        if (!providerId || hasProviderInSlot || hasProviderInRoot) {
+          const slotTreatment = (slot as any)?.treatment;
+          const slotPriority = (slot as any)?.priority;
+          const rootTreatment = (a as any)?.treatment;
+          const rootPriority = (a as any)?.priority;
+
+          const descParts: string[] = [];
+          const treatment = slotTreatment || rootTreatment;
+          if (treatment?.name) descParts.push(`Treatment: ${treatment.name}`);
+          if (a.note) descParts.push(a.note);
+
+          out.push({
+            _id: `${String(a._id)}-${(slot as any)?._id || out.length}`,
+            title,
+            start: new Date(s),
+            end: new Date(e),
+            desc: descParts.join(" · ") || "",
+            color: slotPriority?.color || rootPriority?.color || (a as any)?.color || "purple.500",
+          });
+        }
       }
       continue;
     }
 
     // 2) fallback: selectedDates (una sola ventana)
     if ((a as any)?.selectedDates?.startDate && (a as any)?.selectedDates?.endDate) {
-      pushEvent(a, (a as any).selectedDates.startDate, (a as any).selectedDates.endDate);
-      continue;
-    }
+      const rootProviders = (a as any)?.providers || [];
+      const hasProvider = !providerId || rootProviders.some(
+        (p: any) => String(p?._id || p) === String(providerId)
+      );
 
-    // 3) si no hay nada interpretable, lo omitimos
+      if (hasProvider) {
+        const treatment = (a as any)?.treatment;
+        const priority = (a as any)?.priority;
+        const descParts: string[] = [];
+        if (treatment?.name) descParts.push(`Treatment: ${treatment.name}`);
+        if (a.note) descParts.push(a.note);
+
+        out.push({
+          _id: String(a._id),
+          title,
+          start: new Date((a as any).selectedDates.startDate),
+          end: new Date((a as any).selectedDates.endDate),
+          desc: descParts.join(" · ") || "",
+          color: priority?.color || (a as any)?.color || "purple.500",
+        });
+      }
+    }
   }
 
   return out;
@@ -170,7 +198,7 @@ export function useProviderAppointments(
       };
 
       console.log("[useProviderAppointments] raw data:", resp?.data);
-      const events = normalizeAppointments(resp?.data || []);
+      const events = normalizeAppointments(resp?.data || [], providerId);
       console.log("[useProviderAppointments] normalized events:", events);
       return events;
     },

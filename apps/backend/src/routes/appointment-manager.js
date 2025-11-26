@@ -30,10 +30,15 @@ router.use(jwtCheck, attachUserInfo, ensureUser);
 const NS = process.env.AUTH0_NAMESPACE || 'https://letsmarter.com/';
 
 const populateFields = [
+  // DEPRECATED: campos en root (mantener por compatibilidad temporal)
   { path: 'priority', select: 'id description notes durationHours name color' },
   { path: 'treatment', select: '_id name notes duration icon color minIcon' },
   { path: 'providers' },
-  // REMOVED: { path: 'providersAssignments.provider' }, // Now handled by AppointmentProvider collection
+  // ✨ NUEVO: campos por slot en selectedAppDates
+  { path: 'selectedAppDates.priority', select: 'id description notes durationHours name color' },
+  { path: 'selectedAppDates.treatment', select: '_id name notes duration icon color minIcon category active' },
+  { path: 'selectedAppDates.providers', select: '_id firstName lastName email phone' },
+  // REMOVED: { path: 'providersAssignments.provider' }, // Now handled by selectedAppDates.providers
   {
     path: 'representative.appointment',
     select: 'phoneInput phoneE164 emailLower nameInput lastNameInput sid proxyAddress', // pon aquí lo que necesites

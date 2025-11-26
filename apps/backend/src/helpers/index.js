@@ -156,6 +156,9 @@ async function findMatchingAppointments(startDate, endDate, authorization) {
     ],
   })
     .populate("priority")
+    .populate("selectedAppDates.priority")
+    .populate("selectedAppDates.treatment")
+    .populate("selectedAppDates.providers")
     .populate("selectedDates.days.timeBlocks");
 
   //console.log(`📋 Total appointments encontrados: ${appointments.length}`);
@@ -178,7 +181,9 @@ async function findMatchingAppointments(startDate, endDate, authorization) {
     const availableDays = appt.selectedDates?.days || [];
     const daysToCheck = eachDayOfInterval({ start: overlapStart, end: overlapEnd });
 
-    const durationMs = (appt.priority?.durationHours || 1) * 60 * 60 * 1000;
+    // Usar priority del primer slot si existe, sino del root (deprecated)
+    const priority = appt.selectedAppDates?.[0]?.priority || appt.priority;
+    const durationMs = (priority?.durationHours || 1) * 60 * 60 * 1000;
     let bestMatch = null;
 
     for (const day of daysToCheck) {

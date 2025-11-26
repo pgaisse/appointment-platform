@@ -7,6 +7,7 @@ import { MdTextsms } from "react-icons/md";
 import { LuUserRoundSearch } from "react-icons/lu";
 import { HiOutlineClipboardDocumentCheck } from "react-icons/hi2";
 import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
+import { FcGoogle } from "react-icons/fc";
 import paths from "./path";
 
 /** Dónde mostrar el link */
@@ -143,6 +144,18 @@ export const ROUTE_LINKS: RouteLink[] = [
                 icon: MdTextsms,
                 show: ["header", "sidebar"],
                 order: 30,
+                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
+            },
+
+            // Google Calendar
+            {
+                key: "googleCalendar",
+                path: "/google-calendar",
+                componentKey: "GoogleCalendar",
+                label: "Google Calendar",
+                icon: FcGoogle,
+                show: ["sidebar"],
+                order: 25,
                 gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
             {

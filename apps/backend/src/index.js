@@ -83,6 +83,7 @@ app.use('/api', Topics);
 app.use('/api/users', require('./routes/users'));
 app.use('/api/tokens', require('./routes/tokens'));
 app.use('/api/appointment-manager', require('./routes/appointment-manager'));
+app.use('/api/appointment-migration', require('./routes/appointment-migration'));
 app.use('/api/socket.io', SocketRoutes);
 app.use('/api/admin/auth0', require('./routes/admin-auth0'));
 app.use('/api/profile', require('./routes/profile'));
