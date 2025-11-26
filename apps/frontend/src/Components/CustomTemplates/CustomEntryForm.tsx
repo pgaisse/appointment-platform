@@ -853,6 +853,77 @@ function CustomEntryForm({
     return {};
   });
 
+  // 🔄 Reset completo del formulario cuando cambian los datos en modo EDICIÓN
+  useEffect(() => {
+    if (mode !== "EDITION" || !idVal) return;
+
+    // Preparar datos completos para resetear el formulario
+    const resetData = {
+      treatment: he.decode(treatmentBack?._id?.toString?.() || ""),
+      selectedAppDates: datesAppSelected || [],
+      selectedDates: datesSelected,
+      contactPreference: contactPreference || "sms",
+      nameInput: he.decode(nameVal || ""),
+      lastNameInput: he.decode(lastNameVal || ""),
+      note: he.decode(note || ""),
+      phoneInput: he.decode(phoneVal || ""),
+      emailInput: he.decode(emailVal || ""),
+      priority: priorityVal?._id ?? undefined,
+      id: idVal || "",
+      reschedule: !!reschedule,
+      providers: providerIdsFromProps,
+      representative: normalizedRepresentative ??
+        ({
+          appointment: "",
+          relationship: "parent",
+          verified: false,
+          verifiedAt: undefined,
+          verifiedBy: "",
+          consentAt: undefined,
+          notes: "",
+        } as unknown as Representative),
+    };
+
+    // Resetear el formulario con los nuevos datos
+    reset(resetData as any, { 
+      keepDefaultValues: false,
+      keepErrors: false,
+      keepDirty: false,
+      keepTouched: false,
+    });
+
+    // Actualizar estados locales
+    setSelectedAppDates(datesAppSelected || []);
+    if (Array.isArray(datesSelected?.days)) {
+      const newSelectedDays = datesSelected.days.reduce((acc, curr) => {
+        acc[curr.weekDay] = curr.timeBlocks;
+        return acc;
+      }, {} as Partial<Record<WeekDay, TimeBlock[]>>);
+      setSelectedDays(newSelectedDays);
+    }
+
+    // Actualizar estado isChild si hay representative
+    if (normalizedRepresentative?.appointment) {
+      setIsChild(true);
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    mode,
+    idVal,
+    nameVal,
+    lastNameVal,
+    phoneVal,
+    emailVal,
+    note,
+    priorityVal?._id,
+    treatmentBack?._id,
+    contactPreference,
+    reschedule,
+    normalizedRepresentative?.appointment,
+    // Solo cuando cambia el idVal (nuevo paciente), no en cada render
+  ]);
+
   // Appointment window (single) deprecated: we now compute allAppointmentWindows instead
 
   const appointmentStartLocal = useMemo(() => {

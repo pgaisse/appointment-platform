@@ -805,7 +805,23 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                                         const slotTreatment = it?.treatment;
                                         const slotPriority = it?.priority;
                                         const slotProviders = it?.providers || [];
-                                        const slotDuration = it?.duration;
+                                        
+                                        // Calcular duración en minutos desde las fechas
+                                        const slotDuration = (() => {
+                                          const startVal = s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate;
+                                          const endVal = e ?? it?.endDate ?? it?.propEndDate ?? it?.proposed?.endDate;
+                                          if (startVal && endVal) {
+                                            try {
+                                              const start = new Date(startVal).getTime();
+                                              const end = new Date(endVal).getTime();
+                                              const diffMs = end - start;
+                                              return Math.round(diffMs / (1000 * 60)); // convertir a minutos
+                                            } catch {
+                                              return null;
+                                            }
+                                          }
+                                          return null;
+                                        })();
 
                                         return (
                                           <TabPanel key={it?._id ?? idx} px={0}>
@@ -827,7 +843,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                                               {/* Contenido en Grid */}
                                               <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
                                                 <LabeledRow
-                                                  icon={FiClock}
                                                   label="Range"
                                                   value={(() => {
                                                     const startVal = s ?? it?.startDate ?? it?.propStartDate ?? it?.proposed?.startDate;
