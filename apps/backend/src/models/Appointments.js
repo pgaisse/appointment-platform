@@ -66,11 +66,12 @@ const SelectedAppDateSchema = new Schema({
   status: { type: String, enum: Object.values(ContactStatus), default: ContactStatus.NoContacted },
   rescheduleRequested: { type: Boolean, default: false },
   
-  // ⬇️ NUEVO: Cada slot tiene su propio treatment, priority, providers y duration
+  // ⬇️ NUEVO: Cada slot tiene su propio treatment, priority, providers, duration y position
   treatment: { type: Schema.Types.ObjectId, ref: 'Treatment', default: null },
   priority: { type: Schema.Types.ObjectId, ref: 'PriorityList', default: null },
   providers: [{ type: Schema.Types.ObjectId, ref: 'Provider', default: [] }],
   duration: { type: Number, default: 60 }, // duración en minutos
+  position: { type: Number, default: 0 }, // posición dentro de la columna de prioridad
   providerNotes: { type: String, default: '' },
   
   // Sentinel para conservar la ventana ORIGINAL sobre la cual se generó la propuesta

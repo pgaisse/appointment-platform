@@ -13,11 +13,14 @@ const { Appointment, Message } = require('../models/Appointments');
 const twilio = require('twilio');
 const { validateConversationSid } = require('../helpers/twilioHealth');
 const ConversationRead = require('../models/Chat/ConversationRead');
+const GoogleReviewRequest = require('../models/GoogleReviewRequest');
+const { cacheMiddleware } = require('../middleware/cache');
+const TwilioService = require('../services/TwilioService');
 
 const TZ = 'Australia/Sydney';
 
-// GET /api/dashboard/stats
-router.get('/stats', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
+// GET /api/dashboard/stats - Cache for 30 seconds
+router.get('/stats', cacheMiddleware(30), jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
   try {
     const org_id = req.dbUser?.org_id;
     if (!org_id) {
@@ -32,106 +35,140 @@ router.get('/stats', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
     const monthStart = now.startOf('month').toDate();
     const monthEnd = now.endOf('month').toDate();
 
-    // Appointments stats - count appointments that have selectedAppDates within the range
-    const appointmentsToday = await Appointment.countDocuments({
-      org_id,
-      'selectedAppDates.startDate': { $gte: todayStart, $lte: todayEnd }
-    });
+    // Urgent appointments deadline
+    const urgentDeadline = dayjs(todayStart).add(2, 'day').toDate();
 
-    const appointmentsThisWeek = await Appointment.countDocuments({
-      org_id,
-      'selectedAppDates.startDate': { $gte: weekStart, $lte: weekEnd }
-    });
-
-    const appointmentsThisMonth = await Appointment.countDocuments({
-      org_id,
-      'selectedAppDates.startDate': { $gte: monthStart, $lte: monthEnd }
-    });
-
-    // Count appointments with pending slots (future dates with pending status)
-    const pendingAppointments = await Appointment.countDocuments({
-      org_id,
-      selectedAppDates: {
-        $elemMatch: {
-          status: { $regex: /^pending$/i },
+    // Parallelize all dashboard queries for maximum speed
+    const [
+      appointmentsToday,
+      appointmentsThisWeek,
+      appointmentsThisMonth,
+      pendingAppointments,
+      completedAppointments,
+      cancelledAppointments,
+      urgentAppointments,
+      messagesToday,
+      messagesThisWeek,
+      messagesThisMonth,
+      totalMessages,
+      activeContacts,
+      accessedContacts,
+      newContacts,
+    ] = await Promise.all([
+      // Appointments stats
+      Appointment.countDocuments({
+        org_id,
+        'selectedAppDates.startDate': { $gte: todayStart, $lte: todayEnd }
+      }),
+      Appointment.countDocuments({
+        org_id,
+        'selectedAppDates.startDate': { $gte: weekStart, $lte: weekEnd }
+      }),
+      Appointment.countDocuments({
+        org_id,
+        'selectedAppDates.startDate': { $gte: monthStart, $lte: monthEnd }
+      }),
+      Appointment.countDocuments({
+        org_id,
+        selectedAppDates: {
+          $elemMatch: { status: { $regex: /^pending$/i } }
         }
-      }
-    });
+      }),
+      Appointment.countDocuments({
+        org_id,
+        selectedAppDates: {
+          $elemMatch: {
+            status: { $regex: /^completed$/i },
+            startDate: { $gte: monthStart, $lte: monthEnd }
+          }
+        }
+      }),
+      Appointment.countDocuments({
+        org_id,
+        selectedAppDates: {
+          $elemMatch: {
+            status: { $regex: /^cancelled$/i },
+            startDate: { $gte: monthStart, $lte: monthEnd }
+          }
+        }
+      }),
+      Appointment.countDocuments({
+        org_id,
+        selectedAppDates: {
+          $elemMatch: {
+            status: { $regex: /^pending$/i },
+            startDate: { $gte: todayStart, $lte: urgentDeadline }
+          }
+        }
+      }),
+      // Messages stats
+      Message.countDocuments({
+        author: org_id,
+        direction: 'outbound',
+        createdAt: { $gte: todayStart, $lte: todayEnd }
+      }),
+      Message.countDocuments({
+        author: org_id,
+        direction: 'outbound',
+        createdAt: { $gte: weekStart, $lte: weekEnd }
+      }),
+      Message.countDocuments({
+        author: org_id,
+        direction: 'outbound',
+        createdAt: { $gte: monthStart, $lte: monthEnd }
+      }),
+      Message.countDocuments({
+        author: org_id,
+        direction: 'outbound'
+      }),
+      // Contacts stats
+      ConversationRead.distinct('conversationId', { 
+        org_id,
+        lastReadAt: { $gte: weekStart }
+      }),
+      ConversationRead.distinct('conversationId', { 
+        org_id,
+        lastReadAt: { $exists: true, $ne: null }
+      }),
+      Appointment.countDocuments({
+        org_id,
+        createdAt: { $gte: monthStart }
+      }),
+    ]);
+
     console.log("pendingAppointments", pendingAppointments);
 
-    // Count appointments with completed slots this month
-    const completedAppointments = await Appointment.countDocuments({
-      org_id,
-      selectedAppDates: {
-        $elemMatch: {
-          status: { $regex: /^completed$/i },
-          startDate: { $gte: monthStart, $lte: monthEnd }
-        }
-      }
-    });
-
-    // Count appointments with cancelled slots this month
-    const cancelledAppointments = await Appointment.countDocuments({
-      org_id,
-      selectedAppDates: {
-        $elemMatch: {
-          status: { $regex: /^cancelled$/i },
-          startDate: { $gte: monthStart, $lte: monthEnd }
-        }
-      }
-    });
-
-    // Messages stats - count messages where author equals org_id (clinic sent)
-    const messagesToday = await Message.countDocuments({
-      author: org_id,
-      direction: 'outbound',
-      createdAt: { $gte: todayStart, $lte: todayEnd }
-    });
-
-    const messagesThisWeek = await Message.countDocuments({
-      author: org_id,
-      direction: 'outbound',
-      createdAt: { $gte: weekStart, $lte: weekEnd }
-    });
-
-    const messagesThisMonth = await Message.countDocuments({
-      author: org_id,
-      direction: 'outbound',
-      createdAt: { $gte: monthStart, $lte: monthEnd }
-    });
-
-    const totalMessages = await Message.countDocuments({
-      author: org_id,
-      direction: 'outbound'
-    });
-
-    // Contacts stats - based on conversation reads and appointments
-    const activeContacts = await ConversationRead.distinct('conversationId', { 
-      org_id,
-      lastReadAt: { $gte: weekStart }
-    });
-
-    const accessedContacts = await ConversationRead.distinct('conversationId', { 
-      org_id,
-      lastReadAt: { $exists: true, $ne: null }
-    });
-
-    const newContacts = await Appointment.countDocuments({
-      org_id,
-      createdAt: { $gte: monthStart }
-    });
-
-    // Urgent appointments - pending within next 48 hours
-    const urgentDeadline = dayjs(todayStart).add(2, 'day').toDate();
-    const urgentAppointments = await Appointment.countDocuments({
-      org_id,
-      selectedAppDates: {
-        $elemMatch: {
-          status: { $regex: /^pending$/i },
-          startDate: { $gte: todayStart, $lte: urgentDeadline }
-        }
-      }
-    });
+    // Google Reviews stats - parallelized for faster dashboard load
+    const [
+      totalReviewRequests,
+      sentReviews,
+      clickedReviews,
+      completedReviews,
+      failedReviews,
+      reviewsThisMonth
+    ] = await Promise.all([
+      GoogleReviewRequest.countDocuments({ org_id }),
+      GoogleReviewRequest.countDocuments({ 
+        org_id, 
+        status: { $in: ['sent', 'delivered', 'clicked', 'reviewed'] }
+      }),
+      GoogleReviewRequest.countDocuments({ 
+        org_id, 
+        status: { $in: ['clicked', 'reviewed'] }
+      }),
+      GoogleReviewRequest.countDocuments({ 
+        org_id, 
+        status: 'reviewed'
+      }),
+      GoogleReviewRequest.countDocuments({ 
+        org_id, 
+        status: 'failed'
+      }),
+      GoogleReviewRequest.countDocuments({
+        org_id,
+        requestedAt: { $gte: monthStart, $lte: monthEnd }
+      })
+    ]);
    
     const stats = {
       appointments: {
@@ -157,6 +194,14 @@ router.get('/stats', jwtCheck, ensureUser, attachUserInfo, async (req, res) => {
         total: pendingAppointments,
         urgent: urgentAppointments,
       },
+      reviews: {
+        total: totalReviewRequests,
+        sent: sentReviews,
+        clicked: clickedReviews,
+        completed: completedReviews,
+        failed: failedReviews,
+        thisMonth: reviewsThisMonth,
+      },
     };
 
     res.json(stats);
@@ -176,12 +221,17 @@ router.get('/stats/invalid-chat-sids', jwtCheck, ensureUser, attachUserInfo, asy
       // No permiso: devolver 0 para no filtrar pero evitar coste.
       return res.json({ invalidSidCount: 0, skipped: true });
     }
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!accountSid || !authToken) {
-      return res.json({ invalidSidCount: 0, skipped: true, reason: 'Missing Twilio credentials' });
+    
+    // Obtener cliente de Twilio desde la base de datos
+    let client;
+    try {
+      const { client: twilioClient } = await TwilioService.getClient(org_id);
+      client = twilioClient;
+    } catch (error) {
+      console.warn('Failed to get Twilio client from database:', error.message);
+      return res.json({ invalidSidCount: 0, skipped: true, reason: 'Twilio not configured for this organization' });
     }
-    const client = twilio(accountSid, authToken);
+    
     let invalidSidCount = 0;
     const apptsWithSid = await Appointment.find({ org_id, sid: { $exists: true, $ne: '' } }, { sid: 1 }).lean();
     for (const ap of apptsWithSid) {

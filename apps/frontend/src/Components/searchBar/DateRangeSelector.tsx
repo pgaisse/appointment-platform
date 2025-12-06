@@ -19,9 +19,10 @@ import {
   FormLabel,
   IconButton,
   Collapse,
+  Tooltip,
 } from "@chakra-ui/react";
 import { useState } from "react";
-import { CalendarIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon } from "@chakra-ui/icons";
+import { CalendarIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, RepeatIcon } from "@chakra-ui/icons";
 import { FiClock, FiCalendar } from "react-icons/fi";
 
 const options: RangeOption[] = ["week", "2weeks", "month", "custom"];
@@ -49,9 +50,11 @@ const descriptionMap: Record<RangeOption, string> = {
 
 type Props = {
   onFilterRange: (range: RangeOption, customStart?: Date, customEnd?: Date) => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 };
 
-const DateRangeSelector = ({ onFilterRange }: Props) => {
+const DateRangeSelector = ({ onFilterRange, onRefresh, isRefreshing = false }: Props) => {
   const [selected, setSelected] = useState<RangeOption>("week");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -104,8 +107,8 @@ const DateRangeSelector = ({ onFilterRange }: Props) => {
     >
       <VStack spacing={3} align="stretch">
         {/* Collapsible Header */}
-        <HStack justify="space-between" cursor="pointer" onClick={() => setIsExpanded(!isExpanded)}>
-          <HStack spacing={2}>
+        <HStack justify="space-between">
+          <HStack spacing={2} flex="1" cursor="pointer" onClick={() => setIsExpanded(!isExpanded)}>
             <Icon as={FiCalendar} color="blue.500" boxSize={5} />
             <Text fontWeight="bold" fontSize="lg" color="gray.700">
               Date Range Filter
@@ -114,13 +117,29 @@ const DateRangeSelector = ({ onFilterRange }: Props) => {
               {labelMap[selected]}
             </Badge>
           </HStack>
-          <IconButton
-            aria-label={isExpanded ? "Collapse" : "Expand"}
-            icon={isExpanded ? <ChevronUpIcon boxSize={6} /> : <ChevronDownIcon boxSize={6} />}
-            size="sm"
-            variant="ghost"
-            colorScheme="blue"
-          />
+          <HStack spacing={2}>
+            {onRefresh && (
+              <Tooltip label="Refresh priority list" placement="top" hasArrow>
+                <IconButton
+                  aria-label="Refresh"
+                  icon={<RepeatIcon />}
+                  onClick={onRefresh}
+                  isLoading={isRefreshing}
+                  colorScheme="blue"
+                  variant="outline"
+                  size="sm"
+                />
+              </Tooltip>
+            )}
+            <IconButton
+              aria-label={isExpanded ? "Collapse" : "Expand"}
+              icon={isExpanded ? <ChevronUpIcon boxSize={6} /> : <ChevronDownIcon boxSize={6} />}
+              size="sm"
+              variant="ghost"
+              colorScheme="blue"
+              onClick={() => setIsExpanded(!isExpanded)}
+            />
+          </HStack>
         </HStack>
 
         {/* Active Filter Info - Always visible */}

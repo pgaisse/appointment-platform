@@ -29,6 +29,7 @@
     "@hookform/resolvers": "^5.0.1",
     "@react-oauth/google": "^0.12.2",
     "@tanstack/react-query": "^5.74.4",
+    "@tanstack/react-virtual": "^3.13.12",
     "axios": "^1.8.4",
     "chakra-react-select": "^5.0.5",
     "date-fns": "^4.1.0",

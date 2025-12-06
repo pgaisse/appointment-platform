@@ -27,6 +27,14 @@ export interface DashboardStats {
     total: number;
     urgent: number;
   };
+  reviews: {
+    total: number;
+    sent: number;
+    clicked: number;
+    completed: number;
+    failed: number;
+    thisMonth: number;
+  };
   invalidSidCount?: number; // número de pacientes con SID inválido (solo visible si permiso master)
 }
 

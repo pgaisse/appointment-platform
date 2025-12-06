@@ -21,7 +21,6 @@ import {
   Text,
   useColorModeValue,
   VStack,
-  useToast,
   Spinner,
   FormErrorMessage,
   Alert,
@@ -45,7 +44,6 @@ export default function Login() {
   const { isAuthenticated, isLoading, loginWithRedirect, loginWithPopup, getAccessTokenSilently } = useAuth0();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const toast = useToast();
   const { setHideNavigation } = useOutletContext<{ setHideNavigation: (hide: boolean) => void }>();
 
   const [email, setEmail] = useState("");
@@ -71,20 +69,9 @@ export default function Login() {
   }, [isAuthenticated, navigate]);
 
   useEffect(() => {
-    // Mostrar mensaje si viene de expiración de sesión
-    const reason = searchParams.get("reason");
-    if (reason === "session_timeout") {
-      toast({
-        title: "Session Expired",
-        description: "Your session has expired. Please sign in again.",
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
     // Limpiar flag de reauth
     sessionStorage.removeItem("reauth_in_progress");
-  }, [searchParams, toast]);
+  }, []);
 
   const validateForm = () => {
     const newErrors: { email?: string; password?: string } = {};
@@ -121,23 +108,10 @@ export default function Login() {
       // Obtener token para confirmar autenticación
       await getAccessTokenSilently({ authorizationParams: { audience: AUTH0_AUDIENCE } });
 
-      toast({
-        title: "Welcome!",
-        description: "You have successfully signed in",
-        status: "success",
-        duration: 3000,
-      });
-
       navigate("/");
     } catch (error: any) {
       console.error("Error en social login:", error);
       setLoginError(error.message || "Error signing in with social provider");
-      toast({
-        title: "Authentication Error",
-        description: error.message || "Could not sign in",
-        status: "error",
-        duration: 5000,
-      });
     } finally {
       setIsLoggingIn(false);
     }
@@ -167,13 +141,6 @@ export default function Login() {
       console.error("Error en login:", error);
       const errorMessage = error.message || "Could not initiate login";
       setLoginError(errorMessage);
-
-      toast({
-        title: "Authentication Error",
-        description: errorMessage,
-        status: "error",
-        duration: 5000,
-      });
       setIsLoggingIn(false);
     }
   };

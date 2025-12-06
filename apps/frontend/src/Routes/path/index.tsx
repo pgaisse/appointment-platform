@@ -9,6 +9,7 @@ import { TbCalendarPlus, TbSortAscendingSmallBig } from "react-icons/tb";
 import { IoSettingsOutline } from "react-icons/io5";
 import { MdHealthAndSafety } from "react-icons/md";
 import { FcGoogle } from "react-icons/fc";
+import { RiCalendarScheduleLine } from "react-icons/ri";
 
 const paths = {
   root: "/",
@@ -22,6 +23,7 @@ const paths = {
   appointmentList: "/appointments/priority-list",
   patientFinder: "/appointments/patient-finder",
   assignedAppointments: "/appointments/assigned-appointments",
+  calendar: "/appointments/calendar",
   googleCalendar: "/google-calendar",
   organizer: "/organizer",
   reports: "/reports",
@@ -59,8 +61,8 @@ export type NavLink = {
 
 /** ÚNICA fuente de verdad para Header/Sidebar (con zonas) */
 export const navLinks: NavLink[] = [
-  // Home (pública)
-  { key: "home", path: paths.root, label: "Home", icon: FiHome, show: ["header", "sidebar"], order: 10, headerZone: "main", sidebarZone: "main" },
+  // Home (protegida)
+  { key: "home", path: paths.root, label: "Home", icon: FiHome, show: ["header", "sidebar"], order: 10, requireAuth: true, headerZone: "main", sidebarZone: "main" },
 
   // Appointments (grupo visible) + hijos en sidebar zona "main"
   { key: "appointments", path: paths.appointments, label: "Appointments", icon: TbCalendarPlus, show: ["header", "sidebar"], order: 20, requireAuth: true, headerZone: "main", sidebarZone: "main" },
@@ -78,9 +80,6 @@ export const navLinks: NavLink[] = [
   { key: "appointments.manager", path: paths.appointmentManager, label: "Appointment Manager", icon: LuCalendarCog, show: ["sidebar"], order: 22, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.patientFinder", path: paths.patientFinder, label: "Patient Finder", icon: LuUserRoundSearch, show: ["sidebar"], order: 23, requireAuth: true, sidebarZone: "main" },
   { key: "appointments.assigned", path: paths.assignedAppointments, label: "Assigned Appointments", icon: HiOutlineClipboardDocumentCheck, show: ["sidebar"], order: 24, requireAuth: true, sidebarZone: "main" },
-
-  // Google Calendar
-  { key: "googleCalendar", path: paths.googleCalendar, label: "Google Calendar", icon: FcGoogle, show: ["sidebar"], order: 25, requireAuth: true, sidebarZone: "main" },
 
   // Messages / Organizer (privadas) → header "main", sidebar "main"
   {
@@ -136,7 +135,7 @@ export const navLinks: NavLink[] = [
   // Admin y Settings → sidebar "bottom"
    {
     key: "settings", path: paths.settings, label: "Settings", icon: IoSettingsOutline, show: ["sidebar"], order: 800, requireAuth: true,
-    requireAnyPerms: ["dev-admin", "admin:*"],
+    requireAnyPerms: ["support:read", "dev-admin", "admin:*"],
     sidebarZone: "bottom"
   },
   {

@@ -33,6 +33,7 @@ import {
 } from "@chakra-ui/react";
 import { FiCalendar, FiClock, FiClipboard, FiInfo } from "react-icons/fi";
 import { PhoneIcon } from "@chakra-ui/icons";
+import { FaStar } from "react-icons/fa";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { Appointment, ContactAppointment, Provider } from "@/types";
@@ -50,6 +51,8 @@ import { formatAusPhoneNumber } from "@/Functions/formatAusPhoneNumber";
 import { RiParentFill } from "react-icons/ri";
 import { useSocket } from "@/Hooks/Query/useSocket";
 import { capitalize } from "@/utils/textFormat";
+import { useGoogleReviewRequests } from "@/Hooks/Query/useGoogleReviews";
+import { format } from "date-fns";
 
 // — Lazy load del ProviderSummaryModal —
 const ProviderSummaryModalLazy = React.lazy(
@@ -363,6 +366,9 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
   const [selectedProvider, setSelectedProvider] = React.useState<Provider | null>(
     null
   );
+  const [showAllContacts, setShowAllContacts] = React.useState(false);
+  const [showAllReviews, setShowAllReviews] = React.useState(false);
+  const [showAllDates, setShowAllDates] = React.useState(false);
 
   // 👇 Modal index (solo gestión open/close)
   // Mantén el registro en el stack por si se requiere z-index entre modales, aunque no bloqueamos la visibilidad
@@ -413,6 +419,9 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     "ContactAppointment",
     { mongoQuery: safeQuery2, limit, populate: populateFieldsContacted }
   );
+
+  // ✨ Fetch Google Review requests for this patient
+  const { data: reviewRequests } = useGoogleReviewRequests(id);
 
   console.log("contacted", contacted)
   // Enriquecemos cada log con el objeto del slot relacionado y recortamos la lista poblada a solo ese slot
@@ -1013,7 +1022,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                       <Text>—</Text>
                     ) : (
                       <VStack align="stretch" spacing={3}>
-                        {contactedSlim?.map((log, idx) => (
+                        {contactedSlim?.slice(0, showAllContacts ? undefined : 1).map((log, idx) => (
                           <HStack
                             key={log._id ?? idx}
                             align="flex-start"
@@ -1178,12 +1187,23 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                             </VStack>
                           </HStack>
                         ))}
+                        {contactedSlim && contactedSlim.length > 1 && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="blue"
+                            onClick={() => setShowAllContacts(!showAllContacts)}
+                            w="full"
+                          >
+                            {showAllContacts ? 'Show less' : `Show ${contactedSlim.length - 1} more`}
+                          </Button>
+                        )}
                       </VStack>
                     )}
                   </SectionCard>
                   </VStack>
 
-                  {/* Columna derecha - Selected Dates Pattern */}
+                  {/* Columna derecha - Selected Dates Pattern & Google Reviews */}
                   <VStack align="stretch" spacing={5}>
                     <SectionCard
                       title={
@@ -1207,7 +1227,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                           />
                         </VStack>
                         <VStack align="stretch" spacing={2}>
-                          {(appointment?.selectedDates?.days ?? []).map((d, idx) => (
+                          {(appointment?.selectedDates?.days ?? []).slice(0, showAllDates ? undefined : 1).map((d, idx) => (
                             <HStack
                               key={idx}
                               justify="space-between"
@@ -1238,8 +1258,146 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                             </HStack>
                           ))}
                         </VStack>
+                        {(appointment?.selectedDates?.days ?? []).length > 1 && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="purple"
+                            onClick={() => setShowAllDates(!showAllDates)}
+                            mt={2}
+                          >
+                            {showAllDates ? 'Show less' : `Show ${(appointment?.selectedDates?.days ?? []).length - 1} more`}
+                          </Button>
+                        )}
                       </VStack>
                     </SectionCard>
+
+                    <SectionCard
+                    title={
+                      <HStack>
+                        <Icon as={FaStar} />
+                        <Text>Google Reviews</Text>
+                      </HStack>
+                    }
+                    right={(() => {
+                      const list = reviewRequests ?? [];
+                      const total = list.length;
+                      const sent = list.filter((r: any) => r.status === 'sent' || r.status === 'delivered').length;
+                      const clicked = list.filter((r: any) => r.status === 'clicked').length;
+                      const reviewed = list.filter((r: any) => r.status === 'reviewed').length;
+                      const failed = list.filter((r: any) => r.status === 'failed').length;
+                      return (
+                        <HStack spacing={2}>
+                          <Badge rounded="full" colorScheme="blue">{total} requests</Badge>
+                          {sent > 0 && <Badge rounded="full" colorScheme="green">{sent} sent</Badge>}
+                          {clicked > 0 && <Badge rounded="full" colorScheme="purple">{clicked} clicked</Badge>}
+                          {reviewed > 0 && <Badge rounded="full" colorScheme="yellow">{reviewed} reviewed</Badge>}
+                          {failed > 0 && <Badge rounded="full" colorScheme="red">{failed} failed</Badge>}
+                        </HStack>
+                      );
+                    })()}
+                  >
+                    {!reviewRequests || reviewRequests.length === 0 ? (
+                      <Text>No review requests sent yet</Text>
+                    ) : (
+                      <VStack align="stretch" spacing={3}>
+                        {reviewRequests.slice(0, showAllReviews ? undefined : 1).map((request: any, idx: number) => {
+                          const statusColorMap: Record<string, string> = {
+                            pending: 'gray',
+                            sent: 'blue',
+                            delivered: 'green',
+                            clicked: 'purple',
+                            reviewed: 'yellow',
+                            failed: 'red',
+                          };
+                          const statusColor = statusColorMap[request.status] ?? 'gray';
+                          
+                          return (
+                            <HStack
+                              key={request._id ?? idx}
+                              align="flex-start"
+                              border="1px solid"
+                              borderColor={border}
+                              rounded="lg"
+                              p={3}
+                              justify="space-between"
+                            >
+                              <VStack align="start" spacing={2} flex={1}>
+                                <HStack spacing={2} flexWrap="wrap">
+                                  <Badge rounded="xl" px={2} py={1} colorScheme={statusColor} fontSize="xs" fontWeight="bold" textTransform="uppercase">
+                                    {request.status}
+                                  </Badge>
+                                  {request.reviewRating && (
+                                    <Badge rounded="xl" px={2} py={1} colorScheme="yellow" fontSize="xs">
+                                      {request.reviewRating}★
+                                    </Badge>
+                                  )}
+                                </HStack>
+                                
+                                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3} w="full">
+                                  <LabeledRow
+                                    icon={FiClock}
+                                    label="Requested"
+                                    value={request.requestedAt ? format(new Date(request.requestedAt), 'MMM dd, yyyy HH:mm') : '—'}
+                                  />
+                                  
+                                  {request.sentAt && (
+                                    <LabeledRow
+                                      icon={FiClock}
+                                      label="Sent"
+                                      value={format(new Date(request.sentAt), 'MMM dd, yyyy HH:mm')}
+                                    />
+                                  )}
+                                  
+                                  {request.clickedAt && (
+                                    <LabeledRow
+                                      icon={FiClock}
+                                      label="Clicked"
+                                      value={format(new Date(request.clickedAt), 'MMM dd, yyyy HH:mm')}
+                                    />
+                                  )}
+                                  
+                                  {request.reviewedAt && (
+                                    <LabeledRow
+                                      icon={FaStar}
+                                      label="Reviewed"
+                                      value={format(new Date(request.reviewedAt), 'MMM dd, yyyy HH:mm')}
+                                    />
+                                  )}
+                                </SimpleGrid>
+
+                                {request.errorMessage && (
+                                  <Box
+                                    bg="red.50"
+                                    border="1px solid"
+                                    borderColor="red.200"
+                                    rounded="md"
+                                    p={2}
+                                    w="full"
+                                  >
+                                    <Text fontSize="xs" color="red.700">
+                                      Error: {request.errorMessage}
+                                    </Text>
+                                  </Box>
+                                )}
+                              </VStack>
+                            </HStack>
+                          );
+                        })}
+                        {reviewRequests && reviewRequests.length > 1 && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="blue"
+                            onClick={() => setShowAllReviews(!showAllReviews)}
+                            w="full"
+                          >
+                            {showAllReviews ? 'Show less' : `Show ${reviewRequests.length - 1} more`}
+                          </Button>
+                        )}
+                      </VStack>
+                    )}
+                  </SectionCard>
                   </VStack>
                 </SimpleGrid>
               </VStack>

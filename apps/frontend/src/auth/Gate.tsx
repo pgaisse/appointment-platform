@@ -123,7 +123,11 @@ export default function Gate({
     return set;
   }, [tokenPerms, serverPerms, accessPerms, source]);
 
-  if (requireAuth && (loading || !isAuthenticated)) return <>{loadingFallback}</>;
+  // Si requiere autenticación y está cargando, mostrar loading
+  if (requireAuth && loading) return <>{loadingFallback}</>;
+  
+  // Si requiere autenticación y NO está autenticado, mostrar fallback (que será Navigate)
+  if (requireAuth && !isAuthenticated) return <>{fallback}</>;
 
   if (requireRole?.length) {
     const req = normArr(requireRole);

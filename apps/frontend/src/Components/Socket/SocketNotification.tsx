@@ -144,6 +144,15 @@ console.log('SocketNotification - decision:', data.decision);
             queryClient.invalidateQueries({ queryKey: ['appointment-provider'] });
             queryClient.invalidateQueries({ queryKey: ['provider-appointments'] });
             queryClient.invalidateQueries({ queryKey: ['appointments-month-days'] });
+            
+            // Calendar appointments queries (AssignedAppointments component)
+            queryClient.invalidateQueries({ queryKey: ['calendar-appointments'] });
+            queryClient.invalidateQueries({
+                predicate: (q) => {
+                    const key = q.queryKey as any[];
+                    return Array.isArray(key) && key[0] === 'calendar-appointments';
+                },
+            });
 
             // Ensure all useGetCollection('Appointment', filters) queries get marked stale too
             queryClient.invalidateQueries({
@@ -155,6 +164,11 @@ console.log('SocketNotification - decision:', data.decision);
             queryClient.invalidateQueries({ queryKey: ['dashboard-week-appointments'] });
             queryClient.invalidateQueries({ queryKey: ['dashboard-pending-appointments'] });
             queryClient.invalidateQueries({ queryKey: ['dashboard-appointments-range'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-month-new-patients'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-today-messages'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-month-messages'] });
+            
             // Pending approvals (stable key via dedicated hook)
             queryClient.invalidateQueries({ queryKey: PENDING_APPROVALS_QK as any });
             // Declined and Archived (stable keys)
@@ -165,6 +179,19 @@ console.log('SocketNotification - decision:', data.decision);
             queryClient.refetchQueries({ queryKey: PENDING_APPROVALS_QK as any });
             queryClient.refetchQueries({ queryKey: DECLINED_APPTS_QK as any });
             queryClient.refetchQueries({ queryKey: ARCHIVED_APPTS_QK as any });
+            
+            // Force refetch dashboard stats (including pending appointments count)
+            queryClient.refetchQueries({ queryKey: ['dashboard-stats'] });
+            queryClient.refetchQueries({ queryKey: ['dashboard-pending-appointments'] });
+            
+            // Force refetch calendar appointments for immediate UI update
+            queryClient.refetchQueries({
+                predicate: (q) => {
+                    const key = q.queryKey as any[];
+                    return Array.isArray(key) && key[0] === 'calendar-appointments';
+                },
+                type: 'active',
+            });
 
             // Contact-related refresh (manual contact flows)
             queryClient.invalidateQueries({ queryKey: ['ManualContact'] });
@@ -176,9 +203,63 @@ console.log('SocketNotification - decision:', data.decision);
             queryClient.invalidateQueries({ queryKey: ['PriorityList'] });
         };
 
+        // Handler for appointmentUpdated events (Complete, SMS sent, etc.)
+        const handleAppointmentUpdated = async (data: any) => {
+            console.log('📩 [appointmentUpdated] Received in SocketNotification:', data);
+            
+            // Cancel all queries to avoid race conditions
+            await queryClient.cancelQueries({
+                predicate: (q) => {
+                    const key = q.queryKey as any[];
+                    const head = Array.isArray(key) ? key[0] : undefined;
+                    return (
+                        head === 'DraggableCards' ||
+                        head === 'appointments' ||
+                        head === 'appointments-search' ||
+                        head === 'Appointment'
+                    );
+                },
+            });
+
+            // Invalidate all appointment-related caches
+            queryClient.invalidateQueries({ queryKey: ['Appointment'] });
+            queryClient.invalidateQueries({ queryKey: ['appointments'] });
+            queryClient.invalidateQueries({ queryKey: ['appointment:one'] });
+            queryClient.invalidateQueries({ queryKey: ['appointment-providers'] });
+            queryClient.invalidateQueries({ queryKey: ['appointment-provider'] });
+            queryClient.invalidateQueries({ queryKey: ['provider-appointments'] });
+            queryClient.invalidateQueries({ queryKey: ['appointments-month-days'] });
+            queryClient.invalidateQueries({ queryKey: ['calendar-appointments'] });
+            queryClient.invalidateQueries({
+                predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === 'Appointment',
+            });
+
+            // Dashboard queries
+            queryClient.invalidateQueries({ queryKey: ['dashboard-today-appointments'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-week-appointments'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-pending-appointments'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-appointments-range'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+
+            // Pending, Declined, Archived
+            queryClient.invalidateQueries({ queryKey: PENDING_APPROVALS_QK as any });
+            queryClient.invalidateQueries({ queryKey: DECLINED_APPTS_QK as any });
+            queryClient.invalidateQueries({ queryKey: ARCHIVED_APPTS_QK as any });
+
+            // Priority/board views - CRITICAL for CustomTableAppColumnV
+            queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+            queryClient.refetchQueries({ queryKey: ['DraggableCards'] });
+            queryClient.invalidateQueries({ queryKey: ['PriorityList'] });
+            
+            console.log('✅ [appointmentUpdated] Cache invalidated and refetched');
+        };
+
         socket.on('confirmationResolved', handleSMS);
+        socket.on('appointmentUpdated', handleAppointmentUpdated);
+        
         return () => {
             socket.off('confirmationResolved', handleSMS);
+            socket.off('appointmentUpdated', handleAppointmentUpdated);
         };
     }, [socket, connected, toast, queryClient]);
 

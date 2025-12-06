@@ -39,7 +39,7 @@ help:
 	@echo "  make ssl-renew-dev  -> Renueva certificados Let's Encrypt en DEV y recarga Nginx (requiere webroot en nginx.dev.conf)"
 
 # ========= DEV =========
-.PHONY: dev dev-deep dev-fast dev-down dev-up
+.PHONY: dev dev-deep dev-fast dev-down dev-up restart_api_dev
 dev:
 	@set -euo pipefail; \
 	if [[ ! -f "$(COMPOSE_DEV)" ]]; then echo "No existe: $(COMPOSE_DEV)"; exit 1; fi; \
@@ -88,6 +88,12 @@ dev-down:
 
 dev-up:
 	@docker compose -p "$(PROJECT_DEV)" -f "$(COMPOSE_DEV)" up -d --build --remove-orphans
+
+restart_api_dev:
+	@if [[ ! -f "$(COMPOSE_DEV)" ]]; then echo "No existe: $(COMPOSE_DEV)"; exit 1; fi
+	@echo ">> Reiniciando backend_dev..."
+	@docker compose -p "$(PROJECT_DEV)" -f "$(COMPOSE_DEV)" restart backend
+	@echo "✔ Backend DEV reiniciado"
 
 # ========= PROD (seguro: no toca mongo_prod) =========
 .PHONY: prod prod-up prod-rolling prod-down-safe prod-clean prod-space prod-logs prod-jobs-once prod-certbot prod-init-replica

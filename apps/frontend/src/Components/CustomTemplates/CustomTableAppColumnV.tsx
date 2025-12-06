@@ -6,6 +6,9 @@ import {
   VStack,
   HStack,
   SkeletonText,
+  IconButton,
+  Tooltip,
+  useToast,
 } from "@chakra-ui/react";
 import { } from "date-fns";
 import { useEffect, useState } from "react";
@@ -22,14 +25,21 @@ import { useDeclinedAppointments } from "@/Hooks/Query/useDeclinedAppointments";
 import { useArchivedAppointments } from "@/Hooks/Query/useArchivedAppointments";
 import AppointmentModal from "../Modal/AppointmentModal";
 import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext"; // 👈 Provider para modal index
+import { RepeatIcon } from "@chakra-ui/icons";
+import { useQueryClient } from "@tanstack/react-query";
 
 const CustomTableAppColumnV = () => {
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [selectedItem, setSelectedItem] = useState<Appointment>();
   const [] = useState<Partial<Record<WeekDay, TimeBlock[]>>>({});
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { data: dataAP2, isPlaceholderData, isLoading } = useDraggableCards();
+  
+  // 🔍 FASE 1: DIAGNÓSTICO - Estructura de datos
   console.log("📦 dataAP2 from backend:", {
     totalGroups: dataAP2?.length,
     totalPatients: dataAP2?.reduce((sum, g) => sum + (g.patients?.length || 0), 0),
@@ -41,6 +51,29 @@ const CustomTableAppColumnV = () => {
         end: d.endDate
       }))
     }))
+  });
+  
+  console.log("🔍 Structure Analysis:", {
+    totalGroups: dataAP2?.length,
+    sampleAppointment: dataAP2?.[0]?.patients?.[0] ? {
+      _id: dataAP2[0].patients[0]._id,
+      nameInput: dataAP2[0].patients[0].nameInput,
+      hasRootTreatment: !!(dataAP2[0].patients[0] as any).treatment,
+      hasRootPriority: !!(dataAP2[0].patients[0] as any).priority,
+      hasRootProviders: !!(dataAP2[0].patients[0] as any).providers,
+      selectedAppDatesCount: dataAP2[0].patients[0].selectedAppDates?.length || 0
+    } : null,
+    sampleSlots: dataAP2?.[0]?.patients?.[0]?.selectedAppDates?.map((s: any) => ({
+      status: s.status,
+      hasTreatment: !!s.treatment,
+      hasPriority: !!s.priority,
+      hasProviders: !!s.providers,
+      treatmentType: typeof s.treatment,
+      priorityType: typeof s.priority,
+      providersType: typeof s.providers,
+      treatmentValue: s.treatment?._id ? 'populated' : s.treatment ? 'id' : 'null',
+      priorityValue: s.priority?._id ? 'populated' : s.priority ? 'id' : 'null'
+    })) || []
   });
   //const { data: dataCategories } = useTreatments();
   const [filteredData, setFilteredData] = useState<GroupedAppointment[]>(dataAP2 ? dataAP2 : []);
@@ -195,6 +228,36 @@ const CustomTableAppColumnV = () => {
     </SimpleGrid>
   );
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['DraggableCards'] }),
+        queryClient.invalidateQueries({ queryKey: ['appointments'] }),
+        queryClient.invalidateQueries({ queryKey: ['appointments-search'] }),
+        queryClient.invalidateQueries({ queryKey: ['Appointment'] }),
+      ]);
+      await queryClient.refetchQueries({ queryKey: ['DraggableCards'] });
+      toast({
+        title: 'Refreshed',
+        description: 'Priority list has been updated.',
+        status: 'success',
+        duration: 2000,
+        isClosable: true,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error refreshing',
+        description: 'Could not refresh the priority list.',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <ModalStackProvider>
       <>
@@ -202,7 +265,11 @@ const CustomTableAppColumnV = () => {
           {isLoading || !dataAP2 ? (
             <DateRangeSkeleton />
           ) : (
-            <DateRangeSelector onFilterRange={handleRangeChange} />
+            <DateRangeSelector 
+              onFilterRange={handleRangeChange} 
+              onRefresh={handleRefresh}
+              isRefreshing={isRefreshing}
+            />
           )}
         </Box>
         <Box px={4}>

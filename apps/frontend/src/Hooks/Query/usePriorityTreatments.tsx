@@ -12,6 +12,38 @@ const fetchTreatments = async (
   reschedule: boolean = false,
   signal?: AbortSignal
 ) => {
+  // Log both local time and Sydney time for debugging
+  const sydneyStartStr = startDate.toLocaleString('en-AU', { 
+    timeZone: 'Australia/Sydney', 
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  const sydneyEndStr = endDate.toLocaleString('en-AU', { 
+    timeZone: 'Australia/Sydney', 
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  console.log('🌐 [fetchTreatments] Making request to /sorting:', {
+    url: `${import.meta.env.VITE_BASE_URL}/sorting`,
+    params: {
+      startDateISO: startDate.toISOString(),
+      endDateISO: endDate.toISOString(),
+      startDateSydney: sydneyStartStr,
+      endDateSydney: sydneyEndStr,
+      category,
+      reschedule,
+    },
+  });
+
   const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/sorting`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -27,10 +59,24 @@ const fetchTreatments = async (
     // Prevent hanging requests from blocking UI
     timeout: 15000,
   });
+
+  console.log('📥 [fetchTreatments] Response received:', {
+    status: res.status,
+    dataType: typeof res.data,
+    isArray: Array.isArray(res.data),
+    dataLength: Array.isArray(res.data) ? res.data.length : 'N/A',
+    rawData: res.data,
+  });
+
   const filtered = res.data.filter((item: any) => {
     return item.nameInput !== null && item.nameInput !== "null" && item.nameInput !== "";
   });
 
+  console.log('✅ [fetchTreatments] Filtered results:', {
+    originalLength: Array.isArray(res.data) ? res.data.length : 'N/A',
+    filteredLength: filtered.length,
+    filtered,
+  });
 
   return filtered;
 };

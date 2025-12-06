@@ -72,6 +72,7 @@ import {
 } from "react-icons/fi";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth0 } from "@auth0/auth0-react";
+import { validateEmail, validatePhone, debounce } from "@/utils/validation";
 
 const MotionBox = motion(Box);
 
@@ -125,6 +126,9 @@ export default function UserManager() {
   const bgColor = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.700");
   const hoverBg = useColorModeValue("gray.50", "gray.700");
+
+  // Debounced search
+  const debouncedSetSearchTerm = useMemo(() => debounce(setSearchTerm, 300), []);
 
   // Fetch users
   const { data, isLoading, error } = useQuery({
@@ -293,8 +297,7 @@ export default function UserManager() {
           </InputLeftElement>
           <Input
             placeholder="Search by name, email or Auth0 ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => debouncedSetSearchTerm(e.target.value)}
             bg={bgColor}
             borderColor={borderColor}
           />
@@ -517,7 +520,7 @@ function EditUserModal({ isOpen, onClose, user, onSave, isLoading }: EditUserMod
   const { getAccessTokenSilently } = useAuth0();
 
   useEffect(() => {
-    if (user) {
+    if (user && isOpen) {
       setFormData({
         name: user.name || "",
         firstName: user.firstName || "",
@@ -539,7 +542,7 @@ function EditUserModal({ isOpen, onClose, user, onSave, isLoading }: EditUserMod
       setAvatarPreview(null);
       setAvatarFile(null);
     }
-  }, [user]);
+  }, [user, isOpen]);
 
   const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -637,6 +640,48 @@ function EditUserModal({ isOpen, onClose, user, onSave, isLoading }: EditUserMod
   });
 
   const handleSubmit = async () => {
+    // Validate email if changed
+    if (formData.email && formData.email !== user.email) {
+      const emailValidation = validateEmail(formData.email);
+      if (!emailValidation.isValid) {
+        toast({
+          title: "Invalid email",
+          description: emailValidation.error,
+          status: "error",
+          duration: 3000,
+        });
+        return;
+      }
+    }
+
+    // Validate phone if provided
+    if (formData.phone) {
+      const phoneValidation = validatePhone(formData.phone);
+      if (!phoneValidation.isValid) {
+        toast({
+          title: "Invalid phone",
+          description: phoneValidation.error,
+          status: "error",
+          duration: 3000,
+        });
+        return;
+      }
+    }
+
+    // Validate mobile if provided
+    if (formData.mobile) {
+      const mobileValidation = validatePhone(formData.mobile);
+      if (!mobileValidation.isValid) {
+        toast({
+          title: "Invalid mobile",
+          description: mobileValidation.error,
+          status: "error",
+          duration: 3000,
+        });
+        return;
+      }
+    }
+
     let avatarUploaded = false;
     
     // Upload avatar first if there's a new one
@@ -673,7 +718,10 @@ function EditUserModal({ isOpen, onClose, user, onSave, isLoading }: EditUserMod
     }
   };
 
-  if (!user) return null;
+  // Don't render modal content if no user is selected
+  if (!user) {
+    return null;
+  }
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="3xl" isCentered scrollBehavior="inside">

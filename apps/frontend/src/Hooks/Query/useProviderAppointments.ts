@@ -191,15 +191,12 @@ export function useProviderAppointments(
           ? `${BASE}/providers/${providerId}/appointments?${q.toString()}`
           : `${BASE}/providers/${providerId}/appointments`;
 
-      console.log("[useProviderAppointments] FETCH:", url);
       const resp = (await authedFetchJSON(getAccessTokenSilently, url)) as {
         data: Appointment[];
         total?: number;
       };
 
-      console.log("[useProviderAppointments] raw data:", resp?.data);
       const events = normalizeAppointments(resp?.data || [], providerId);
-      console.log("[useProviderAppointments] normalized events:", events);
       return events;
     },
     placeholderData: (previousData) => previousData,

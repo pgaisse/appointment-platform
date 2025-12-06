@@ -7,6 +7,7 @@ export type PriorityMove = {
   id: string;            // _id del Appointment
   position?: number;     // nueva posición (0-based)
   priority?: string;     // nuevo ObjectId de Priority (si cambia de columna)
+  slotId?: string;       // _id del slot específico dentro de selectedAppDates
 };
 
 type MoveBody = { moves: PriorityMove[] };

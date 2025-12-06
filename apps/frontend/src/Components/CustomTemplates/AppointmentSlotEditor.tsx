@@ -62,7 +62,7 @@ export type DateRange = {
   treatment?: string; // ObjectId ref
   priority?: string; // ObjectId ref
   providers?: string[]; // ObjectId refs
-  duration?: number;
+  duration?: number; // Duration in MINUTES (not hours)
   providerNotes?: string;
 };
 
@@ -209,30 +209,36 @@ function ProviderRowWithAvailabilityCheck({
 }) {
   const { data: providerSchedule } = useProviderSchedule(p._id);
   
+  // Ensure dates are Date objects and stabilize timestamps to prevent unnecessary recalculations
+  const startDate = slot.startDate instanceof Date ? slot.startDate : new Date(slot.startDate);
+  const endDate = slot.endDate instanceof Date ? slot.endDate : new Date(slot.endDate);
+  const startTime = startDate.getTime();
+  const endTime = endDate.getTime();
+  
   // Calculate date range for query (add buffer to catch overlapping appointments)
   const dateRange = useMemo(() => {
-    const start = dayjs(slot.startDate).tz(tz).subtract(1, 'day');
-    const end = dayjs(slot.endDate).tz(tz).add(1, 'day');
+    const start = dayjs(startTime).tz(tz).subtract(1, 'day');
+    const end = dayjs(endTime).tz(tz).add(1, 'day');
     return {
       from: start.toISOString(),
       to: end.toISOString(),
     };
-  }, [slot.startDate, slot.endDate, tz]);
+  }, [startTime, endTime, tz]);
 
   // Fetch provider's existing appointments in the time range
   const { data: providerEvents = [] } = useProviderAppointments(p._id, dateRange);
 
   const availabilityCheck = useMemo(() => {
     // First check schedule availability
-    const scheduleCheck = isProviderAvailableInSlot(providerSchedule, slot.startDate, slot.endDate, tz);
+    const scheduleCheck = isProviderAvailableInSlot(providerSchedule, startDate, endDate, tz);
     if (!scheduleCheck.available) {
       return { available: false, reason: scheduleCheck.reason };
     }
 
     // Then check for appointment conflicts
     const conflictCheck = hasTimeConflict(
-      slot.startDate, 
-      slot.endDate, 
+      startDate, 
+      endDate, 
       providerEvents,
       currentAppointmentId,
       tz
@@ -243,7 +249,7 @@ function ProviderRowWithAvailabilityCheck({
     }
 
     return { available: true };
-  }, [providerSchedule, providerEvents, slot.startDate, slot.endDate, currentAppointmentId, tz]);
+  }, [providerSchedule, providerEvents, startDate, endDate, currentAppointmentId, tz]);
 
   const statusTag = useMemo(() => {
     if (availabilityCheck.available) {
@@ -579,8 +585,8 @@ export default function AppointmentSlotEditor({
 
             const isExpanded = expandedSlots[idx];
 
-            // Calculate duration for display
-            const slotDuration = slot.duration ? Math.round(slot.duration * 60) : null;
+            // Calculate duration for display (duration is stored in minutes)
+            const slotDuration = slot.duration ? Math.round(slot.duration) : null;
 
             return (
               <Box key={`slot-${idx}-${s.valueOf()}`} borderWidth="1px" borderRadius="md" p={3} bg="white">
@@ -594,8 +600,13 @@ export default function AppointmentSlotEditor({
                       {displayDate} {slotDuration && `(${slotDuration} min)`}
                     </Text>
                     {(() => {
-                      const slotPriority = getPriorityById(slot.priority);
-                      const slotTreatment = getTreatmentById(slot.treatment);
+                      // Handle both populated objects and ObjectId strings
+                      const slotPriority = typeof slot.priority === 'object' && slot.priority !== null
+                        ? slot.priority as any
+                        : getPriorityById(slot.priority);
+                      const slotTreatment = typeof slot.treatment === 'object' && slot.treatment !== null
+                        ? slot.treatment as any
+                        : getTreatmentById(slot.treatment);
                       return (
                         <>
                           {slotPriority && (
@@ -629,7 +640,11 @@ export default function AppointmentSlotEditor({
                     <FormControl>
                       <FormLabel fontSize="sm">Treatment</FormLabel>
                       <TreatmentSelector
-                        selectedId={slot.treatment || globalTreatmentId || ''}
+                        selectedId={
+                          typeof slot.treatment === 'object' && slot.treatment !== null
+                            ? (slot.treatment as any)._id
+                            : slot.treatment || globalTreatmentId || ''
+                        }
                         selected={-1}
                         onChange={(id: string) => {
                           // Find the selected treatment to get its duration
@@ -640,9 +655,8 @@ export default function AppointmentSlotEditor({
                           if (selectedTreatment?.duration) {
                             // Treatment duration is stored in MINUTES in the database
                             const treatmentDurationMinutes = selectedTreatment.duration;
-                            // Convert to hours for the slot (slot.duration expects hours)
-                            const treatmentDurationHours = treatmentDurationMinutes / 60;
-                            updates.duration = treatmentDurationHours;
+                            // Store duration in MINUTES (not hours)
+                            updates.duration = treatmentDurationMinutes;
                             
                             // Recalculate endDate based on startDate + treatment duration (in minutes)
                             const newStartDate = dayjs(slot.startDate).tz(tz);
@@ -665,7 +679,11 @@ export default function AppointmentSlotEditor({
                         selected={-1}
                         setSelected={() => {}}
                         isPending={formBusy}
-                        value={slot.priority || globalPriorityId || ''}
+                        value={
+                          typeof slot.priority === 'object' && slot.priority !== null
+                            ? (slot.priority as any)._id
+                            : slot.priority || globalPriorityId || ''
+                        }
                         onChange={(id: string, _name: string, _color?: string, _duration?: number | null) => {
                           // Priority duration is deprecated - do not update slot duration
                           onSlotChange(idx, { priority: id });
@@ -680,17 +698,16 @@ export default function AppointmentSlotEditor({
                       <FormLabel fontSize="sm">Duration (minutes)</FormLabel>
                       <input
                         type="number"
-                        value={slot.duration ? Math.round(slot.duration * 60) : (globalDuration ? Math.round(globalDuration * 60) : '')}
+                        value={slot.duration ? Math.round(slot.duration) : (globalDuration ? Math.round(globalDuration) : '')}
                         onChange={(e) => {
                           const minutes = parseInt(e.target.value) || 0;
-                          const hours = minutes / 60;
                           
                           // Recalculate endDate based on startDate + new duration
                           const newStartDate = dayjs(slot.startDate).tz(tz);
                           const newEndDate = newStartDate.add(minutes, 'minute').toDate();
                           
                           onSlotChange(idx, { 
-                            duration: hours,
+                            duration: minutes,
                             endDate: newEndDate
                           });
                         }}

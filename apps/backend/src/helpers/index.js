@@ -6,6 +6,7 @@ const { addMinutes } = require('date-fns');
 
 const aws = require('../helpers/aws');
 const { Appointment, MessageLog, MediaFile } = require('../models/Appointments');
+const TwilioService = require('../services/TwilioService');
 // Cargar los plugins
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -345,16 +346,22 @@ function localToE164AU(localNumber) {
     throw new Error('El número debe ser un string');
   }
 
-  // Elimina espacios, guiones y paréntesis
+  // Elimina espacios, guiones y paréntesis (pero conserva el prefijo +)
   const cleaned = localNumber.replace(/[\s\-()]/g, '');
 
-  // Valida: debe empezar con 0 y tener 10 dígitos en total
-  if (!/^0\d{9}$/.test(cleaned)) {
-    throw new Error(`Número australiano inválido: ${localNumber}`);
+  if (/^\+61\d{9}$/.test(cleaned)) {
+    return cleaned;
   }
 
-  // Reemplaza el 0 inicial por +61
-  return '+61' + cleaned.slice(1);
+  if (/^61\d{9}$/.test(cleaned)) {
+    return `+${cleaned}`;
+  }
+
+  if (/^0\d{9}$/.test(cleaned)) {
+    return '+61' + cleaned.slice(1);
+  }
+
+  throw new Error(`Número australiano inválido: ${localNumber}`);
 }
 function buildObjectWithNullDefaults(schemaPaths, inputData) {
   const output = {};
@@ -460,8 +467,6 @@ function normalizeMessage(input = {}) {
 
 
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-
 async function loadImage(input, org_id) {
   normalizedInput = normalizeMessage(input.body)
   const {
@@ -477,6 +482,9 @@ async function loadImage(input, org_id) {
   // console.log('NormalizedInput', normalizedInput);
 
   if (!ConversationSid) throw new Error('ConversationSid es requerido');
+
+  // Obtener cliente de Twilio desde la base de datos
+  const { client } = await TwilioService.getClient(org_id);
 
   // 2) Obtener serviceSid (IS...) de la conversación (evita mismatches)
   const conv = await client.conversations.v1.conversations(ConversationSid).fetch();

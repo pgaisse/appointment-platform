@@ -11,7 +11,8 @@ const ContactStatus = {
   Failed: 'Failed',
   NoContacted: 'NoContacted',
   NotStarted: 'NoStarted',
-  Declined: 'Declined'
+  Declined: 'Declined',
+  Complete: 'Complete'
 };
 
 const MsgType = {

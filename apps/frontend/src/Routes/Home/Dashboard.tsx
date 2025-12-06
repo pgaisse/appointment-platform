@@ -51,6 +51,7 @@ import { StatCard } from "@/Components/Dashboard/StatCard";
 import { QuickAction } from "@/Components/Dashboard/QuickAction";
 import { AppointmentDetailsModal } from "@/Components/Dashboard/AppointmentDetailsModal";
 import { MessagesDetailsModal } from "@/Components/Dashboard/MessagesDetailsModal";
+import { ReviewsDetailsModal } from "@/Components/Dashboard/ReviewsDetailsModal";
 import AppointmentModal from "@/Components/Modal/AppointmentModal";
 import { ModalStackProvider } from "@/Components/ModalStack/ModalStackContext";
 import { useDashboardStats } from "@/Hooks/Query/useDashboardStats";
@@ -68,6 +69,7 @@ import dayjs from 'dayjs';
 import { useProfile } from "@/Hooks/Query/useProfile";
 import { getAvatarColors } from "@/utils/avatarColors";
 import { useTwilioBalance } from "@/Hooks/Query/useTwilioBalance";
+import { FaStar } from "react-icons/fa";
 
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError, error } = useDashboardStats();
@@ -98,6 +100,7 @@ const Dashboard: React.FC = () => {
   const { isOpen: isWeekOpen, onOpen: onWeekOpen, onClose: onWeekClose } = useDisclosure();
   const { isOpen: isPendingOpen, onOpen: onPendingOpen, onClose: onPendingClose } = useDisclosure();
   const { isOpen: isMessagesOpen, onOpen: onMessagesOpen, onClose: onMessagesClose } = useDisclosure();
+  const { isOpen: isReviewsOpen, onOpen: onReviewsOpen, onClose: onReviewsClose } = useDisclosure();
   const { isOpen: isAppointmentModalOpen, onOpen: onAppointmentModalOpen, onClose: onAppointmentModalClose } = useDisclosure();
 
   // Selected appointment for detail modal
@@ -235,7 +238,7 @@ const Dashboard: React.FC = () => {
             templateColumns={{
               base: 'repeat(1, 1fr)',
               md: hasMaster ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
-              lg: hasMaster ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
+              lg: hasMaster ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)',
             }}
             gap={6}
           >
@@ -255,6 +258,25 @@ const Dashboard: React.FC = () => {
               subtitle="Added this month"
               isLoading={isLoading}
               onClick={() => onPatientsOpen()}
+              isClickable
+            />
+            <StatCard
+              title="Google Reviews"
+              value={
+                <VStack spacing={0} align="start">
+                  <Text fontSize="3xl" fontWeight="bold">
+                    {stats?.reviews.completed || 0}
+                  </Text>
+                  <Text fontSize="sm" color="gray.500">
+                    {stats?.reviews.sent || 0} sent • {stats?.reviews.clicked || 0} clicked
+                  </Text>
+                </VStack>
+              }
+              icon={FaStar}
+              color="yellow"
+              subtitle="Reviews completed"
+              isLoading={isLoading}
+              onClick={onReviewsOpen}
               isClickable
             />
             {hasMaster && (
@@ -443,6 +465,12 @@ const Dashboard: React.FC = () => {
           onMessageClick={handleMessageClick}
           direction={messageDirection}
           onDirectionChange={setMessageDirection}
+        />
+
+        <ReviewsDetailsModal
+          isOpen={isReviewsOpen}
+          onClose={onReviewsClose}
+          onAppointmentClick={handleAppointmentClick}
         />
 
         {/* New Patients modal (custom) */}

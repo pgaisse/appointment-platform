@@ -61,7 +61,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 icon: FiHome,
                 show: ["header", "sidebar"],
                 order: 10,
-                gate: { requireAuth: false }, // público
+                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
 
             // Auth
@@ -95,7 +95,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                 order: 20,
                 gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
                 children: [
-                    { key: "appointments.index", path: "", componentKey: "Appointments" },
+                    { key: "appointments.index", path: "", componentKey: "Appointments", gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" } },
                     {
                         key: "appointments.priorityList",
                         path: "priority-list",
@@ -104,6 +104,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                         icon: TbSortAscendingSmallBig,
                         show: ["sidebar"],
                         order: 21,
+                        gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
                     },
                     {
                         key: "appointments.manager",
@@ -113,6 +114,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                         icon: TbCalendarPlus,
                         show: ["sidebar"],
                         order: 22,
+                        gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
                     },
                     {
                         key: "appointments.patientFinder",
@@ -122,6 +124,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                         icon: LuUserRoundSearch,
                         show: ["sidebar"],
                         order: 23,
+                        gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
                     },
                     {
                         key: "appointments.assigned",
@@ -131,6 +134,7 @@ export const ROUTE_LINKS: RouteLink[] = [
                         icon: HiOutlineClipboardDocumentCheck,
                         show: ["sidebar"],
                         order: 24,
+                        gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
                     },
                 ],
             },
@@ -144,18 +148,6 @@ export const ROUTE_LINKS: RouteLink[] = [
                 icon: MdTextsms,
                 show: ["header", "sidebar"],
                 order: 30,
-                gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
-            },
-
-            // Google Calendar
-            {
-                key: "googleCalendar",
-                path: "/google-calendar",
-                componentKey: "GoogleCalendar",
-                label: "Google Calendar",
-                icon: FcGoogle,
-                show: ["sidebar"],
-                order: 25,
                 gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
             {
@@ -216,13 +208,11 @@ export const ROUTE_LINKS: RouteLink[] = [
                     // ✅ usa los claims del ID token (los que ves en console.log de user)
                     source: "token",
 
-                    // ✅ exige login y redirige si no hay sesión
+                    // ✅ exige login pero NO redirige para evitar logout
                     requireAuth: true,
-                    redirectToOnUnauthed: "/login",
 
                     // ✅ permisos o rol (cualquiera de los dos te habilita)
-                    
-                    requireRole: ["Admin"],
+                    requireRole: ["Admin", "Support"],
                 },
             },
 
@@ -240,12 +230,10 @@ export const ROUTE_LINKS: RouteLink[] = [
                     // ✅ usa los claims del ID token (los que ves en console.log de user)
                     source: "token",
 
-                    // ✅ exige login y redirige si no hay sesión
+                    // ✅ exige login pero NO redirige para evitar logout
                     requireAuth: true,
-                    redirectToOnUnauthed: "/login",
 
                     // ✅ permisos o rol (cualquiera de los dos te habilita)
-                    
                     requireRole: ["Admin"],
                 },
             },
@@ -264,5 +252,14 @@ export const ROUTE_LINKS: RouteLink[] = [
                 gate: { requireAuth: true, source: "all", redirectToOnUnauthed: "/login" },
             },
         ],
+    },
+    
+    // Public Review Page - Outside of Layout (no menus/sidebar)
+    {
+        key: "publicReview",
+        path: "/review/:requestId",
+        componentKey: "PublicReviewPage",
+        show: [], // hidden from navigation
+        gate: { requireAuth: false }, // Public route
     },
 ];

@@ -29,24 +29,38 @@ export function useAuthFetch() {
         },
       });
 
-      // Manejo de 401: Token expirado o inválido
-      if (res.status === 401 && retryCount === 0) {
-        console.warn('[authFetch] Received 401, attempting token refresh...');
+      // Manejo de 401/403: Sesión inválida o sin acceso
+      if ((res.status === 401 || res.status === 403) && retryCount === 0) {
+        console.warn(`[authFetch] Received ${res.status}, attempting token refresh...`);
         // Retry una vez con token refrescado
         return authFetch(input, init, retryCount + 1);
       }
 
-      // Si después del retry sigue siendo 401, forzar re-autenticación
-      if (res.status === 401 && retryCount > 0) {
-        console.error('[authFetch] Token refresh failed, forcing re-authentication');
-        forceReauth({ reason: "token_expired" });
-        throw new Error("Session expired. Please log in again.");
+      // Si después del retry sigue siendo 401/403, forzar re-autenticación
+      if ((res.status === 401 || res.status === 403) && retryCount > 0) {
+        const reason = res.status === 401 ? 'token_expired' : 'access_denied';
+        console.error(`[authFetch] Token refresh failed (${res.status}), forcing re-authentication`);
+        forceReauth({ reason });
+        
+        const errorMessage = res.status === 401 
+          ? "Session expired. Please log in again."
+          : "Access denied. Please log in again.";
+        
+        const error: any = new Error(errorMessage);
+        error.status = res.status;
+        throw error;
       }
 
       if (!res.ok) {
         let body: any = null;
         try { body = await res.json(); } catch {}
-        throw new Error(body?.error || body?.message || `HTTP ${res.status}`);
+        
+        const errorMessage = body?.error || body?.message || `HTTP ${res.status}`;
+        const error: any = new Error(errorMessage);
+        error.status = res.status;
+        error.response = { status: res.status, data: body };
+        
+        throw error;
       }
 
       // intenta json, si no hay, retorna null

@@ -21,25 +21,33 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
     return res.status(400).json({ error: 'Body debe ser un array de moves o { moves: [] }' });
   }
 
-  // Sanitize + dedupe (última escritura por id gana)
-  const map = new Map();
+  // ✅ NUEVO: Agrupar moves por appointmentId+slotId (cada slot es independiente)
+  const appointmentMoves = new Map();
+  
   for (const m of rawMoves) {
     const id = String(m?.id || '').trim();
     if (!OID_RE.test(id)) continue;
 
-    const position =
-      Number.isFinite(m?.position) ? Number(m.position) : undefined;
-    const priority =
-      m?.priority && OID_RE.test(String(m.priority)) ? String(m.priority) : undefined;
+    const position = Number.isFinite(m?.position) ? Number(m.position) : undefined;
+    const priority = m?.priority && OID_RE.test(String(m.priority)) ? String(m.priority) : undefined;
+    const slotId = m?.slotId && OID_RE.test(String(m.slotId)) ? String(m.slotId) : undefined;
 
     if (position === undefined && !priority) continue;
 
-    const prev = map.get(id) || { id };
-    if (position !== undefined) prev.position = position;
-    if (priority) prev.priority = priority;
-    map.set(id, prev);
+    // ✅ Clave única: appointmentId|slotId para mantener slots independientes
+    const key = slotId ? `${id}|${slotId}` : id;
+
+    if (!appointmentMoves.has(key)) {
+      appointmentMoves.set(key, { id, position, priority, slotId });
+    } else {
+      const existing = appointmentMoves.get(key);
+      if (position !== undefined) existing.position = position;
+      if (priority) existing.priority = priority;
+      if (slotId) existing.slotId = slotId;
+    }
   }
-  const moves = [...map.values()];
+
+  const moves = [...appointmentMoves.values()];
   if (!moves.length) {
     return res.status(400).json({ error: 'No hay movimientos válidos' });
   }
@@ -50,12 +58,6 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
   try {
     await session.withTransaction(async () => {
       for (const m of moves) {
-        const set = { unknown: false };
-        if (m.position !== undefined) set.position = m.position;
-        if (m.priority) set.priority = new mongoose.Types.ObjectId(m.priority);
-        if (org_id != null) set.org_id = org_id;
-
-        // ✅ Filtro por tenant SIN proxyAddress
         const filter = org_id != null
           ? {
               _id: new mongoose.Types.ObjectId(m.id),
@@ -63,20 +65,84 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
             }
           : { _id: new mongoose.Types.ObjectId(m.id) };
 
-        const updated = await Appointment.findOneAndUpdate(
-          filter,
-          { $set: set },
-          { new: true, session }
-        );
+        // ✅ Obtener el appointment actual
+        const appointment = await Appointment.findOne(filter).session(session);
 
-        if (!updated) {
+        if (!appointment) {
           results.push({
             status: 'failed',
             id: m.id,
             reason: 'Documento no encontrado o fuera de la organización',
           });
+          continue;
+        }
+
+        // ✅ ESTRATEGIA: Si viene slotId, actualizar ESE slot específico
+        // Si NO viene slotId, es un movimiento legacy (actualizar root.priority/position)
+        
+        if (m.slotId) {
+          // NUEVO SISTEMA: Actualizar slot específico
+          const slotIndex = appointment.selectedAppDates.findIndex(
+            slot => slot._id.toString() === m.slotId
+          );
+
+          if (slotIndex === -1) {
+            results.push({
+              status: 'failed',
+              id: m.id,
+              reason: `Slot ${m.slotId} no encontrado en appointment`,
+            });
+            continue;
+          }
+
+          // ✅ Actualizar priority del slot si viene
+          if (m.priority) {
+            appointment.selectedAppDates[slotIndex].priority = new mongoose.Types.ObjectId(m.priority);
+          }
+
+          // ✅ Actualizar position del SLOT específico (no del root)
+          if (m.position !== undefined) {
+            appointment.selectedAppDates[slotIndex].position = m.position;
+          }
+
+          appointment.unknown = false;
+          if (org_id != null) appointment.org_id = org_id;
+
+          await appointment.save({ session });
+
+          results.push({ 
+            status: 'success', 
+            id: m.id,
+            slotId: m.slotId,
+            updatedSlot: true 
+          });
+
         } else {
-          results.push({ status: 'success', id: m.id });
+          // LEGACY SYSTEM: Actualizar root.priority y root.position (deprecado)
+          const set = { unknown: false };
+          if (m.position !== undefined) set.position = m.position;
+          if (m.priority) set.priority = new mongoose.Types.ObjectId(m.priority);
+          if (org_id != null) set.org_id = org_id;
+
+          const updated = await Appointment.findOneAndUpdate(
+            filter,
+            { $set: set },
+            { new: true, session }
+          );
+
+          if (!updated) {
+            results.push({
+              status: 'failed',
+              id: m.id,
+              reason: 'Error al actualizar documento',
+            });
+          } else {
+            results.push({ 
+              status: 'success', 
+              id: m.id,
+              updatedRoot: true 
+            });
+          }
         }
       }
     });
@@ -119,196 +185,315 @@ router.get(
       if (!start || !end) {
         return res.status(400).json({ error: 'Invalid date range' });
       }
+      
+      // ✅ NUEVA ESTRATEGIA: Crear un card por cada priority única en slots
+      const appointments = await models.Appointment.aggregate([
+        {
+          $match: {
+            org_id: org_id,
+            // Excluir position == -1
+            $expr: {
+              $ne: [
+                { $convert: { input: "$position", to: "double", onError: null, onNull: null } },
+                -1
+              ]
+            },
+            // ✅ MODIFICADO: Debe tener al menos un slot en el rango de fechas O con status Complete/Confirmed
+            selectedAppDates: {
+              $elemMatch: {
+                $or: [
+                  // Slots en el rango de fechas
+                  {
+                    startDate: { $lte: end },
+                    endDate: { $gte: start },
+                  },
+                  // O slots con status Complete/Confirmed (mostrar siempre)
+                  {
+                    status: { $in: ['Complete', 'Confirmed'] }
+                  }
+                ]
+              },
+            },
+          },
+        },
 
-      const result = await models.PriorityList.aggregate([
-        { $match: { org_id } },
+        // UNWIND slots para procesar cada uno individualmente
+        { $unwind: { path: "$selectedAppDates", preserveNullAndEmptyArrays: false } },
+
+        // Filtrar slots: incluir TODOS los que están en el rango, sin importar su status
+        // ADEMÁS incluir Complete/Confirmed SIEMPRE (aunque estén fuera del rango)
+        {
+          $match: {
+            $or: [
+              // Slots en el rango de fechas (CUALQUIER status)
+              {
+                "selectedAppDates.startDate": { $lte: end },
+                "selectedAppDates.endDate": { $gte: start },
+              },
+              // O slots con status Complete/Confirmed (mostrar siempre, fuera de rango)
+              {
+                "selectedAppDates.status": { $in: ['Complete', 'Confirmed'] }
+              }
+            ]
+          },
+        },
+
+        // POPULATE slot treatment
         {
           $lookup: {
-            from: 'appointments',
-            let: {
-              durationHours: '$durationHours',
-              priorityNum: '$id',
-              priorityId: '$_id',
-              priorityName: '$name',
-              priorityColor: '$color',
-              priorityDescription: '$description',
-              priorityNotes: '$notes'
-            },
-            pipeline: [
-              {
-                $match: {
-                  $expr: { $eq: ['$priority', '$$priorityId'] },
-                  org_id: org_id,
-                  selectedAppDates: {
-                    $elemMatch: {
-                      // Solapamiento: la cita debe empezar antes del fin del rango Y terminar después del inicio
-                      startDate: { $lte: end },
-                      endDate: { $gte: start },
-                    },
-                  },
-                },
-              },
-              // ⬇️ Excluir SOLO position == -1 (acepta nulos/ausentes y strings)
-              {
-                $match: {
-                  $expr: {
-                    $ne: [
-                      { $convert: { input: "$position", to: "double", onError: null, onNull: null } },
-                      -1
-                    ]
-                  }
-                }
-              },
-
-              { $unwind: { path: "$selectedDates.days", preserveNullAndEmptyArrays: true } },
-              {
-                $lookup: {
-                  from: 'timeblocks',
-                  localField: 'selectedDates.days.timeBlocks',
-                  foreignField: '_id',
-                  as: 'selectedDates.days.timeBlocks',
-                },
-              },
-              {
-                $lookup: {
-                  from: 'messagelogs',
-                  localField: '_id',
-                  foreignField: 'appointment',
-                  as: 'contactMessages',
-                },
-              },
-
-              // 👇 AGRUPAMOS y CONSERVAMOS representative
-              {
-                $group: {
-                  _id: "$_id",
-                  contactPreference: { $first: "$contactPreference" },
-                  sid: { $first: "$sid" },
-                  nameInput: { $first: "$nameInput" },
-                  emailInput: { $first: "$emailInput" },
-                  emailLower: { $first: "$emailLower" },   // opcional por si lo necesitas
-                  phoneInput: { $first: "$phoneInput" },
-                  phoneE164: { $first: "$phoneE164" },     // opcional por si lo necesitas
-                  lastNameInput: { $first: "$lastNameInput" },
-                  textAreaInput: { $first: "$textAreaInput" },
-                  representative: { $first: "$representative" }, // ⬅️ mantener subdoc
-                  priority: { $first: "$priority" },
-                  note: { $first: "$note" },
-                  color: { $first: "$color" },
-                  user_id: { $first: "$user_id" },
-                  org_id: { $first: "$org_id" },
-                  treatment: { $first: "$treatment" },
-                  contactMessages: { $first: "$contactMessages" },
-                  position: { $first: "$position" },
-                  reschedule: { $first: "$reschedule" },
-                  selectedStartDate: { $first: "$selectedDates.startDate" },
-                  selectedEndDate: { $first: "$selectedDates.endDate" },
-                  days: { $push: "$selectedDates.days" },
-                  selectedAppDates: { $first: "$selectedAppDates" },
-                },
-              },
-
-              // 👇 POPULATE manual del representative.appointment
-              {
-                $lookup: {
-                  from: 'appointments',
-                  let: { repId: '$representative.appointment' },
-                  pipeline: [
-                    { $match: { $expr: { $eq: ['$_id', '$$repId'] } } },
-                    {
-                      $project: {
-                        _id: 1,
-                        phoneInput: 1,
-                        phoneE164: 1,
-                        emailLower: 1,
-                        nameInput: 1,
-                        lastNameInput: 1,
-                        sid: 1,
-                        proxyAddress: 1
-                      }
-                    }
-                  ],
-                  as: 'repDoc'
-                }
-              },
-              { $unwind: { path: '$repDoc', preserveNullAndEmptyArrays: true } },
-              {
-                $addFields: {
-                  'representative.appointment': '$repDoc'
-                }
-              },
-              { $project: { repDoc: 0 } },
-
-              // Tratamiento
-              {
-                $lookup: {
-                  from: 'treatments',
-                  localField: 'treatment',
-                  foreignField: '_id',
-                  as: 'treatment',
-                },
-              },
-              {
-                $unwind: {
-                  path: '$treatment',
-                  preserveNullAndEmptyArrays: true,
-                },
-              },
-
-              // Campos calculados
-              {
-                $addFields: {
-                  selectedDates: {
-                    startDate: "$selectedStartDate",
-                    endDate: "$selectedEndDate",
-                    days: "$days",
-                  },
-                  priority: {
-                    durationHours: "$$durationHours",
-                    description: "$$priorityDescription",
-                    notes: "$$priorityNotes",
-                    id: "$$priorityNum",
-                    _id: "$$priorityId",
-                    name: "$$priorityName",
-                    color: "$$priorityColor",
-                  }
-                },
-              },
-              {
-                $project: {
-                  selectedStartDate: 0,
-                  selectedEndDate: 0
-                },
-              },
-            ],
-            as: 'patients',
+            from: 'treatments',
+            localField: 'selectedAppDates.treatment',
+            foreignField: '_id',
+            as: 'selectedAppDates.treatment',
           },
         },
         {
-          $project: {
-            _id: 1,
-            priorityNum: "$id",
-            priorityId: "$_id",
-            priorityName: "$name",
-            priorityColor: "$color",
-            description: 1,
-            durationHours: 1,
-            priority: {
-              org_id: "$org_id",
-              id: "$id",
-              _id: "$_id",
-              description: "$description",
-              notes: "$notes",
-              durationHours: "$durationHours",
-              name: "$name",
-              color: "$color"
+          $unwind: {
+            path: '$selectedAppDates.treatment',
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+
+        // POPULATE slot priority
+        {
+          $lookup: {
+            from: 'PriorityList',
+            localField: 'selectedAppDates.priority',
+            foreignField: '_id',
+            as: 'selectedAppDates.priority',
+          },
+        },
+        {
+          $unwind: {
+            path: '$selectedAppDates.priority',
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+
+        // POPULATE slot providers
+        {
+          $lookup: {
+            from: 'providers',
+            localField: 'selectedAppDates.providers',
+            foreignField: '_id',
+            as: 'selectedAppDates.providers',
+          },
+        },
+
+        // ✅ POPULATE root priority (para appointments con priority solo a nivel raíz)
+        {
+          $lookup: {
+            from: 'PriorityList',
+            localField: 'priority',
+            foreignField: '_id',
+            as: 'rootPriorityDoc',
+          },
+        },
+        {
+          $unwind: {
+            path: '$rootPriorityDoc',
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+
+        // POPULATE representative.appointment
+        {
+          $lookup: {
+            from: 'appointments',
+            let: { repId: '$representative.appointment' },
+            pipeline: [
+              { $match: { $expr: { $eq: ['$_id', '$$repId'] } } },
+              {
+                $project: {
+                  _id: 1,
+                  phoneInput: 1,
+                  phoneE164: 1,
+                  emailLower: 1,
+                  nameInput: 1,
+                  lastNameInput: 1,
+                  sid: 1,
+                  proxyAddress: 1
+                }
+              }
+            ],
+            as: 'repDoc'
+          }
+        },
+        { $unwind: { path: '$repDoc', preserveNullAndEmptyArrays: true } },
+        {
+          $addFields: {
+            'representative.appointment': '$repDoc'
+          }
+        },
+
+        // POPULATE messagelogs
+        {
+          $lookup: {
+            from: 'messagelogs',
+            localField: '_id',
+            foreignField: 'appointment',
+            as: 'contactMessages',
+          },
+        },
+
+        // POPULATE selectedDates.days.timeBlocks
+        { $unwind: { path: "$selectedDates.days", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'timeblocks',
+            localField: 'selectedDates.days.timeBlocks',
+            foreignField: '_id',
+            as: 'selectedDates.days.timeBlocks',
+          },
+        },
+
+        // GROUP para reconstruir selectedDates.days pero MANTENER el slot individual
+        {
+          $group: {
+            _id: { appointmentId: "$_id", slotId: "$selectedAppDates._id" },
+            contactPreference: { $first: "$contactPreference" },
+            sid: { $first: "$sid" },
+            nameInput: { $first: "$nameInput" },
+            emailInput: { $first: "$emailInput" },
+            emailLower: { $first: "$emailLower" },
+            phoneInput: { $first: "$phoneInput" },
+            phoneE164: { $first: "$phoneE164" },
+            lastNameInput: { $first: "$lastNameInput" },
+            textAreaInput: { $first: "$textAreaInput" },
+            representative: { $first: "$representative" },
+            note: { $first: "$note" },
+            color: { $first: "$color" },
+            user_id: { $first: "$user_id" },
+            org_id: { $first: "$org_id" },
+            contactMessages: { $first: "$contactMessages" },
+            position: { $first: "$position" },
+            reschedule: { $first: "$reschedule" },
+            // ✅ Guardar priority a nivel raíz como fallback (populated)
+            rootPriority: { $first: "$rootPriorityDoc" },
+            selectedStartDate: { $first: "$selectedDates.startDate" },
+            selectedEndDate: { $first: "$selectedDates.endDate" },
+            days: { $push: "$selectedDates.days" },
+            // ⬇️ SOLO el slot actual con todo populated
+            slot: { $first: "$selectedAppDates" },
+          },
+        },
+
+        // Rebuild selectedDates y aplanar _id
+        {
+          $addFields: {
+            _id: "$_id.appointmentId",
+            selectedDates: {
+              startDate: "$selectedStartDate",
+              endDate: "$selectedEndDate",
+              days: "$days",
             },
-            count: { $size: "$patients" },
-            patients: 1,
+            // Crear array de 1 slot para compatibilidad
+            selectedAppDates: ["$slot"],
+            // ✅ Mantener rootPriority disponible para fallback
+            priority: "$rootPriority",
+          },
+        },
+
+        // Limpiar campos temporales
+        {
+          $project: {
+            selectedStartDate: 0,
+            selectedEndDate: 0,
+            slot: 0,
+            repDoc: 0,
+            rootPriority: 0,
           },
         },
       ]);
 
+      // ✅ PASO 1: Obtener TODAS las prioridades de la organización
+      const allPriorities = await models.PriorityList.find({ org_id }).sort({ id: 1 });
+      console.log("allPriorities", allPriorities);
+      // ✅ PASO 2: Inicializar grouped con TODAS las prioridades (vacías inicialmente)
+      const grouped = new Map();
+      
+      for (const priority of allPriorities) {
+        grouped.set(priority._id.toString(), {
+          _id: priority._id,
+          priorityNum: priority.id,
+          priorityId: priority._id,
+          priorityName: priority.name,
+          priorityColor: priority.color,
+          description: priority.description,
+          durationHours: priority.durationHours,
+          priority: {
+            org_id: priority.org_id,
+            id: priority.id,
+            _id: priority._id,
+            description: priority.description,
+            notes: priority.notes || '',
+            durationHours: priority.durationHours,
+            name: priority.name,
+            color: priority.color,
+          },
+          patients: [],
+        });
+      }
+
+      // ✅ PASO 3: Agregar appointments a sus respectivas prioridades
+      for (const appt of appointments) {
+        const slot = appt.selectedAppDates?.[0];
+        
+        // ✅ FALLBACK: Usar priority del slot, o si no existe, la del root appointment (ya populated)
+        let priorityId;
+        let priorityDoc;
+        
+        if (slot?.priority?._id) {
+          // Priority a nivel de slot (ya populated)
+          priorityId = slot.priority._id.toString();
+          priorityDoc = slot.priority;
+        } else if (appt.priority?._id) {
+          // Priority a nivel raíz (ya populated desde rootPriorityDoc)
+          priorityId = appt.priority._id.toString();
+          priorityDoc = appt.priority;
+          
+          // ✅ CRÍTICO: Copiar la priority del root al slot para que el frontend la vea
+          if (slot) {
+            slot.priority = priorityDoc;
+          }
+        }
+
+        // Silenciosamente ignorar slots sin priority (esperado para appointments sin categorizar)
+        if (!priorityId) {
+          console.log(`ℹ️ [/DraggableCards] Appointment ${appt._id} (${appt.nameInput}) ignorado: sin priority asignada`);
+          continue;
+        }
+
+        // Si la priority existe en el Map, agregar el appointment
+        if (grouped.has(priorityId)) {
+          grouped.get(priorityId).patients.push(appt);
+        } else {
+          console.warn(`⚠️ Appointment ${appt._id} tiene priority ${priorityId} que no existe en PriorityList`);
+        }
+      }
+
+      // Convertir Map a Array y agregar count
+      const result = Array.from(grouped.values()).map(col => {
+        // ✅ Ordenar patients por slot.position
+        const sortedPatients = col.patients.sort((a, b) => {
+          const posA = a.selectedAppDates?.[0]?.position ?? 0;
+          const posB = b.selectedAppDates?.[0]?.position ?? 0;
+          return posA - posB;
+        });
+        
+        return {
+          ...col,
+          patients: sortedPatients,
+          count: sortedPatients.length,
+        };
+      });
+
+      console.log(`✅ [/DraggableCards] Procesados ${appointments.length} appointment-slots`);
+      console.log(`✅ [/DraggableCards] Agrupados en ${result.length} columnas de prioridad`);
+      result.forEach(col => {
+        console.log(`   📋 ${col.priorityName} (${col.priorityColor}): ${col.count} patients`);
+      });
+      console.log("Result", result);
       return res.status(200).json(result);
     } catch (err) {
       console.error('[GET /DraggableCards] Error:', err);

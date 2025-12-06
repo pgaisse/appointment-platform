@@ -74,11 +74,8 @@ export default function ShowTemplateButtonWithData({
   enableEdit = false,
 }: ShowTemplateButtonWithDataProps) {
   const { isOpen, onOpen, onClose } = useDisclosure();
-  // Mantener un snapshot efectivo para rellenar tokens
-  const [effectiveData, setEffectiveData] = useState<Partial<Appointment> & Record<string, any>>(dataForTokens);
-  useEffect(() => {
-    setEffectiveData(dataForTokens);
-  }, [dataForTokens]);
+  // Mantener un snapshot efectivo para rellenar tokens - solo se actualiza cuando se abre el drawer
+  const [effectiveData, setEffectiveData] = useState<Partial<Appointment> & Record<string, any>>(() => dataForTokens);
 
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const queryClient = useQueryClient();
@@ -128,34 +125,32 @@ export default function ShowTemplateButtonWithData({
   const allTemplates: MessageTemplate[] = data?.pages.flatMap((p) => p.items) ?? [];
 
   // ───────────────── Detectar si es un contacto y filtrar plantillas ─────────────────
+  // OPTIMIZACIÓN: Solo calcular cuando el drawer está abierto
   const isContact = useMemo(() => {
+    if (!isOpen) return false;
     // Un contacto tiene solo campos básicos y no tiene selectedAppDates
     const hasSelectedAppDates = effectiveData?.selectedAppDates && 
       Array.isArray(effectiveData.selectedAppDates) && 
       effectiveData.selectedAppDates.length > 0;
     
     return !hasSelectedAppDates;
-  }, [effectiveData]);
+  }, [isOpen, effectiveData?.selectedAppDates]);
 
   // Obtener los fields básicos de contacto desde los tokens de BD
   const contactAllowedFields = useMemo(() => {
+    if (!isOpen) return [];
     return ['firstName', 'lastName', 'phone', 'nameInput', 'lastNameInput', 'phoneInput', 'org_name', null];
-  }, []);
+  }, [isOpen]);
 
   // Filtrar plantillas: para contactos, solo mostrar las que usen tokens básicos
   const filteredTemplates = useMemo(() => {
+    if (!isOpen) return allTemplates;
     if (!isContact || !tokens) return allTemplates;
 
     // Obtener todos los tokens básicos permitidos (field en contactAllowedFields)
     const allowedTokenStrings = tokens
       .filter(t => contactAllowedFields.includes(t.field))
       .map(t => t.key);
-
-    console.log('🔍 Filtrado de plantillas para contacto:', {
-      isContact,
-      allowedTokens: allowedTokenStrings,
-      totalTemplates: allTemplates.length,
-    });
 
     return allTemplates.filter((template) => {
       const variablesUsed = template.variablesUsed || [];
@@ -168,13 +163,9 @@ export default function ShowTemplateButtonWithData({
         return allowedTokenStrings.includes(varToken);
       });
 
-      if (!isAllowed) {
-        console.log('❌ Plantilla rechazada:', template.title, 'Tokens:', variablesUsed);
-      }
-
       return isAllowed;
     });
-  }, [isContact, allTemplates, tokens, contactAllowedFields]);
+  }, [isOpen, isContact, allTemplates, tokens, contactAllowedFields]);
 
   // Sentinel + observer
   const drawerBodyRef = useRef<HTMLDivElement | null>(null);

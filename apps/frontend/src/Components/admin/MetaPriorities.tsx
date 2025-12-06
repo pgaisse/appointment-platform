@@ -44,6 +44,7 @@ import {
 import { FiEdit3, FiPlus, FiSearch, FiTrash2 } from "react-icons/fi";
 import { z } from "zod";
 import type { Priority } from "@/Hooks/Query/useMeta";
+import { debounce } from "@/utils/validation";
 
 type Props = {
   data: Priority[];
@@ -323,6 +324,9 @@ export function PrioritiesManager({
   const [deleting, setDeleting] = useState<null | Priority>(null);
   const [saving, setSaving] = useState(false);
 
+  // Debounced search
+  const debouncedSetQ = useMemo(() => debounce(setQ, 300), []);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return (data || [])
@@ -366,7 +370,7 @@ export function PrioritiesManager({
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <SearchBox value={q} onChange={setQ} placeholder="Search priority…" />
+        <SearchBox value={q} onChange={debouncedSetQ} placeholder="Search priority…" />
         <Button
           leftIcon={<Icon as={FiPlus} />}
           colorScheme="teal"

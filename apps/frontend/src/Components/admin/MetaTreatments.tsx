@@ -48,6 +48,7 @@ import type { IconType } from "react-icons";
 import { ICON_SETS, getIconComponent, canonicalizeIconKey } from "@/Components/CustomIcons";
 import { z } from "zod";
 import type { Treatment } from "@/Hooks/Query/useMeta";
+import { debounce } from "@/utils/validation";
 
 type Props = {
   data: Treatment[];
@@ -469,6 +470,9 @@ export function TreatmentsManager({ data, isLoading, onCreate, onUpdate, onDelet
   const [deleting, setDeleting] = useState<null | Treatment>(null);
   const [saving, setSaving] = useState(false);
 
+  // Debounced search
+  const debouncedSetQ = useMemo(() => debounce(setQ, 300), []);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return (data || [])
@@ -519,7 +523,7 @@ export function TreatmentsManager({ data, isLoading, onCreate, onUpdate, onDelet
   return (
     <Box>
       <HStack justify="space-between" mb={4}>
-        <SearchBox value={q} onChange={setQ} placeholder="Search treatment…" />
+        <SearchBox value={q} onChange={debouncedSetQ} placeholder="Search treatment…" />
         <Button
           leftIcon={<Icon as={FiPlus} />}
           colorScheme="teal"

@@ -31,6 +31,12 @@ function PriorityList() {
       startDate: slotInfo.start,
       endDate: slotInfo.end,
     };
+    console.log('🎯 [PatientFinder] handleSelectSlot called:', {
+      start: slotInfo.start,
+      end: slotInfo.end,
+      startISO: slotInfo.start.toISOString(),
+      endISO: slotInfo.end.toISOString(),
+    });
     setRange(newRange)
 
 
@@ -39,7 +45,20 @@ function PriorityList() {
   //console.log(catSelected)
   // const start = range?.startDate
   // const end = range?.endDate
+  console.log('🔍 [PatientFinder] Calling usePriorityTreatments:', {
+    startDate: range?.startDate,
+    endDate: range?.endDate,
+    catSelected,
+    hasRange: !!range,
+  });
   const { data: data2, isFetching: isF } = usePriorityTreatments(range?.startDate, range?.endDate, catSelected, false)
+  console.log('📊 [PatientFinder] usePriorityTreatments response:', {
+    data: data2,
+    isFetching: isF,
+    dataType: typeof data2,
+    isArray: Array.isArray(data2),
+    dataLength: Array.isArray(data2) ? data2.length : 'N/A',
+  });
   // Removed unused PriorityList fetch to avoid an extra heavy request on every selection
   // const query = {};
   // const limit = 20;
@@ -48,12 +67,25 @@ function PriorityList() {
 
 
   useEffect(() => {
+    console.log('⚡ [PatientFinder] useEffect triggered:', {
+      hasData: !!data2,
+      data2Value: data2,
+      hasRange: !!range,
+      isFetching: isF,
+      catSelected,
+    });
+
     onOpen()
     if (data2 == "null" && range?.startDate && range?.endDate && !isF) {
-
+      console.log('⚠️ [PatientFinder] Data is null string');
     }
     else if (range?.startDate && range?.endDate && !isF) {
+      console.log('✅ [PatientFinder] Conditions met for processing data');
       if (Array.isArray(data2)) {
+        console.log('📦 [PatientFinder] Data is array, creating newEvent:', {
+          dataLength: data2.length,
+          firstItem: data2[0],
+        });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
 
 
@@ -69,9 +101,17 @@ function PriorityList() {
           color: "rgba(0, 123, 255, 0.9)",
           data: data2[0],
         }];
+        console.log('🎨 [PatientFinder] Setting markedEvents:', newEvent);
         setMarkedEvents(newEvent);
 
+      } else {
+        console.log('❌ [PatientFinder] Data is not an array:', typeof data2);
       }
+    } else {
+      console.log('⏳ [PatientFinder] Conditions not met:', {
+        hasRange: !!(range?.startDate && range?.endDate),
+        notFetching: !isF,
+      });
     }
   }, [data2, range, isF, catSelected]);
 

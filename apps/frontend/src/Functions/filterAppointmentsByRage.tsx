@@ -73,10 +73,20 @@ export function filterAppointmentsByRange(
     
     const filteredPatients = (group.patients ?? []).filter((p) => {
       const slots = Array.isArray(p.selectedAppDates) ? p.selectedAppDates : [];
-      // Mantén al paciente si tiene AL MENOS un slot Confirmed o NoContacted que solape la ventana
+      
+      // ✅ SIEMPRE incluir si tiene al menos un slot con status Complete o Confirmed
+      const hasCompleteOrConfirmed = slots.some((slot: any) => {
+        const st = String(slot?.status || "").toLowerCase();
+        return st === "complete" || st === "confirmed";
+      });
+
+      if (hasCompleteOrConfirmed) {
+        return true;
+      }
+
+      // Para el resto, verificar si algún slot está en el rango (CUALQUIER status)
       return slots.some((slot: any) => {
-        const st = String(slot?.status || "");
-        return (st === "Confirmed" || st === "NoContacted") && overlapsWindow(slot);
+        return overlapsWindow(slot);
       });
     });
 

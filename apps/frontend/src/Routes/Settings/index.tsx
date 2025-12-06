@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Card,
@@ -13,18 +13,62 @@ import {
   TabPanels,
   Tabs,
   Text,
+  useToast,
 } from "@chakra-ui/react";
 import { motion } from "framer-motion";
+import { useSearchParams } from "react-router-dom";
 import { useMeta } from "@/Hooks/Query/useMeta";
 import { PrioritiesManager } from "../../Components/admin/MetaPriorities";
 import { TreatmentsManager } from "../../Components/admin/MetaTreatments";
 import ProviderManager from "@/Components/admin/ProviderManager";
 import UserManager from "@/Components/admin/UserManager";
+import { GoogleReviewsManager } from "@/Components/admin/GoogleReviewsManager";
+import GoogleReviewsManagerNew from "@/Routes/Admin/GoogleReviewsManager";
+import TwilioSettings from "@/Components/Settings/TwilioSettings";
+import { useAuthZ } from "@/auth/authz";
 
 const MotionCard = motion(Card);
 
 export default function MetaManagerTabs() {
-  const [tab, setTab] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const toast = useToast();
+  const { hasRole } = useAuthZ();
+  
+  // Check if redirected from OAuth with success
+  const connected = searchParams.get('connected');
+  const error = searchParams.get('error');
+  
+  // Check if user has support role to show Twilio tab
+  const canAccessTwilio = hasRole('support');
+  
+  // Google Reviews tab is at index 4, Reviews Manager at index 5 (0: Priorities, 1: Treatments, 2: Providers, 3: Users, 4: Google Reviews, 5: Reviews Manager, 6: Twilio if support)
+  const [tab, setTab] = useState(connected === 'true' ? 5 : 0);
+  
+  useEffect(() => {
+    if (connected === 'true') {
+      toast({
+        title: 'Google Account Connected',
+        description: 'Your Google My Business account has been successfully connected.',
+        status: 'success',
+        duration: 5000,
+        isClosable: true,
+      });
+      // Clean up URL params
+      searchParams.delete('connected');
+      setSearchParams(searchParams, { replace: true });
+    } else if (error) {
+      toast({
+        title: 'Connection Failed',
+        description: 'Failed to connect Google My Business account. Please try again.',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+      // Clean up URL params
+      searchParams.delete('error');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [connected, error]);
 
   const {
     priorities,
@@ -66,6 +110,9 @@ export default function MetaManagerTabs() {
               <Tab roundedTop="xl">Treatments</Tab>
               <Tab roundedTop="xl">Providers</Tab>
               <Tab roundedTop="xl">Users</Tab>
+              <Tab roundedTop="xl">Google Reviews</Tab>
+              <Tab roundedTop="xl">Reviews Manager</Tab>
+              {canAccessTwilio && <Tab roundedTop="xl">Twilio</Tab>}
             </TabList>
             <TabPanels>
               <TabPanel px={0}>
@@ -96,6 +143,20 @@ export default function MetaManagerTabs() {
               <TabPanel px={0}>
                 <UserManager/>
               </TabPanel>
+
+              <TabPanel px={0}>
+                <GoogleReviewsManager/>
+              </TabPanel>
+
+              <TabPanel px={0}>
+                <GoogleReviewsManagerNew/>
+              </TabPanel>
+
+              {canAccessTwilio && (
+                <TabPanel px={0}>
+                  <TwilioSettings/>
+                </TabPanel>
+              )}
             </TabPanels>
 
             

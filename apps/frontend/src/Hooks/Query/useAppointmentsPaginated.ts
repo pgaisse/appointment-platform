@@ -57,6 +57,21 @@ export function useAppointmentsPaginated<T = any>(
     params.set("limit", String(limit));
     if (norm.filter) params.set("filter", JSON.stringify(norm.filter));
     if (norm.sort) params.set("sort", JSON.stringify(norm.sort));
+    
+    // ✅ Agregar populate para poblar treatment y priority de cada slot en selectedAppDates
+    const populate = [
+      { path: "priority", select: "id description notes durationHours name color org_id" },
+      { path: "treatment", select: "_id name duration icon minIcon color category active" },
+      { path: "providers" },
+      { path: "selectedAppDates.treatment", select: "_id name duration icon minIcon color category active" },
+      { path: "selectedAppDates.priority", select: "id description notes durationHours name color org_id" },
+      { path: "selectedAppDates.providers", select: "_id firstName lastName email phone" },
+      { path: "selectedDates.days.timeBlocks", select: "_id org_id blockNumber label short from to" },
+      { path: "user", select: "auth0_id name email" },
+      { path: "representative.appointment", select: "nameInput lastNameInput phoneInput phoneE164 emailLower sid proxyAddress" },
+    ];
+    params.set("populate", JSON.stringify(populate));
+    
     return params.toString();
   }, [page, limit, norm.filter, norm.sort]);
 

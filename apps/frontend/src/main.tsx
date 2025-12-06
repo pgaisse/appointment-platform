@@ -11,6 +11,7 @@ import OrgGate from "./org/OrgGate";
 import AutoProvisionUser from "./Boot/AutoProvisionUser";
 import AuthAutoLogoutGuard from "./auth/AuthAutoLogoutGuard";
 import SessionTimeoutGuard from "./auth/SessionTimeoutGuard";
+import { SessionValidator } from "./auth/SessionValidator";
 import { useSocketInvalidate } from "./lib/useSocketInvalidate";
 
 // Desactivar todos los console en producción
@@ -22,11 +23,41 @@ if (import.meta.env.PROD) {
   console.error = () => {};
 }
 
+// Global error handler para detectar errores de autenticación
+const handleGlobalQueryError = (error: any) => {
+  const status = error?.response?.status || error?.status || 0;
+  
+  // Si es 401 o 403, la sesión es inválida
+  if (status === 401 || status === 403) {
+    console.error('[QueryClient] Session invalid, redirecting to login...');
+    
+    // Prevenir loops de redirección
+    if (sessionStorage.getItem('reauth_in_progress')) return;
+    sessionStorage.setItem('reauth_in_progress', '1');
+    
+    // Limpiar estado
+    localStorage.clear();
+    sessionStorage.clear();
+    sessionStorage.setItem('reauth_in_progress', '1');
+    
+    // Redirigir al login
+    const reason = status === 401 ? 'session_expired' : 'access_denied';
+    window.location.href = `/login?reason=${encodeURIComponent(reason)}`;
+  }
+};
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: (failureCount: number, error: any) => {
         const status = error?.response?.status || error?.status;
+        
+        // No reintentar errores de autenticación
+        if (status === 401 || status === 403) {
+          handleGlobalQueryError(error);
+          return false;
+        }
+        
         if (status >= 500) return failureCount < 1; // solo 1 intento en 5xx
         if (status === 404) return false;           // no tiene sentido reintentar 404
         return failureCount < 2;                    // otros errores: máximo 2 intentos
@@ -36,6 +67,20 @@ const queryClient = new QueryClient({
       refetchOnMount: false,
       staleTime: 30_000,
       gcTime: 5 * 60_000,
+    },
+    mutations: {
+      retry: (failureCount: number, error: any) => {
+        const status = error?.response?.status || error?.status;
+        
+        // No reintentar errores de autenticación
+        if (status === 401 || status === 403) {
+          handleGlobalQueryError(error);
+          return false;
+        }
+        
+        // No reintentar mutaciones por defecto (son operaciones que cambian estado)
+        return false;
+      },
     },
   },
 });
@@ -79,6 +124,7 @@ createRoot(document.getElementById("root")!).render(
          * cacheLocation="localstorage"
          */
         >
+          <SessionValidator />
           <AutoProvisionUser />
           <AuthAutoLogoutGuard />
           <SessionTimeoutGuard />

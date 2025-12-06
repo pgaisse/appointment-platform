@@ -91,7 +91,6 @@ const EditorView = React.memo(function EditorView({
                 description: "The patient was edited successfully",
               }}
               title={header}
-              contactPreference={current.contactPreference}
               btnName="Update"
               mode="EDITION"
               refetchPage={refetchPage}
@@ -100,21 +99,26 @@ const EditorView = React.memo(function EditorView({
               handleAppSelectEvent={handleAppSelectEvent}
               handleAppSelectSlot={handleAppSelectSlot}
               markedAppEvents={markedAppEvents}
-              // ✅ valores iniciales solo al abrir; no se resetean mientras editas
+              // ✅ Valores del paciente/contacto
               nameVal={current.nameInput}
               lastNameVal={current.lastNameInput}
               phoneVal={current.phoneInput}
               emailVal={current.emailInput}
-              reschedule={current.reschedule}
-              priorityVal={current.priority}
-              note={current.note}
-              datesSelected={current.selectedDates}
               idVal={current._id}
+              note={current.note}
+              reschedule={current.reschedule}
+              conversationId={current.sid}
+              contactPreference={current.contactPreference}
+              phoneFieldReadOnly={false}
+              // ✅ Valores del appointment (treatment, priority, dates)
+              treatmentBack={current.treatment}
+              priorityVal={current.priority}
+              datesSelected={current.selectedDates}
               dates={current.selectedDates}
+              datesAppSelected={current.selectedAppDates}
               datesApp={selectedAppDates}
               setDatesApp={setSelectedAppDates}
-              datesAppSelected={current.selectedAppDates}
-              treatmentBack={current.treatment}
+              // ✅ Providers y representative
               providers={current.providers}
               representative={current.representative}
             />
@@ -161,8 +165,38 @@ export function useAppointmentEditor(
 
   const openEditor = useCallback((appt: Appointment) => {
     // Solo setear estado inicial al ABRIR
-    setCurrent(appt);
-    setSelectedAppDates(appt.selectedAppDates ?? []);
+    
+    // ✅ Extraer treatment y priority del slot más reciente en selectedAppDates
+    // Los campos del root están deprecados, ahora cada slot tiene su propio treatment/priority
+    const slots = appt.selectedAppDates ?? [];
+    let treatmentFromSlot = appt.treatment; // fallback
+    let priorityFromSlot = appt.priority; // fallback
+    
+    if (slots.length > 0) {
+      // Buscar el slot más reciente que tenga treatment y priority poblados
+      const latestSlot = slots
+        .filter((s: any) => s?.treatment || s?.priority)
+        .sort((a: any, b: any) => {
+          const aTime = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
+          const bTime = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
+          return bTime - aTime;
+        })[0];
+      
+      if (latestSlot) {
+        treatmentFromSlot = (latestSlot as any).treatment || treatmentFromSlot;
+        priorityFromSlot = (latestSlot as any).priority || priorityFromSlot;
+      }
+    }
+    
+    // Actualizar el appointment con los valores correctos del slot
+    const updatedAppt = {
+      ...appt,
+      treatment: treatmentFromSlot,
+      priority: priorityFromSlot,
+    };
+    
+    setCurrent(updatedAppt);
+    setSelectedAppDates(slots);
     setMarkedAppEvents([]);
     disclosure.onOpen();
   }, [disclosure]);

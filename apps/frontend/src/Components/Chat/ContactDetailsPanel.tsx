@@ -402,9 +402,9 @@ export default function ContactDetailsPanel({ conversation }: ContactDetailsPane
                         </VStack>
                         <Badge
                           colorScheme={
-                            appDate.status === "Contacted"
+                            appDate.status?.toLowerCase() === "contacted"
                               ? "green"
-                              : appDate.status === "Pending"
+                              : appDate.status?.toLowerCase() === "pending"
                               ? "yellow"
                               : "gray"
                           }

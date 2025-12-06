@@ -296,6 +296,14 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
         queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
         queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
         queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+        queryClient.invalidateQueries({ queryKey: ["appointments-range"] }),
+        queryClient.invalidateQueries({ queryKey: ["appointments-month-days"] }),
+        queryClient.invalidateQueries({ queryKey: ["calendarAppointments"] }),
+      ]);
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["DraggableCards"] }),
+        queryClient.refetchQueries({ queryKey: ["calendarAppointments"] }),
+        queryClient.refetchQueries({ queryKey: ["Appointment"] }),
       ]);
 
       navigate("/appointments/priority-list");
@@ -352,6 +360,14 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
         queryClient.invalidateQueries({ queryKey: ["DraggableCards"] }),
         queryClient.invalidateQueries({ queryKey: ["PriorityList"] }),
         queryClient.invalidateQueries({ queryKey: ["Appointment"] }),
+        queryClient.invalidateQueries({ queryKey: ["appointments-range"] }),
+        queryClient.invalidateQueries({ queryKey: ["appointments-month-days"] }),
+        queryClient.invalidateQueries({ queryKey: ["calendarAppointments"] }),
+      ]);
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["DraggableCards"] }),
+        queryClient.refetchQueries({ queryKey: ["calendarAppointments"] }),
+        queryClient.refetchQueries({ queryKey: ["Appointment"] }),
       ]);
 
       navigate("/appointments/priority-list");
@@ -505,6 +521,11 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
 
                         const isThisRowWorking = processingPid === pid || isWorking;
 
+                        // Get current slot info from selectedAppDates
+                        const currentSlot = Array.isArray(item.selectedAppDates) && item.selectedAppDates.length > 0 
+                          ? item.selectedAppDates[0] 
+                          : null;
+
                         return (
                           <MotionBox
                             key={pid}
@@ -543,52 +564,57 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                               </HStack>
                             </HStack>
 
+                            {/* Current Slot Info */}
+                            {currentSlot && (
+                              <Box bg="blue.50" borderRadius="md" px={2.5} py={2} borderWidth="1px" borderColor="blue.100">
+                                <HStack spacing={2} align="center">
+                                  <Icon as={RiCalendarScheduleLine} color="blue.600" boxSize={4} />
+                                  <VStack align="start" spacing={0}>
+                                    <Text fontSize="xs" fontWeight="semibold" color="blue.800">
+                                      Current Slot
+                                    </Text>
+                                    <Text fontSize="xs" color="blue.700" noOfLines={1}>
+                                      {parseSydney(currentSlot.startDate).toFormat("dd LLL • HH:mm")} — {parseSydney(currentSlot.endDate).toFormat("HH:mm")}
+                                    </Text>
+                                  </VStack>
+                                  {currentSlot.status && (
+                                    <Box ml="auto">
+                                      {statusBadge(currentSlot.status)}
+                                    </Box>
+                                  )}
+                                </HStack>
+                              </Box>
+                            )}
+
                             {/* Availability */}
-                            {Array.isArray(item.matchedBlocks) && item.matchedBlocks.length > 0 ? (
-                              <Wrap spacing={2}>
-                                {item.matchedBlocks.map((block, bIdx) => (
-                                  <WrapItem key={bIdx}>
-                                    <Tooltip label={`${block.from} — ${block.to}`}>
-                                      <Tag variant="solid" colorScheme="gray">
-                                        {block.short}
-                                      </Tag>
-                                    </Tooltip>
-                                  </WrapItem>
-                                ))}
-                              </Wrap>
-                            ) : (
-                              <Text fontSize="sm" color="gray.500">
-                                No availability details
-                              </Text>
+                            {Array.isArray(item.matchedBlocks) && item.matchedBlocks.length > 0 && (
+                              <Box>
+                                <Text fontSize="xs" fontWeight="semibold" color="gray.600" mb={1}>
+                                  Patient Availability
+                                </Text>
+                                <Wrap spacing={1.5}>
+                                  {item.matchedBlocks.map((block, bIdx) => (
+                                    <WrapItem key={bIdx}>
+                                      <Tooltip label={`${block.from} — ${block.to}`}>
+                                        <Tag size="sm" variant="solid" colorScheme="gray">
+                                          {block.short}
+                                        </Tag>
+                                      </Tooltip>
+                                    </WrapItem>
+                                  ))}
+                                </Wrap>
+                              </Box>
                             )}
 
                             <Divider />
 
                             {/* Actions */}
-                            <Flex align="center" justify="space-between" gap={2} wrap="wrap">
-                              <HStack spacing={1.5}>
-                                <Tooltip
-                                  label={
-                                    item.selectedAppDates?.[0]?.startDate
-                                      ? `Appointment Date: ${parseSydney(item.selectedAppDates[0].startDate).toFormat("ccc, dd LLL yyyy • h:mm a")} — ${parseSydney(item.selectedAppDates[0].endDate).toFormat("h:mm a")}`
-                                      : "No appointment date selected"
-                                  }
-                                >
-                                  <Box as="span">
-                                    <Icon as={RiCalendarScheduleLine} />
-                                  </Box>
-                                </Tooltip>
-
-                                {/* Confirmation message controls removed from card; handled in Select Base Slot modal */}
-                              </HStack>
-
-                              <VStack align="flex-end" spacing={1} w="full">
-                                <HStack spacing={1} justify="flex-end" w="full">
-                                  <Button
-                                    size="sm"
-                                    colorScheme="green"
-                                    isDisabled={isThisRowWorking}
-                                    onClick={() => {
+                            <Flex align="center" justify="flex-end" gap={2} wrap="wrap">
+                              <Button
+                                size="sm"
+                                colorScheme="green"
+                                isDisabled={isThisRowWorking}
+                                onClick={() => {
                                       const slots = Array.isArray(item.selectedAppDates)
                                         ? item.selectedAppDates.map((s) => ({ _id: s._id, startDate: s.startDate, endDate: s.endDate, status: (s as any).status, proposed: (s as any).proposed }))
                                         : [];
@@ -605,18 +631,16 @@ const CustomEventContent: React.FC<Props> = ({ event }) => {
                                       // Always open Select Base Slot modal (also handles message selection)
                                       openSelectModal(pid, slots, { name: titleCase(item.nameInput), lastName: titleCase(item.lastNameInput), phone: item.phoneInput });
                                     }}
-                                    leftIcon={
-                                      isThisRowWorking && processingPid === pid ? (
-                                        <Spinner size="xs" color="white" />
-                                      ) : (
-                                        <RepeatIcon />
-                                      )
-                                    }
-                                  >
-                                    Rebook
-                                  </Button>
-                                </HStack>
-                              </VStack>
+                                leftIcon={
+                                  isThisRowWorking && processingPid === pid ? (
+                                    <Spinner size="xs" color="white" />
+                                  ) : (
+                                    <RepeatIcon />
+                                  )
+                                }
+                              >
+                                Rebook
+                              </Button>
                             </Flex>
                           </MotionBox>
                         );

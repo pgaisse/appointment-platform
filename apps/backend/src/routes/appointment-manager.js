@@ -177,6 +177,32 @@ router.get('/search', async (req, res, next) => {
       ];
       if (phoneOrNull) $or.push({ phoneE164: { $regex: `^${esc(phoneOrNull)}` } });
 
+      // Allow queries like "andrea catalina" or "catalina andrea" to match full names
+      const tokens = q.split(/\s+/).filter(Boolean);
+      if (tokens.length >= 2) {
+        const firstToken = tokens[0];
+        const remaining = tokens.slice(1).join(' ');
+        if (remaining) {
+          $or.push({
+            $and: [
+              { nameInput: { $regex: `^${esc(firstToken)}`, $options: 'i' } },
+              { lastNameInput: { $regex: `^${esc(remaining)}`, $options: 'i' } },
+            ],
+          });
+        }
+
+        const reversedFirst = tokens[tokens.length - 1];
+        const reversedRemaining = tokens.slice(0, -1).join(' ');
+        if (reversedRemaining) {
+          $or.push({
+            $and: [
+              { nameInput: { $regex: `^${esc(reversedFirst)}`, $options: 'i' } },
+              { lastNameInput: { $regex: `^${esc(reversedRemaining)}`, $options: 'i' } },
+            ],
+          });
+        }
+      }
+
       items = await Appointment.find({ ...filter, $or })
         .populate(populateFields)
         .limit(limit)
@@ -201,6 +227,65 @@ router.get('/search', async (req, res, next) => {
     res.json({ items, total: items.length });
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * PATCH /appointments/:id/complete-slot
+ * Marca un slot específico como completado
+ */
+router.patch('/:id/complete-slot', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { slotId } = req.body;
+
+    if (!slotId) {
+      return res.status(400).json({ error: 'slotId is required' });
+    }
+
+    console.log(`✅ [PATCH /appointments/${id}/complete-slot] Marking slot ${slotId} as complete`);
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({ error: 'Appointment not found' });
+    }
+
+    // Encontrar el slot
+    const slotIndex = appointment.selectedAppDates.findIndex(
+      (s) => String(s._id) === String(slotId)
+    );
+
+    if (slotIndex === -1) {
+      return res.status(404).json({ error: 'Slot not found' });
+    }
+
+    // Actualizar el status del slot a "Complete"
+    appointment.selectedAppDates[slotIndex].status = 'Complete';
+    appointment.selectedAppDates[slotIndex].updatedAt = new Date();
+
+    await appointment.save();
+
+    console.log(`✅ [PATCH /appointments/${id}/complete-slot] Slot ${slotId} marked as complete`);
+
+    // Emitir evento socket para actualizar UI en tiempo real
+    const io = req.app.get('io');
+    if (io && appointment.org_id) {
+      io.to(appointment.org_id).emit('appointmentUpdated', {
+        appointmentId: appointment._id,
+        slotId,
+        status: 'Complete',
+        selectedAppDates: appointment.selectedAppDates,
+      });
+    }
+
+    res.json({
+      success: true,
+      appointment,
+      slot: appointment.selectedAppDates[slotIndex],
+    });
+  } catch (error) {
+    console.error(`❌ [PATCH /appointments/:id/complete-slot] Error:`, error);
+    res.status(500).json({ error: 'Failed to complete slot', details: error.message });
   }
 });
 

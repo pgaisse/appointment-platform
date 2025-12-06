@@ -121,6 +121,10 @@ import { toE164AU } from "@/utils/phoneAU";
 import { useGetCollection } from "@/Hooks/Query/useGetCollection";
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 
+// Para llamadas directas al backend
+import axios from "axios";
+import { useAuth0 } from "@auth0/auth0-react";
+
 // componentes de plantillas
 import CreateMessageModal from "../Chat/CustomMessages/CreateCustomMessageModal2";
 
@@ -422,6 +426,43 @@ function CustomEntryForm({
   const queryClient = useQueryClient();
   const toast = useToast();
   
+  // Auth0 para llamadas directas al backend
+  const { getAccessTokenSilently } = useAuth0();
+  
+  // Helper para llamar al endpoint /add-or-update
+  const callAddOrUpdate = useCallback(async (data: any, existingId: string) => {
+    const token = await getAccessTokenSilently({
+      authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
+    });
+    
+    // Normalizar teléfono a E.164 antes de enviar
+    const normalizedData = { ...data };
+    if (normalizedData.phoneInput) {
+      normalizedData.phoneInput = toE164AU(normalizedData.phoneInput);
+      console.log('[callAddOrUpdate] Phone normalized to E.164:', normalizedData.phoneInput);
+    }
+    
+    console.log('[callAddOrUpdate] Sending request:', {
+      existingId,
+      phoneInput: normalizedData.phoneInput,
+      nameInput: normalizedData.nameInput,
+      lastNameInput: normalizedData.lastNameInput,
+    });
+    
+    const response = await axios.post(
+      `${import.meta.env.VITE_BASE_URL}/add-or-update`,
+      {
+        modelName: "Appointment",
+        data: normalizedData,
+        existingId,
+      },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    
+    console.log('[callAddOrUpdate] Response received:', response.data);
+    return response.data;
+  }, [getAccessTokenSilently]);
+  
   // State for pending provider assignments in CREATION mode
   const [pendingProviderAssignments, setPendingProviderAssignments] = useState<PendingAssignment[]>([]);
   
@@ -457,7 +498,7 @@ function CustomEntryForm({
   const schema = useMemo(
     () =>
       makeAppointmentsSchemaOptionalProviders(
-        isCreation ? checkPhoneUnique : async () => false
+        isCreation ? checkPhoneUnique : async () => ({ exists: false })
       ),
     [checkPhoneUnique, isCreation]
   );
@@ -497,7 +538,13 @@ function CustomEntryForm({
   getFieldState,
     formState: { errors },
   } = useForm<AppointmentForm | ContactForm>({
-    resolver: zodResolver(isAnAppointment ? schema : contactsSchema),
+    resolver: async (data, context, options) => {
+      console.log('🔍 Validating with schema:', isAnAppointment ? 'AppointmentSchema' : 'ContactSchema');
+      console.log('📝 Data to validate:', data);
+      const result = await zodResolver(isAnAppointment ? schema : contactsSchema)(data, context, options);
+      console.log('✅ Validation result:', result);
+      return result;
+    },
     shouldUnregister: true,
     mode: "onSubmit",
     reValidateMode: "onBlur",
@@ -536,6 +583,12 @@ function CustomEntryForm({
   const [isChild, setIsChild] = useState<boolean>(
     !!normalizeId(representative?.appointment)
   );
+
+  // Estado para registros unknown que se van a actualizar
+  const [unknownRecordMatch, setUnknownRecordMatch] = useState<{
+    id: string;
+    record: any;
+  } | null>(null);
 
   type SelectedTemplate = { id?: string; raw: string };
   const [selectedTemplate, setSelectedTemplate] = useState<SelectedTemplate | null>(null);
@@ -601,13 +654,6 @@ function CustomEntryForm({
   const handlePickRepresentative = useCallback(
     (h: AppointmentHit) => {
       if (currentPatientId && h._id === currentPatientId) {
-        toast({
-          title: "Invalid representative",
-          description: "A patient cannot be their own representative.",
-          status: "warning",
-          duration: 2500,
-          isClosable: true,
-        });
         return;
       }
       setIsChild(true);
@@ -628,16 +674,8 @@ function CustomEntryForm({
         shouldTouch: false,
       });
       trigger("representative");
-      toast({
-        title: "Representative linked",
-        description:
-          `${h.nameInput ?? ""} ${h.lastNameInput ?? ""}`.trim() || h._id,
-        status: "success",
-        duration: 1800,
-        isClosable: true,
-      });
     },
-    [setValue, trigger, toast, currentPatientId]
+    [setValue, trigger, currentPatientId]
   );
 
   // Valores derivados para UI
@@ -749,6 +787,7 @@ function CustomEntryForm({
           const errType = getFieldState("phoneInput").error?.type;
           if (errType === "duplicate") clearErrors("phoneInput" as any);
           lastCheckedRef.current = "";
+          setUnknownRecordMatch(null);
           return;
         }
 
@@ -760,6 +799,7 @@ function CustomEntryForm({
         if (!isCompleteAU) {
           if (errType === "duplicate") clearErrors("phoneInput" as any);
           lastCheckedRef.current = "";
+          setUnknownRecordMatch(null);
           return;
         }
 
@@ -769,19 +809,41 @@ function CustomEntryForm({
         try {
           const e164 = toE164AU(raw);
           const excludeIdVal = getValues("id");
-          const exists = await checkPhoneUnique(e164, {
+          const result = await checkPhoneUnique(e164, {
             excludeId:
               typeof excludeIdVal === "string" && isObjectId(excludeIdVal)
                 ? excludeIdVal
                 : undefined,
           });
-          if (exists) {
+          
+          // Three scenarios:
+          // 1. No match - allow creation
+          if (!result.exists) {
+            if (errType === "duplicate") clearErrors("phoneInput" as any);
+            setUnknownRecordMatch(null);
+          }
+          // 2. Unknown record - allow update
+          else if (result.isUnknown && result.existingId) {
+            if (errType === "duplicate") clearErrors("phoneInput" as any);
+            setUnknownRecordMatch({
+              id: result.existingId,
+              record: result.existingRecord || null,
+            });
+            toast({
+              title: "Phone number found with incomplete data",
+              description: "This phone number exists with incomplete data. Submitting will update the existing record.",
+              status: "info",
+              duration: 5000,
+              isClosable: true,
+            });
+          }
+          // 3. Complete duplicate - block submission
+          else {
             setError("phoneInput" as any, {
               type: "duplicate",
-              message: "Phone number already exists",
+              message: "Phone number already exists with complete data",
             });
-          } else if (errType === "duplicate") {
-            clearErrors("phoneInput" as any);
+            setUnknownRecordMatch(null);
           }
         } catch {
           // noop
@@ -801,6 +863,7 @@ function CustomEntryForm({
     setError,
     checkPhoneUnique,
     getValues,
+    setUnknownRecordMatch,
     isChild,
   ]);
 
@@ -852,77 +915,6 @@ function CustomEntryForm({
     }
     return {};
   });
-
-  // 🔄 Reset completo del formulario cuando cambian los datos en modo EDICIÓN
-  useEffect(() => {
-    if (mode !== "EDITION" || !idVal) return;
-
-    // Preparar datos completos para resetear el formulario
-    const resetData = {
-      treatment: he.decode(treatmentBack?._id?.toString?.() || ""),
-      selectedAppDates: datesAppSelected || [],
-      selectedDates: datesSelected,
-      contactPreference: contactPreference || "sms",
-      nameInput: he.decode(nameVal || ""),
-      lastNameInput: he.decode(lastNameVal || ""),
-      note: he.decode(note || ""),
-      phoneInput: he.decode(phoneVal || ""),
-      emailInput: he.decode(emailVal || ""),
-      priority: priorityVal?._id ?? undefined,
-      id: idVal || "",
-      reschedule: !!reschedule,
-      providers: providerIdsFromProps,
-      representative: normalizedRepresentative ??
-        ({
-          appointment: "",
-          relationship: "parent",
-          verified: false,
-          verifiedAt: undefined,
-          verifiedBy: "",
-          consentAt: undefined,
-          notes: "",
-        } as unknown as Representative),
-    };
-
-    // Resetear el formulario con los nuevos datos
-    reset(resetData as any, { 
-      keepDefaultValues: false,
-      keepErrors: false,
-      keepDirty: false,
-      keepTouched: false,
-    });
-
-    // Actualizar estados locales
-    setSelectedAppDates(datesAppSelected || []);
-    if (Array.isArray(datesSelected?.days)) {
-      const newSelectedDays = datesSelected.days.reduce((acc, curr) => {
-        acc[curr.weekDay] = curr.timeBlocks;
-        return acc;
-      }, {} as Partial<Record<WeekDay, TimeBlock[]>>);
-      setSelectedDays(newSelectedDays);
-    }
-
-    // Actualizar estado isChild si hay representative
-    if (normalizedRepresentative?.appointment) {
-      setIsChild(true);
-    }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    mode,
-    idVal,
-    nameVal,
-    lastNameVal,
-    phoneVal,
-    emailVal,
-    note,
-    priorityVal?._id,
-    treatmentBack?._id,
-    contactPreference,
-    reschedule,
-    normalizedRepresentative?.appointment,
-    // Solo cuando cambia el idVal (nuevo paciente), no en cada render
-  ]);
 
   // Appointment window (single) deprecated: we now compute allAppointmentWindows instead
 
@@ -1227,31 +1219,16 @@ function CustomEntryForm({
 
         const msgRaw = selectedTemplate?.raw?.trim() ?? "";
         if (!msgRaw) {
-          toast({
-            title: "Select a message template",
-            description: "Choose a template before scheduling the reminder.",
-            status: "warning",
-            duration: 3000,
-            isClosable: true,
-          });
           return;
         }
 
         const chosenLocal = selectedReminder;
         if (!chosenLocal) {
-          toast({ title: "Select appointment and reminder", status: "warning", duration: 2500 });
           return;
         }
 
         const v = validateTwilioWindowStrict(chosenLocal);
         if (!v.ok) {
-          toast({
-            title: v.error === "tooSoon" ? "Too close to now" :
-              v.error === "tooFar" ? "Too far in the future" : "Invalid date",
-            description: "Twilio requiere ≥ 15 min y ≤ 35 días.",
-            status: v.error === "invalid" ? "warning" : "info",
-            duration: 3500, isClosable: true,
-          });
           return;
         }
 
@@ -1266,16 +1243,6 @@ function CustomEntryForm({
         scheduledKeysRef.current.add(key);
 
         if (!check?.ok) {
-          toast({
-            title: check?.error === "tooFar" ? "Reminder not scheduled" : "Invalid reminder time",
-            description:
-              check?.error === "tooFar"
-                ? "Twilio solo permite programar hasta 35 días hacia adelante. Elige una fecha más cercana."
-                : "Elige una fecha y hora válidas para el recordatorio.",
-            status: check?.error === "tooFar" ? "info" : "warning",
-            duration: 4000,
-            isClosable: true,
-          });
           return;
         }
 
@@ -1286,19 +1253,11 @@ function CustomEntryForm({
           whenISO: isoUtc,
           tz: SYD_TZ,
         });
-
-        toast({
-          title: "Reminder scheduled",
-          description: `Programado para ${fmtHuman(chosenLocal)} (${SYD_TZ}).`,
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
       } catch (e: any) {
         console.error("Error en sendNotificationsFlow:", e);
       }
     },
-    [selectedTemplate, reminderEnabled, selectedReminder, sendSMSAsync, toast]
+    [selectedTemplate, reminderEnabled, selectedReminder, sendSMSAsync]
   );
 
   // Hard reset of UI and local states + scroll to top - memoizado para estabilidad
@@ -1389,14 +1348,6 @@ function CustomEntryForm({
 
       await Promise.all(promises.filter(Boolean));
 
-      toast({
-        title: "Provider assignments created",
-        description: `Successfully assigned ${pendingProviderAssignments.length} provider(s)`,
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-
       // Clear pending assignments after successful creation
       setPendingProviderAssignments([]);
     } catch (error) {
@@ -1411,9 +1362,100 @@ function CustomEntryForm({
     }
   }, [pendingProviderAssignments, createProviderAssignment, toast]);
 
+  // Helper function to handle creation flow (extracted to avoid duplication)
+  const proceedWithCreation = useCallback(async (cleanedData: any, finish: () => void) => {
+    try {
+      const resp = await mutateAsync(cleanedData);
+      const createdId = extractCreatedId(resp);
+      if (createdId) {
+        setCreatedIdState(createdId);
+        setValue("id", createdId, { shouldDirty: false, shouldTouch: false });
+      }
+
+      toast({
+        title: "Patient successfully submitted.",
+        description: isChild
+          ? "Child/dependent has been registered and linked to their representative."
+          : "Your new contact has been submitted successfully",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      if (isAnAppointment && createdId) {
+        // CRITICAL: Use the selectedAppDates from the server response which has the generated _id for each slot
+        const slotsWithIds = resp?.document?.selectedAppDates || [];
+        
+        // Create provider assignments using slots with their MongoDB-generated _id
+        await createPendingProviderAssignments(createdId, slotsWithIds);
+        
+        await sendNotificationsFlow(createdId);
+      }
+
+      // reset UI de reminder
+      hardResetUI();
+
+      // Ensure in-flight appointment-related queries are stopped before invalidation/refetch
+      await cancelAppointmentDependentQueries();
+      await queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+      queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
+      queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (error: any) {
+      const status = error?.status ?? error?.response?.status;
+      if (status === 409) {
+        const data = error?.data || error?.response?.data || {};
+        const field = data.field || (data.keyValue && Object.keys(data.keyValue)[0]) || "unknown";
+        const value = data.value || (data.keyValue && Object.values(data.keyValue)[0]) || "";
+        if (field === "phoneInput" || field === "phoneE164") {
+          setError("phoneInput" as any, {
+            type: "manual",
+            message: `Duplicate ${field}: ${value}`,
+          });
+        }
+        toast({
+          title: "Duplicate record",
+          description:
+            data.reason || data.message || `Duplicate ${field}${value ? `: ${value}` : ''}.` ,
+          status: "error",
+          duration: 6000,
+          isClosable: true,
+        });
+      } else {
+        toast({
+          title: "Error submitting the form.",
+          description:
+            error?.response?.data?.message || "An unexpected error occurred.",
+          status: "error",
+          duration: 4000,
+          isClosable: true,
+        });
+      }
+    } finally {
+      finish();
+    }
+  }, [
+    mutateAsync,
+    extractCreatedId,
+    setValue,
+    toast,
+    isChild,
+    isAnAppointment,
+    createPendingProviderAssignments,
+    sendNotificationsFlow,
+    hardResetUI,
+    cancelAppointmentDependentQueries,
+    queryClient,
+    setError,
+  ]);
+
   /* —— submit —— */
   const onSubmit = (data: AppointmentForm | ContactForm) => {
-    if (inFlightRef.current) return;
+    console.log('🔵 onSubmit called', { mode, data });
+    if (inFlightRef.current) {
+      console.log('⚠️ Already in flight, returning');
+      return;
+    }
     inFlightRef.current = true;
     setUiBusy(true);
 
@@ -1423,83 +1465,176 @@ function CustomEntryForm({
     };
 
     const cleanedData: any = sanitize(data);
+    console.log('🟢 Cleaned data:', cleanedData);
+    console.log('📱 Phone in cleaned data:', cleanedData.phoneInput);
 
-    if (mode === "CREATION") {
+    // CRITICAL: Double-check phone uniqueness before submitting in CREATION mode
+    // This prevents E11000 errors if user submits before debounced validation completes
+    // Skip this check if it's a child/dependent (they don't have their own phone)
+    const repId = (data as any)?.representative?.appointment;
+    const hasRepresentative = isChild || !!repId;
+    
+    console.log('🔍 Pre-validation check:', { 
+      mode, 
+      hasPhone: !!cleanedData.phoneInput, 
+      hasRepresentative,
+      willValidate: mode === "CREATION" && cleanedData.phoneInput && !hasRepresentative
+    });
+    
+    if (mode === "CREATION" && cleanedData.phoneInput && !hasRepresentative) {
+      // Execute async validation in an IIFE
       (async () => {
         try {
-          const resp = await mutateAsync(cleanedData);
-          const createdId = extractCreatedId(resp);
-          if (createdId) {
-            setCreatedIdState(createdId);
-            setValue("id", createdId, { shouldDirty: false, shouldTouch: false });
+          const e164 = toE164AU(cleanedData.phoneInput);
+          console.log('🔍 Starting phone validation for:', e164);
+          const result = await checkPhoneUnique(e164, {});
+          
+          console.log('🔍 Pre-submit phone check result:', { e164, result });
+          
+          // If unknown record found, use /add-or-update endpoint
+          if (result.exists && result.isUnknown && result.existingId) {
+            console.log('🟡 Pre-submit: Unknown record found, using /add-or-update endpoint');
+            
+            const updatedData = {
+              ...cleanedData,
+              unknown: false,
+            };
+            
+            try {
+              const response = await callAddOrUpdate(updatedData, result.existingId);
+              
+              console.log('✅ Unknown record updated successfully:', response);
+              
+              toast({
+                title: "Contact successfully updated.",
+                description: "The incomplete record has been updated with complete information.",
+                status: "success",
+                duration: 3000,
+                isClosable: true,
+              });
+              
+              setUnknownRecordMatch(null);
+              hardResetUI();
+              await cancelAppointmentDependentQueries();
+              await queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
+              queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
+              queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+              queryClient.invalidateQueries({ queryKey: ["conversations"] });
+              
+              finish();
+            } catch (error: any) {
+              console.error('❌ Error updating unknown record:', error);
+              toast({
+                title: "Error updating record.",
+                description: error?.response?.data?.message || error?.response?.data?.error || "An unexpected error occurred.",
+                status: "error",
+                duration: 4000,
+                isClosable: true,
+              });
+              finish();
+            }
+            
+            return;
           }
-
+          
+          // If complete duplicate, show error and block
+          if (result.exists && !result.isUnknown) {
+            console.log('❌ Pre-submit: Complete duplicate found, blocking');
+            setError("phoneInput" as any, {
+              type: "duplicate",
+              message: "Phone number already exists with complete data",
+            });
+            toast({
+              title: "Duplicate phone number",
+              description: "This phone number already exists with complete data.",
+              status: "error",
+              duration: 4000,
+              isClosable: true,
+            });
+            finish();
+            return;
+          }
+          
+          // No duplicate, proceed with normal creation flow
+          console.log('✅ Pre-submit: No duplicate, proceeding with creation');
+          await proceedWithCreation(cleanedData, finish);
+          
+        } catch (error) {
+          console.error('❌ Pre-submit phone check error:', error);
+          // If validation fails, show error and block (fail-closed for safety)
           toast({
-            title: "Patient successfully submitted.",
-            description: isChild
-              ? "Child/dependent has been registered and linked to their representative."
-              : "Your new contact has been submitted successfully",
+            title: "Validation error",
+            description: "Could not verify phone number uniqueness. Please try again.",
+            status: "error",
+            duration: 4000,
+            isClosable: true,
+          });
+          finish();
+        }
+      })();
+      
+      return; // Stop here, the async function will handle the rest
+    }
+
+    // Check if we're updating an unknown record instead of creating
+    // This happens when real-time validation detected an unknown match
+    if (mode === "CREATION" && unknownRecordMatch) {
+      console.log('🟡 Unknown record match detected, using /add-or-update endpoint', unknownRecordMatch);
+      
+      (async () => {
+        try {
+          const updatedData = {
+            ...cleanedData,
+            unknown: false,
+          };
+          
+          const response = await callAddOrUpdate(updatedData, unknownRecordMatch.id);
+          
+          console.log('✅ Unknown record updated successfully (from real-time detection):', response);
+          
+          toast({
+            title: "Contact successfully updated.",
+            description: "The incomplete record has been updated with complete information.",
             status: "success",
             duration: 3000,
             isClosable: true,
           });
-
-          if (isAnAppointment && createdId) {
-            // CRITICAL: Use the selectedAppDates from the server response which has the generated _id for each slot
-            const slotsWithIds = resp?.document?.selectedAppDates || [];
-            
-            // Create provider assignments using slots with their MongoDB-generated _id
-            await createPendingProviderAssignments(createdId, slotsWithIds);
-            
-            await sendNotificationsFlow(createdId);
-          }
-
-          // reset UI de reminder
+          
+          // Clear unknown record match
+          setUnknownRecordMatch(null);
+          
+          // Reset UI
           hardResetUI();
-
-          // Ensure in-flight appointment-related queries are stopped before invalidation/refetch
+          
+          // Refetch queries
           await cancelAppointmentDependentQueries();
           await queryClient.refetchQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
           queryClient.invalidateQueries({ queryKey: ["Appointment"] });
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
+          
+          finish();
         } catch (error: any) {
-          const status = error?.status ?? error?.response?.status;
-          if (status === 409) {
-            const data = error?.data || error?.response?.data || {};
-            const field = data.field || (data.keyValue && Object.keys(data.keyValue)[0]) || "unknown";
-            const value = data.value || (data.keyValue && Object.values(data.keyValue)[0]) || "";
-            if (field === "phoneInput" || field === "phoneE164") {
-              setError("phoneInput" as any, {
-                type: "manual",
-                message: `Duplicate ${field}: ${value}`,
-              });
-            }
-            toast({
-              title: "Duplicate record",
-              description:
-                data.reason || data.message || `Duplicate ${field}${value ? `: ${value}` : ''}.` ,
-              status: "error",
-              duration: 6000,
-              isClosable: true,
-            });
-          } else {
-            toast({
-              title: "Error submitting the form.",
-              description:
-                error?.response?.data?.message || "An unexpected error occurred.",
-              status: "error",
-              duration: 4000,
-              isClosable: true,
-            });
-          }
-        } finally {
+          console.error('❌ Error updating unknown record (from real-time detection):', error);
+          toast({
+            title: "Error updating record.",
+            description: error?.response?.data?.message || error?.response?.data?.error || "An unexpected error occurred.",
+            status: "error",
+            duration: 4000,
+            isClosable: true,
+          });
           finish();
         }
       })();
+      
+      return;
+    }
 
+    if (mode === "CREATION") {
+      proceedWithCreation(cleanedData, finish);
       return;
     } else if (mode === "EDITION") {
+      console.log('🔵 EDITION mode - preparing payload');
       const payload = [
         {
           table: "Appointment",
@@ -1508,6 +1643,7 @@ function CustomEntryForm({
           data: cleanedData,
         },
       ];
+      console.log('📤 Payload for update:', payload);
 
       editItem(payload, {
         onSuccess: async () => {
@@ -1536,13 +1672,7 @@ function CustomEntryForm({
             try {
               await sendNotificationsFlow(targetId);
             } catch {
-              toast({
-                title: "Notification error",
-                description: "We couldn't schedule the reminder.",
-                status: "error",
-                duration: 3000,
-                isClosable: true,
-              });
+              // Silent fail for reminder scheduling
             }
           }
 
@@ -1564,7 +1694,11 @@ function CustomEntryForm({
       });
     }
   };
-  const onError = () => setHasSubmitted(true);
+  const onError = (errors: any) => {
+    console.log('❌ Form validation errors:', errors);
+    console.log('📋 Current form values:', getValues());
+    setHasSubmitted(true);
+  };
 
   // Removed legacy inline provider chips/tag rendering (moved to ProviderPerDate)
 
@@ -2003,43 +2137,38 @@ function CustomEntryForm({
                 {selectedAppDates.length || 0}/10
               </Tag>
             </FormLabel>
-              {mode === "EDITION" ? (
-                <Alert status="info" rounded="md" size="sm">
-                  <AlertIcon />
-                  <Text fontSize="xs">Read-only in edit mode</Text>
-                </Alert>
-              ) : (
-                <>
-                  <HStack spacing={2}>
-                    {(() => {
-                      const count = selectedAppDates.length;
-                      const atLimit = count >= 10;
-                      const hasTreatmentAndPriority = !!getValues("treatment") && !!getValues("priority");
-                      
-                      return (
-                        <>
-                          <Tooltip
-                            isDisabled={hasTreatmentAndPriority && !atLimit}
-                            label={
-                              !hasTreatmentAndPriority
-                                ? "Select priority and treatment first"
-                                : atLimit
-                                ? "Maximum 10 slots"
-                                : ""
-                            }
-                            hasArrow
+              {/* Allow adding dates in both CREATION and EDITION modes */}
+              <>
+                <HStack spacing={2}>
+                  {(() => {
+                    const count = selectedAppDates.length;
+                    const atLimit = count >= 10;
+                    const hasTreatmentAndPriority = !!getValues("treatment") && !!getValues("priority");
+                    
+                    return (
+                      <>
+                        <Tooltip
+                          isDisabled={hasTreatmentAndPriority && !atLimit}
+                          label={
+                            !hasTreatmentAndPriority
+                              ? "Select priority and treatment first"
+                              : atLimit
+                              ? "Maximum 10 slots"
+                              : ""
+                          }
+                          hasArrow
+                        >
+                          <Button
+                            type="button"
+                            onClick={onOpenApp}
+                            isDisabled={formBusy || atLimit || !hasTreatmentAndPriority}
+                            colorScheme={hasTreatmentAndPriority ? "blue" : "gray"}
+                            size="sm"
+                            flex={1}
                           >
-                            <Button
-                              type="button"
-                              onClick={onOpenApp}
-                              isDisabled={formBusy || atLimit || !hasTreatmentAndPriority}
-                              colorScheme={hasTreatmentAndPriority ? "blue" : "gray"}
-                              size="sm"
-                              flex={1}
-                            >
-                              Add Dates ({count}/10)
-                            </Button>
-                          </Tooltip>
+                            Add Dates ({count}/10)
+                          </Button>
+                        </Tooltip>
                           
                           <Popover
                             isOpen={isOpenDates}
@@ -2146,50 +2275,49 @@ function CustomEntryForm({
                             </Portal>
                           </Popover>
                         </>
-                      );
-                    })()}
-                  </HStack>
-                  
-                  <Modal
-                    isOpen={isOpenApp}
-                    onClose={onCloseApp}
-                    size={"6xl"}
-                    isCentered
-                    motionPreset="scale"
-                  >
-                    <ModalOverlay bg="blackAlpha.600" backdropFilter="blur(8px)" />
-                    <ModalContent borderRadius="2xl" p={4} boxShadow="2xl">
-                      <ModalHeader fontSize="2xl" fontWeight="bold">
-                        Add Appointment
-                      </ModalHeader>
-                      <ModalCloseButton />
-                      <ModalBody p={0}>
-                        <CustomCalendarEntryForm
-                          colorEvent={priorityVal?.color || "gray"}
-                          height="50vh"
-                          offset={duration}
-                          selectedAppDates={selectedAppDates}
-                          setSelectedAppDates={setSelectedAppDates}
-                          trigger={trigger as any}
-                          setValue={setValue}
-                          onClose={onCloseApp}
-                        />
-                      </ModalBody>
-                      <ModalFooter>
-                        <Button
-                          onClick={onCloseApp}
-                          variant="ghost"
-                          colorScheme="gray"
-                          isDisabled={formBusy}
-                          type="button"
-                        >
-                          Cancel
-                        </Button>
-                      </ModalFooter>
-                    </ModalContent>
-                  </Modal>
-                </>
-              )}
+                    );
+                  })()}
+                </HStack>
+                
+                <Modal
+                  isOpen={isOpenApp}
+                  onClose={onCloseApp}
+                  size={"6xl"}
+                  isCentered
+                  motionPreset="scale"
+                >
+                  <ModalOverlay bg="blackAlpha.600" backdropFilter="blur(8px)" />
+                  <ModalContent borderRadius="2xl" p={4} boxShadow="2xl">
+                    <ModalHeader fontSize="2xl" fontWeight="bold">
+                      {mode === "EDITION" ? "Add Appointment Dates" : "Add Appointment"}
+                    </ModalHeader>
+                    <ModalCloseButton />
+                    <ModalBody p={0}>
+                      <CustomCalendarEntryForm
+                        colorEvent={priorityVal?.color || "gray"}
+                        height="50vh"
+                        offset={duration}
+                        selectedAppDates={selectedAppDates}
+                        setSelectedAppDates={setSelectedAppDates}
+                        trigger={trigger as any}
+                        setValue={setValue}
+                        onClose={onCloseApp}
+                      />
+                    </ModalBody>
+                    <ModalFooter>
+                      <Button
+                        onClick={onCloseApp}
+                        variant="ghost"
+                        colorScheme="gray"
+                        isDisabled={formBusy}
+                        type="button"
+                      >
+                        Cancel
+                      </Button>
+                    </ModalFooter>
+                  </ModalContent>
+                </Modal>
+              </>
             {!getValues("treatment") || !getValues("priority") ? (
               <Alert status="warning" mt={3} borderRadius="md">
                 <AlertIcon />

@@ -16,12 +16,9 @@ const { findMatchingAppointments } = require('../helpers/findMatchingAppointment
 dayjs.extend(utc);
 dayjs.extend(timezone);
 const mongoose = require("mongoose");
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const client = require('twilio')(accountSid, authToken);
+const TwilioService = require('../services/TwilioService');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { findConversationByPhoneTwilioOnly } = require("../helpers/findConversationByPhoneSafely");
 const PhoneConversationLink = require('../models/PhoneConversationLink');
 const DOMPurify = require('isomorphic-dompurify');
 const { exist } = require('joi');
@@ -457,7 +454,9 @@ router.patch("/update-items", jwtCheck, async (req, res) => {
 
       // Solo fuerza proxyAddress en tablas que realmente lo requieren
       if (TABLES_ENFORCING_PROXY.has(table) && Model.schema.path("proxyAddress")) {
-        filter.proxyAddress = process.env.TWILIO_FROM_MAIN;
+        // Obtener proxyAddress de la configuración de Twilio
+        const { settings: twilioSettings } = await TwilioService.getClient(org_id);
+        filter.proxyAddress = twilioSettings.fromNumber || process.env.TWILIO_FROM_MAIN;
       }
 
       // Usa updateOne para obtener matched/modified
@@ -533,15 +532,21 @@ router.patch("/update-items-contacts", jwtCheck, async (req, res) => {
       // Filtro seguro por organización:
       // - Si el doc ya tiene org_id, debe coincidir con el del token.
       // - Si el doc no tiene org_id, permitimos la actualización y le añadimos org_id.
-      const filter = org_id
-        ? {
+      let filter;
+      if (org_id) {
+        // Obtener proxyAddress de la configuración de Twilio
+        const { settings: twilioSettings } = await TwilioService.getClient(org_id);
+        const proxyAddress = twilioSettings.fromNumber || process.env.TWILIO_FROM_MAIN;
+        filter = {
           [id_field]: id_value,
           $or: [
-            { org_id: { $exists: false }, proxyAddress: process.env.TWILIO_FROM_MAIN },
-            { org_id, proxyAddress: process.env.TWILIO_FROM_MAIN },
+            { org_id: { $exists: false }, proxyAddress },
+            { org_id, proxyAddress },
           ],
-        }
-        : { [id_field]: id_value };
+        };
+      } else {
+        filter = { [id_field]: id_value };
+      }
       console.log("----------------------------------------------->", filter, data)
       const updatedDoc = await Model.findOneAndUpdate(
         filter,
@@ -585,6 +590,291 @@ function isValidObjectId(id) {
 
 
 
+class UnknownUpgradeError extends Error {
+  constructor(code, message, status = 400, details = {}) {
+    super(message);
+    this.name = 'UnknownUpgradeError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
+const buildPhoneVariations = (normalized) => {
+  if (!normalized) return [];
+  const variations = new Set([normalized]);
+
+  if (normalized.startsWith('+61') && normalized.length >= 4) {
+    variations.add(normalized.substring(1)); // 61...
+    variations.add('0' + normalized.substring(3)); // 04...
+  } else if (normalized.startsWith('61') && normalized.length === 11) {
+    variations.add('+' + normalized);
+    variations.add('0' + normalized.substring(2));
+  } else if (normalized.startsWith('04') && normalized.length === 10) {
+    variations.add('+61' + normalized.substring(1));
+    variations.add('61' + normalized.substring(1));
+  }
+
+  return Array.from(variations);
+};
+
+async function upgradeUnknownAppointment({
+  existingId,
+  incomingData,
+  org_id,
+  orgName,
+  req,
+  twilioClient,
+  proxyAddress,
+}) {
+  if (!req?.dbUser?._id) {
+    throw new UnknownUpgradeError('USER_NOT_RESOLVED', 'Authenticated user not attached to request', 401);
+  }
+
+  const safeData = { ...(incomingData || {}) };
+  delete safeData._id;
+  delete safeData.id;
+
+  const isChild = !!(safeData?.representative && safeData.representative.appointment);
+
+  let normalizedPhone = safeData.phoneInput;
+  if (normalizedPhone) {
+    try {
+      normalizedPhone = helpers.localToE164AU(String(normalizedPhone));
+    } catch (e) {
+      throw new UnknownUpgradeError('INVALID_PHONE', e?.message || 'Invalid Australian phone number', 400);
+    }
+  }
+
+  const lookupOrs = [];
+  if (existingId && mongoose.Types.ObjectId.isValid(existingId)) {
+    lookupOrs.push({ _id: new mongoose.Types.ObjectId(existingId) });
+  }
+
+  const phoneVariations = buildPhoneVariations(normalizedPhone);
+  if (phoneVariations.length) {
+    lookupOrs.push({ phoneInput: { $in: phoneVariations } });
+    lookupOrs.push({ phoneE164: { $in: phoneVariations } });
+  }
+
+  if (!lookupOrs.length) {
+    throw new UnknownUpgradeError('NO_LOOKUP_CRITERIA', 'Cannot resolve unknown record without id or phone', 400);
+  }
+
+  const unknownConditions = {
+    $or: [
+      { unknown: true },
+      { nameInput: { $exists: false } },
+      { lastNameInput: { $exists: false } },
+      { nameInput: '' },
+      { lastNameInput: '' },
+    ],
+  };
+
+  const orgConditions = {
+    $or: [
+      { org_id },
+      { org_id: { $exists: false } },
+      { org_id: null },
+    ],
+  };
+
+  const existing = await models.Appointment.findOne({
+    $and: [{ $or: lookupOrs }, unknownConditions, orgConditions],
+  });
+
+  if (!existing) {
+    throw new UnknownUpgradeError('UNKNOWN_RECORD_NOT_FOUND', 'Unknown record not found or not eligible for update', 404);
+  }
+
+  let finalPhone = normalizedPhone;
+  if (!finalPhone && (existing.phoneInput || existing.phoneE164)) {
+    try {
+      finalPhone = helpers.localToE164AU(existing.phoneInput || existing.phoneE164);
+    } catch {
+      finalPhone = existing.phoneInput || existing.phoneE164 || '';
+    }
+  }
+
+  if (!isChild && !finalPhone) {
+    throw new UnknownUpgradeError('PHONE_REQUIRED', 'Phone number is required to complete unknown record', 400);
+  }
+
+  if (!isChild) {
+    safeData.phoneInput = finalPhone;
+    safeData.phoneE164 = finalPhone;
+  } else {
+    delete safeData.phoneInput;
+    delete safeData.phoneE164;
+  }
+
+  const enrichedData = {
+    ...safeData,
+    unknown: false,
+    org_id,
+    org_name: orgName,
+    updatedAt: new Date(),
+    user: req.dbUser._id,
+  };
+
+  let sid = existing.sid;
+  if (!isChild && finalPhone) {
+    const meta = {
+      phone: finalPhone,
+      nameInput: safeData.nameInput,
+      patientId: existing._id.toString(),
+      org_id,
+    };
+
+    try {
+      sid = await sms.getOrCreatePhoneConversation({
+        org_id,
+        phoneE164: finalPhone,
+        proxyAddress,
+        meta,
+        createdByUserId: req.dbUser._id,
+      });
+    } catch (e) {
+      throw new UnknownUpgradeError(
+        'TWILIO_CONVERSATION_CREATE_FAILED',
+        e?.message || 'Unable to create or fetch Twilio conversation',
+        502
+      );
+    }
+
+    const check = await validateConversationSid(twilioClient, sid);
+    if (!check.ok) {
+      const status = check.status === 'error' ? 502 : 424;
+      throw new UnknownUpgradeError(
+        'TWILIO_CONVERSATION_INVALID',
+        'Appointment completion requires a valid Twilio conversation.',
+        status,
+        { reason: check.reason || 'Unknown' }
+      );
+    }
+
+    await PhoneConversationLink.findOneAndUpdate(
+      { org_id, phoneE164: finalPhone },
+      { conversationSid: sid, proxyAddress },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    await models.Appointment.updateMany(
+      { phoneInput: finalPhone },
+      { $set: { conversationSid: sid, proxyAddress, user: req.dbUser._id } }
+    );
+
+    enrichedData.sid = sid;
+    enrichedData.proxyAddress = proxyAddress;
+  }
+
+  const updatedDoc = await models.Appointment.findByIdAndUpdate(
+    existing._id,
+    { $set: enrichedData },
+    { new: true, runValidators: true }
+  );
+
+  return { updatedDoc, normalizedPhone: finalPhone, existing };
+}
+
+
+
+
+
+/**
+ * POST /add-or-update
+ * Similar a /add pero actualiza registros unknown en lugar de crear duplicados
+ * Usado cuando el frontend detecta un número existente con unknown:true
+ */
+router.post('/add-or-update', jwtCheck, async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No authorization header provided' });
+
+    const { org_id, sub, org_name } = await helpers.getTokenInfo(authHeader);
+    const orgName = helpers.cleanOrgName(org_name);
+    if (!org_id) return res.status(400).json({ error: 'org_id not found in token' });
+
+    const { modelName, data, existingId } = req.body;
+    console.log("📞 Data received in /add-or-update:", { 
+      modelName, 
+      existingId,
+      phoneInput: data?.phoneInput,
+      nameInput: data?.nameInput,
+      lastNameInput: data?.lastNameInput
+    });
+    
+    if (!modelName || typeof modelName !== 'string')
+      return res.status(400).json({ error: 'modelName is required and must be a string' });
+    if (!data || typeof data !== 'object' || Array.isArray(data))
+      return res.status(400).json({ error: 'data must be a valid object' });
+    if (!req.dbUser?._id)
+      return res.status(401).json({ error: 'User not resolved (ensureUser did not attach req.dbUser)' });
+
+    // Obtener configuración de Twilio para esta organización
+    const { client: twilioClient, settings: twilioSettings } = await TwilioService.getClient(org_id);
+    const proxyAddress = twilioSettings.fromNumber || process.env.TWILIO_FROM_MAIN;
+    const isAppointment = modelName === models.Appointment.modelName;
+
+    if (!isAppointment) {
+      return res.status(400).json({ error: 'add-or-update only supports Appointment model' });
+    }
+
+    // Si tenemos existingId, es un UPDATE de registro unknown
+    if (existingId && mongoose.Types.ObjectId.isValid(existingId)) {
+      try {
+        const { updatedDoc } = await upgradeUnknownAppointment({
+          existingId,
+          incomingData: data,
+          org_id,
+          orgName,
+          req,
+          twilioClient,
+          proxyAddress,
+        });
+
+        return res.status(200).json({
+          message: 'Unknown record updated successfully',
+          document: updatedDoc,
+          wasUpdate: true,
+        });
+      } catch (err) {
+        if (err instanceof UnknownUpgradeError) {
+          return res.status(err.status).json({
+            error: err.code,
+            message: err.message,
+            details: err.details,
+          });
+        }
+        throw err;
+      }
+    }
+
+    // Si no hay existingId, continuar con lógica normal de creación
+    // (esto no debería pasar si el frontend funciona bien, pero es failsafe)
+    console.log('⚠️ No existingId provided, falling through to creation logic');
+    return res.status(400).json({ 
+      error: 'existingId required for add-or-update',
+      details: 'Use /add endpoint for new records'
+    });
+
+  } catch (error) {
+    console.error('[POST /add-or-update] Error:', error);
+    
+    if (error?.name === 'ValidationError') {
+      return res.status(400).json({
+        error: 'ValidationError',
+        message: error.message,
+        details: Object.keys(error.errors || {}).reduce((acc, key) => {
+          acc[key] = error.errors[key].message;
+          return acc;
+        }, {}),
+      });
+    }
+    
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
 
 router.post('/add', jwtCheck, async (req, res) => {
   try {
@@ -604,7 +894,9 @@ router.post('/add', jwtCheck, async (req, res) => {
     if (!req.dbUser?._id)
       return res.status(401).json({ error: 'User not resolved (ensureUser did not attach req.dbUser)' });
 
-    const proxyAddress = process.env.TWILIO_FROM_MAIN;
+    // Obtener configuración de Twilio para esta organización
+    const { client: twilioClient, settings: twilioSettings } = await TwilioService.getClient(org_id);
+    const proxyAddress = twilioSettings.fromNumber || process.env.TWILIO_FROM_MAIN;
     const isAppointment = modelName === models.Appointment.modelName;
     // --- Asignar color aleatorio si es Appointment y no tiene color ---
     if (isAppointment && !data.color) {
@@ -627,15 +919,54 @@ router.post('/add', jwtCheck, async (req, res) => {
         }
         data.phoneInput = normalizedPhone;
 
-        // Chequeo rápido de duplicado por org+phone
-        const dup = await models.Appointment.exists({ org_id, phoneInput: normalizedPhone });
-        if (dup) {
+        // Chequeo rápido de duplicado
+        const duplicateRecord = normalizedPhone
+          ? await models.Appointment.findOne({ phoneInput: normalizedPhone })
+          : null;
+
+        if (duplicateRecord) {
+          const duplicateOrgId = duplicateRecord.org_id ? String(duplicateRecord.org_id) : null;
+          const sameOrg = !duplicateOrgId || duplicateOrgId === String(org_id);
+          const hasNoName = !duplicateRecord.nameInput && !duplicateRecord.lastNameInput;
+          const isUnknownRecord = duplicateRecord.unknown === true || hasNoName;
+
+          if (sameOrg && isUnknownRecord) {
+            try {
+              const { updatedDoc } = await upgradeUnknownAppointment({
+                existingId: duplicateRecord._id.toString(),
+                incomingData: data,
+                org_id,
+                orgName,
+                req,
+                twilioClient,
+                proxyAddress,
+              });
+
+              return res.status(200).json({
+                message: 'Unknown record updated successfully',
+                document: updatedDoc,
+                wasUpdate: true,
+              });
+            } catch (err) {
+              if (err instanceof UnknownUpgradeError) {
+                return res.status(err.status).json({
+                  error: err.code,
+                  message: err.message,
+                  details: err.details,
+                });
+              }
+              throw err;
+            }
+          }
+
           return res.status(409).json({
             error: 'Duplicate key',
             field: 'phoneInput',
             value: normalizedPhone,
-            reason: 'An appointment with the same phone number already exists for this organization.',
-            existingId: dup._id,
+            reason: sameOrg
+              ? 'An appointment with the same phone number already exists for this organization.'
+              : 'Phone number is already in use by another organization.',
+            existingId: duplicateRecord._id,
           });
         }
       } else {
@@ -660,7 +991,7 @@ router.post('/add', jwtCheck, async (req, res) => {
       // Crear o reutilizar conversación Twilio
       try {
         sid = await sms.getOrCreatePhoneConversation({
-          client, org_id, phoneE164: data.phoneInput, proxyAddress, meta, createdByUserId: req.dbUser._id,
+          org_id, phoneE164: data.phoneInput, proxyAddress, meta, createdByUserId: req.dbUser._id,
         });
       } catch (e) {
         console.error('[POST /add] Twilio getOrCreatePhoneConversation failed:', e?.message || e);
@@ -672,7 +1003,7 @@ router.post('/add', jwtCheck, async (req, res) => {
       }
 
       // Validar que el SID realmente existe en Twilio
-      const check = await validateConversationSid(client, sid);
+      const check = await validateConversationSid(twilioClient, sid);
       if (!check.ok) {
         const code = check.status === 'error' ? 502 : 424;
         return res.status(code).json({
@@ -887,15 +1218,36 @@ router.get('/sorting', jwtCheck, async (req, res) => {
     const { org_id } = await helpers.getTokenInfo(req.headers.authorization)
 
     let { startDate, endDate, category } = req.query
+    console.log('🎯 [GET /sorting] Request received:', {
+      rawStartDate: startDate,
+      rawEndDate: endDate,
+      category,
+      org_id,
+    });
+
     startDate = new Date(startDate);
     endDate = new Date(endDate);
 
-    // 🔎 Ver qué viene en el request
+    console.log('📅 [GET /sorting] Parsed dates:', {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      startValid: !isNaN(startDate.getTime()),
+      endValid: !isNaN(endDate.getTime()),
+    });
 
     // Ejecutar lógica
     const result = await findMatchingAppointments(startDate, endDate);
 
-    // 🔎 Ver qué devuelve tu función
+    console.log('📊 [GET /sorting] Result from findMatchingAppointments:', {
+      hasResult: !!result,
+      resultType: typeof result,
+      dateRange: result?.dateRange,
+      prioritiesCount: result?.priorities?.length || 0,
+      priorities: result?.priorities?.map(p => ({
+        priorityName: p.priority?.name,
+        appointmentsCount: p.appointments?.length || 0,
+      })),
+    });
 
     res.json([result]);
   }

@@ -1,0 +1,117 @@
+/* Custom styles for react-big-calendar */
+
+.appointment-calendar .rbc-calendar {
+  font-family: inherit;
+}
+
+.appointment-calendar .rbc-header {
+  padding: 10px 5px;
+  font-weight: 600;
+  border-bottom: 2px solid #e2e8f0;
+  background: #f7fafc;
+}
+
+.appointment-calendar .rbc-today {
+  background-color: #ebf8ff;
+}
+
+.appointment-calendar .rbc-event {
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.appointment-calendar .rbc-event:focus {
+  outline: 2px solid #4299e1;
+  outline-offset: 2px;
+}
+
+.appointment-calendar .rbc-event-label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.appointment-calendar .rbc-event-content {
+  font-size: 12px;
+}
+
+.appointment-calendar .rbc-day-slot .rbc-time-slot {
+  border-top: 1px solid #e2e8f0;
+}
+
+.appointment-calendar .rbc-time-content {
+  border-top: 2px solid #cbd5e0;
+}
+
+.appointment-calendar .rbc-current-time-indicator {
+  background-color: #e53e3e;
+  height: 2px;
+}
+
+.appointment-calendar .rbc-toolbar {
+  padding: 15px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.appointment-calendar .rbc-toolbar button {
+  padding: 8px 16px;
+  border: 1px solid #cbd5e0;
+  background: white;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.appointment-calendar .rbc-toolbar button:hover {
+  background: #edf2f7;
+  border-color: #a0aec0;
+}
+
+.appointment-calendar .rbc-toolbar button.rbc-active {
+  background: #4299e1;
+  color: white;
+  border-color: #4299e1;
+}
+
+.appointment-calendar .rbc-toolbar button.rbc-active:hover {
+  background: #3182ce;
+}
+
+.appointment-calendar .rbc-off-range-bg {
+  background: #f7fafc;
+}
+
+.appointment-calendar .rbc-show-more {
+  background-color: rgba(66, 153, 225, 0.1);
+  color: #2b6cb0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin: 2px 0;
+}
+
+/* Drag & drop styles */
+.appointment-calendar .rbc-addons-dnd-dragged-event {
+  opacity: 0.5;
+}
+
+.appointment-calendar .rbc-addons-dnd-dragging {
+  opacity: 0.75;
+}
+
+.appointment-calendar .rbc-addons-dnd-resizable {
+  position: relative;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .appointment-calendar .rbc-toolbar {
+    flex-direction: column;
+    gap: 10px;
+  }
+}

@@ -243,6 +243,34 @@ router.delete('/users/:userId/roles', guard, async (req, res) => {
   if (!Array.isArray(roleIds) || roleIds.length === 0) {
     return res.status(400).json({ error: 'roleIds[] requerido' });
   }
+
+  // CRITICAL SECURITY: Prevent user from removing their own admin role
+  const currentUserId = req.user?.sub || req.user?.id;
+  if (userId === currentUserId) {
+    // Fetch the role names to check if admin role is being removed
+    try {
+      const allRoles = await callMgmt('/roles?per_page=100');
+      const rolesToRemove = Array.isArray(allRoles) 
+        ? allRoles.filter(r => roleIds.includes(r.id))
+        : [];
+      
+      const removingAdmin = rolesToRemove.some(r => 
+        r.name?.toLowerCase() === 'admin' || 
+        r.name?.toLowerCase() === 'administrator'
+      );
+
+      if (removingAdmin) {
+        return res.status(403).json({
+          error: 'cannot_remove_own_admin_role',
+          message: 'You cannot remove your own admin role. Another admin must do this.',
+        });
+      }
+    } catch (e) {
+      console.error('[DELETE roles] Error checking admin role:', e);
+      // Continue with deletion if check fails (avoid blocking legitimate operations)
+    }
+  }
+
   if (org_id) {
     await callMgmt(`/organizations/${encodeURIComponent(org_id)}/members/${encodeURIComponent(userId)}/roles`, {
       method: 'DELETE',
@@ -355,8 +383,9 @@ router.get(['/permissions', '/api-permissions', '/auth0/permissions'], guard, as
       });
     }
 
-    const full = await callMgmt(`/resource-servers/${rs.id}`);
-    const permissions = (full.scopes || []).map(s => ({
+    // Use the data from the list endpoint instead of fetching individual resource server
+    // This avoids an extra API call
+    const permissions = (rs.scopes || []).map(s => ({
       permission_name: s.value,
       name: s.value,
       description: s.description || '',
@@ -368,7 +397,18 @@ router.get(['/permissions', '/api-permissions', '/auth0/permissions'], guard, as
     });
   } catch (e) {
     const status = e?.statusCode || e?.status || 500;
-    console.error('[api-permissions] ERROR:', status, e?.message, e?.body || e);
+    const message = e?.message || 'Unknown error';
+    
+    // Return friendly error for rate limiting
+    if (message.includes('rate limit')) {
+      console.error('[api-permissions] RATE LIMIT:', message);
+      return res.status(429).json({
+        error: 'rate_limit_exceeded',
+        message: 'Too many requests to Auth0 API. Please try again in a moment.',
+      });
+    }
+    
+    console.error('[api-permissions] ERROR:', status, message, e?.body || e);
     res.status(status).json({
       error: 'mgmt_failed',
       status,

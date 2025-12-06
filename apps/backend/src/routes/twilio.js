@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { jwtCheck, attachUserInfo, ensureUser } = require('../middleware/auth');
 const { syncUserFromToken } = require('../middleware/sync-user');
-const twilio = require('twilio');
+const TwilioService = require('../services/TwilioService');
 
 // Protected routes middleware chain
 router.use(jwtCheck, attachUserInfo, ensureUser, syncUserFromToken);
@@ -19,16 +19,16 @@ router.get('/balance', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: master permission required' });
     }
 
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-
-    if (!accountSid || !authToken) {
-      console.error('[GET /twilio/balance] Missing Twilio credentials in environment');
-      return res.status(500).json({ error: 'Twilio credentials not configured' });
+    const org_id = user?.org_id || req.user?.org_id;
+    if (!org_id) {
+      console.log('[GET /twilio/balance] Missing org_id. req.dbUser:', user, 'req.user:', req.user);
+      return res.status(400).json({ error: 'Organization ID not found' });
     }
 
-    console.log('[GET /twilio/balance] Fetching balance from Twilio...');
-    const client = twilio(accountSid, authToken);
+    console.log('[GET /twilio/balance] Fetching balance for org:', org_id);
+    
+    // Use TwilioService to get client (supports multi-tenant)
+    const { client } = await TwilioService.getClient(org_id);
     
     // Fetch balance using the correct Twilio API endpoint
     const balance = await client.balance.fetch();

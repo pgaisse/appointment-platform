@@ -58,6 +58,7 @@ import { Provider } from "@/types";
 // time off (list) hook
 import { useProviderTimeOff, type TimeOffItem } from "@/Hooks/Query/useProviderAppointments";
 import { ModalStackProvider } from "../ModalStack/ModalStackContext";
+import { validateEmail, validatePhone, debounce } from "@/utils/validation";
 import { formatAustralianMobile } from "@/Functions/formatAustralianMobile";
 
 const LazyProviderSummaryModal = lazy(() => import("@/Components/Provider/ProviderSummaryModal"));
@@ -237,6 +238,9 @@ export default function ProviderManager() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryProvider, setSummaryProvider] = useState<Provider | null>(null);
 
+  // Debounced search
+  const debouncedSetQuery = useMemo(() => debounce(setQuery, 300), []);
+
   const filtered = useMemo(() => {
     if (!providers) return [] as Provider[];
     const q = query.trim().toLowerCase();
@@ -253,7 +257,7 @@ export default function ProviderManager() {
             <InputLeftElement pointerEvents="none">
               <SearchIcon />
             </InputLeftElement>
-            <Input placeholder="Search by name" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <Input placeholder="Search by name" onChange={(e) => debouncedSetQuery(e.target.value)} />
           </InputGroup>
           <Button
             leftIcon={<AddIcon />}
@@ -448,6 +452,24 @@ function ProviderDrawer({
 
   const onSubmit = handleSubmit(async (values) => {
     try {
+      // Validate email if provided
+      if (values.email) {
+        const emailValidation = validateEmail(values.email);
+        if (!emailValidation.isValid) {
+          toast({ title: "Invalid email", description: emailValidation.error, status: "error" });
+          return;
+        }
+      }
+
+      // Validate phone if provided
+      if (values.phone) {
+        const phoneValidation = validatePhone(values.phone);
+        if (!phoneValidation.isValid) {
+          toast({ title: "Invalid phone", description: phoneValidation.error, status: "error" });
+          return;
+        }
+      }
+
       if (provider) {
         await updateMut.mutateAsync({ id: provider._id, payload: values });
         toast({ title: "Provider updated", status: "success" });

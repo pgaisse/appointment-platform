@@ -44,7 +44,6 @@ export function useAppointmentProviders(appointmentId?: string) {
     queryFn: async (): Promise<AppointmentProvider[]> => {
       if (!appointmentId) return [];
       const result = await authFetch(`/api/appointment-providers?appointment=${appointmentId}`);
-      console.log('Fetched appointment providers:', result);
       return result;
     },
     enabled: !!appointmentId,

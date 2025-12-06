@@ -93,6 +93,32 @@ export default defineConfig(() => {
       __APP_VERSION__: JSON.stringify(composedVersion),
       __APP_BUILD_DATE__: JSON.stringify(buildDate),
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            // Separate vendor chunks for better caching
+            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+            'chakra-vendor': ['@chakra-ui/react', '@emotion/react', '@emotion/styled'],
+            'query-vendor': ['@tanstack/react-query'],
+            'socket-vendor': ['socket.io-client'],
+            'auth-vendor': ['@auth0/auth0-react'],
+          },
+        },
+      },
+      chunkSizeWarningLimit: 1000,
+      minify: 'terser',
+      terserOptions: {
+        compress: {
+          drop_console: true, // Remove console.logs in production
+          drop_debugger: true,
+          pure_funcs: ['console.log', 'console.debug', 'console.info'],
+        },
+      },
+      // Optimize CSS
+      cssCodeSplit: true,
+      cssMinify: true,
+    },
     server: {
       host: "0.0.0.0",
       port: 3004,
@@ -101,7 +127,8 @@ export default defineConfig(() => {
       hmr: {
         protocol: "wss",
         host: "dev.letsmarter.com",
-        clientPort: 8443
+        clientPort: 8443,
+        overlay: false, // Disable error overlay for better dev performance
       }
     }
 

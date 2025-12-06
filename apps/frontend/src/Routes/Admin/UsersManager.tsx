@@ -11,6 +11,7 @@ import { Settings } from "lucide-react";
 import { useAdminAuth0Api } from "@/Hooks/useAdminAuth0Api";
 import { useAuth0 } from "@auth0/auth0-react";
 import axios from "axios";
+import ConfirmDialog from "@/Components/Common/ConfirmDialog";
 
 type A0User = { user_id: string; email?: string; name?: string; picture?: string };
 type A0Role = { id: string; name: string; description?: string };
@@ -33,6 +34,7 @@ export default function UsersManager() {
   const api = useAdminAuth0Api();
   const qc = useQueryClient();
   const toast = useToast();
+  const { user: currentUser } = useAuth0();
 
   // filters / pagination
   const [q, setQ] = useState("");
@@ -51,6 +53,10 @@ export default function UsersManager() {
 
   // drawer
   const drawer = useDisclosure();
+
+  // confirmation dialog for critical changes
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<(() => Promise<void>) | null>(null);
 
   // --- base queries ---
   const usersQ = useQuery({
@@ -114,14 +120,9 @@ export default function UsersManager() {
           const raw = Array.isArray(resp?.permissions) ? resp.permissions : Array.isArray(resp) ? resp : [];
           const list: string[] = raw
             .map((p: any) => {
+              // Extract only the permission name, exactly as it is in Auth0
               const name = typeof p === "string" ? p : (p?.permission_name || p?.name);
-              if (!name) return undefined;
-              const src =
-                p?.resource_server_identifier ||
-                p?.resource_server ||
-                p?.resource_server_name ||
-                "";
-              return src ? `${name} (${src})` : name;
+              return name || undefined;
             })
             .filter(Boolean) as string[];
           list.sort();
@@ -449,47 +450,88 @@ export default function UsersManager() {
                 isLoading={saving}
                 onClick={async () => {
                   if (!selectedUser) return;
-                  try {
-                    // 1) Roles: remove first, then add
-                    if (rolesDiff.toRemove.length) {
-                      await removeMu.mutateAsync({
-                        userId: selectedUser.user_id,
-                        roleIds: rolesDiff.toRemove,
-                        orgId: orgId || undefined,
-                      });
-                    }
-                    if (rolesDiff.toAdd.length) {
-                      await assignMu.mutateAsync({
-                        userId: selectedUser.user_id,
-                        roleIds: rolesDiff.toAdd,
-                        orgId: orgId || undefined,
-                      });
-                    }
 
-                    // 2) Direct permissions
-                    if (toGrant.length) {
-                      await grantPermsMu.mutateAsync({
-                        userId: selectedUser.user_id,
-                        permissions: toGrant,
+                  // CRITICAL: Prevent admin from removing their own admin role
+                  if (selectedUser.user_id === currentUser?.sub) {
+                    const hasAdminRole = selectedRoleIds.some((roleId) => {
+                      const role = roles.find((r) => r.id === roleId);
+                      return role?.name?.toLowerCase() === "admin";
+                    });
+                    if (!hasAdminRole) {
+                      toast({
+                        title: "Cannot Remove Admin Role",
+                        description: "You cannot remove your own admin role. Another admin must do this.",
+                        status: "error",
+                        duration: 5000,
                       });
+                      return;
                     }
-                    if (toRevoke.length) {
-                      await revokePermsMu.mutateAsync({
-                        userId: selectedUser.user_id,
-                        permissions: toRevoke,
-                      });
-                    }
-
-                    await Promise.all([
-                      userRolesQ.refetch(),
-                      userDirectPermsQ.refetch(),
-                      rolePermsMapQ.refetch(),
-                    ]);
-
-                    toast({ title: "Roles and permissions updated", status: "success" });
-                  } catch (e: any) {
-                    toast({ title: "Error saving changes", description: e?.message, status: "error" });
                   }
+
+                  // Check if there are critical changes (roles or permissions)
+                  const hasCriticalChanges = 
+                    rolesDiff.toAdd.length > 0 || 
+                    rolesDiff.toRemove.length > 0 || 
+                    toGrant.length > 0 || 
+                    toRevoke.length > 0;
+
+                  if (!hasCriticalChanges) {
+                    toast({ title: "No changes to save", status: "info" });
+                    return;
+                  }
+
+                  // Define the action to execute after confirmation
+                  const executeChanges = async () => {
+                    try {
+                      // 1) Roles: remove first, then add
+                      if (rolesDiff.toRemove.length) {
+                        await removeMu.mutateAsync({
+                          userId: selectedUser.user_id,
+                          roleIds: rolesDiff.toRemove,
+                          orgId: orgId || undefined,
+                        });
+                      }
+                      if (rolesDiff.toAdd.length) {
+                        await assignMu.mutateAsync({
+                          userId: selectedUser.user_id,
+                          roleIds: rolesDiff.toAdd,
+                          orgId: orgId || undefined,
+                        });
+                      }
+
+                      // 2) Direct permissions
+                      if (toGrant.length) {
+                        await grantPermsMu.mutateAsync({
+                          userId: selectedUser.user_id,
+                          permissions: toGrant,
+                        });
+                      }
+                      if (toRevoke.length) {
+                        await revokePermsMu.mutateAsync({
+                          userId: selectedUser.user_id,
+                          permissions: toRevoke,
+                        });
+                      }
+
+                      await Promise.all([
+                        userRolesQ.refetch(),
+                        userDirectPermsQ.refetch(),
+                        rolePermsMapQ.refetch(),
+                      ]);
+
+                      toast({ title: "Roles and permissions updated", status: "success" });
+                      setConfirmOpen(false);
+                      setConfirmAction(null);
+                    } catch (e: any) {
+                      toast({ title: "Error saving changes", description: e?.message, status: "error" });
+                      setConfirmOpen(false);
+                      setConfirmAction(null);
+                    }
+                  };
+
+                  // Show confirmation dialog for critical changes
+                  setConfirmAction(() => executeChanges);
+                  setConfirmOpen(true);
                 }}
               >
                 Save changes
@@ -498,6 +540,34 @@ export default function UsersManager() {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      {/* Confirmation Dialog for Critical Changes */}
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => {
+          setConfirmOpen(false);
+          setConfirmAction(null);
+        }}
+        onConfirm={async () => {
+          if (confirmAction) {
+            await confirmAction();
+          }
+        }}
+        title="Confirm Role & Permission Changes"
+        message={
+          selectedUser
+            ? `You are about to change roles and permissions for ${selectedUser.name || selectedUser.email}. This will affect what this user can access.\n\n` +
+              `Roles to add: ${rolesDiff.toAdd.length}\n` +
+              `Roles to remove: ${rolesDiff.toRemove.length}\n` +
+              `Permissions to grant: ${toGrant.length}\n` +
+              `Permissions to revoke: ${toRevoke.length}\n\n` +
+              `Are you sure you want to continue?`
+            : "Are you sure you want to continue?"
+        }
+        confirmText="Yes, Update"
+        confirmColorScheme="blue"
+        isLoading={saving}
+      />
     </Box>
   );
 }

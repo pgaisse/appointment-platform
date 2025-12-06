@@ -8,15 +8,9 @@ const { attachUserInfo, jwtCheck, checkJwt, decodeToken } = require('../middlewa
 const helpers = require('./index');
 const { ContactStatus } = require("../constants")
 const axios = require('axios');
+const TwilioService = require('../services/TwilioService');
 
-
-
-const { ObjectId } = require('mongoose').Types; // Asegúrate de importar esto
-// Find your Account SID and Auth Token at twilio.com/console
-// and set the environment variables. See http://twil.io/secure
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const client = twilio(accountSid, authToken);
+const { ObjectId } = require('mongoose').Types;
 
 const { Appointment, ContactAppointment } = require('../models/Appointments')
 
@@ -442,12 +436,15 @@ async function deleteConversationsByParticipantAddress(targetAddress) {
 }
 
 
-async function createConversationWithParticipant(friendlyName, address, proxyAddress) {
+async function createConversationWithParticipant(friendlyName, address, proxyAddress, org_id) {
     if (!friendlyName || !address || !proxyAddress) {
         throw new Error('Todos los parámetros (friendlyName, address, proxyAddress) son obligatorios.');
     }
 
     try {
+        // Obtener client de Twilio para esta organización
+        const { client } = await TwilioService.getClient(org_id);
+        
         // Crear la conversación
         const conversation = await client.conversations.v1.conversations.create({ friendlyName });
         console.log(`✅ Conversación creada: ${conversation.sid}`);
@@ -525,6 +522,9 @@ const delConversations = async () => {
 const sendMessage = async (id, messageBody, org_id) => {
     console.log("EL MENSAJE SE ENVIA A NOMBRE DE", org_id)
     try {
+        // Obtener client de Twilio para esta organización
+        const { client } = await TwilioService.getClient(org_id);
+        
         const message = await client.conversations.v1
             .conversations(id)
             .messages
@@ -688,7 +688,11 @@ const genUniqueName = (orgId, phone) => `sms:${orgId || 'global'}:${phone}`;
  * Busca conversación por participante (address) y proxy.
  * Si la encuentras, retorna CH..., si no, null.
  */
-async function findConversationByPhoneTwilioOnly(client, phone, proxyAddress) {
+async function findConversationByPhoneTwilioOnly(org_id, phone, proxyAddress) {
+    const { client, settings } = await TwilioService.getClient(org_id);
+    const serviceSid = settings.conversationsServiceSid || process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
+    if (!serviceSid) throw new Error('Conversations Service SID not configured');
+    
     const list = await client.conversations.v1
         .services(serviceSid)
         .participantConversations
@@ -705,7 +709,6 @@ async function findConversationByPhoneTwilioOnly(client, phone, proxyAddress) {
  * - Añade participante SMS de forma idempotente
  */
 async function getOrCreatePhoneConversation({
-    client,
     org_id,
     phoneE164,
     proxyAddress,
@@ -715,9 +718,14 @@ async function getOrCreatePhoneConversation({
     if (!isE164AU(phoneE164)) throw new Error('El número debe estar en E.164 +61XXXXXXXXX');
 
     const uniqueName = genUniqueName(org_id, phoneE164);
+    
+    // Obtener client y settings de Twilio para esta organización
+    const { client, settings } = await TwilioService.getClient(org_id);
+    const serviceSid = settings.conversationsServiceSid || process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
+    if (!serviceSid) throw new Error('Conversations Service SID not configured');
 
     // 1) ¿Ya existe por address/proxy?
-    const byParticipantSid = await findConversationByPhoneTwilioOnly(client, phoneE164, proxyAddress);
+    const byParticipantSid = await findConversationByPhoneTwilioOnly(org_id, phoneE164, proxyAddress);
     if (byParticipantSid) {
         // Opcional: intenta etiquetar con uniqueName si la conv. aún no lo tiene
         try {
@@ -1029,8 +1037,16 @@ async function getServiceSidForConversation(conversationSid) {
     serviceCache.set(conversationSid, { is, ts: Date.now() });
     return is;
 }
-async function uploadToMCS(fileBuffer, filename, contentType) {
-    const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID
+async function uploadToMCS(fileBuffer, filename, contentType, org_id) {
+    // Obtener configuración de Twilio para esta organización
+    const { settings } = await TwilioService.getClient(org_id);
+    const serviceSid = settings.conversationsServiceSid || process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
+    const accountSid = settings.accountSid;
+    const authToken = settings.authToken;
+    
+    if (!serviceSid) throw new Error('Conversations Service SID not configured');
+    if (!accountSid || !authToken) throw new Error('Twilio credentials not configured');
+    
     const mcsUrl = `https://mcs.us1.twilio.com/v1/Services/${serviceSid}/Media`;
     console.log(mcsUrl)
     const resp = await axios.post(mcsUrl, fileBuffer, {

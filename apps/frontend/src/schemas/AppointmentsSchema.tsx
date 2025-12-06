@@ -1,10 +1,17 @@
 import { z } from "zod";
 import { toE164AU } from "@/utils/phoneAU";
 
+export type PhoneCheckResult = {
+  exists: boolean;
+  isUnknown?: boolean;
+  existingId?: string;
+  existingRecord?: any;
+};
+
 export type CheckUniqueFn = (
   e164: string,
   opts?: { excludeId?: string }
-) => Promise<boolean>; // true => YA existe
+) => Promise<PhoneCheckResult>; // returns detailed validation result
 
 const AU_PHONE_RE = /^(04\d{8}|(?:\+61|61)\d{9})$/;
 
@@ -104,26 +111,50 @@ function buildBaseSchema() {
         .min(1, "At least one day must be selected"),
     }),
 
-    selectedAppDates: z
-      .array(
-        z.object({
-          startDate: z.coerce.date({ required_error: "Start date is required" }),
-          endDate: z.coerce.date({ required_error: "End date is required" }),
-          // Nuevos campos por slot (opcional durante migración)
-          treatment: z.string().optional(),
-          priority: z.string().optional(),
-          providers: z.array(z.string()).optional().default([]),
-          duration: z.number().optional(),
-          providerNotes: z.string().optional(),
-          status: z.string().optional(),
-          _id: z.string().optional(),
-          slotId: z.string().optional(),
+    selectedAppDates: z.preprocess(
+      (val) => {
+        // Convert populated objects to IDs before validation
+        if (!Array.isArray(val)) return val;
+        return val.map((slot: any) => {
+          const cleaned = { ...slot };
+          // Convert treatment object to ID
+          if (typeof cleaned.treatment === 'object' && cleaned.treatment?._id) {
+            cleaned.treatment = String(cleaned.treatment._id);
+          }
+          // Convert priority object to ID
+          if (typeof cleaned.priority === 'object' && cleaned.priority?._id) {
+            cleaned.priority = String(cleaned.priority._id);
+          }
+          // Convert providers array of objects to array of IDs
+          if (Array.isArray(cleaned.providers)) {
+            cleaned.providers = cleaned.providers.map((p: any) => 
+              typeof p === 'object' && p?._id ? String(p._id) : String(p)
+            );
+          }
+          return cleaned;
+        });
+      },
+      z
+        .array(
+          z.object({
+            startDate: z.coerce.date({ required_error: "Start date is required" }),
+            endDate: z.coerce.date({ required_error: "End date is required" }),
+            // Nuevos campos por slot (opcional durante migración)
+            treatment: z.string().optional(),
+            priority: z.string().optional(),
+            providers: z.array(z.string()).optional().default([]),
+            duration: z.number().optional(),
+            providerNotes: z.string().optional(),
+            status: z.string().optional(),
+            _id: z.string().optional(),
+            slotId: z.string().optional(),
+          })
+        )
+        .min(1, "At least one date must be selected")
+        .refine((dates) => dates.every((d) => d.startDate < d.endDate), {
+          message: "Start date must be before end date",
         })
-      )
-      .min(1, "At least one date must be selected")
-      .refine((dates) => dates.every((d) => d.startDate < d.endDate), {
-        message: "Start date must be before end date",
-      }),
+    ),
 
     reschedule: z.boolean().optional(),
 
@@ -175,8 +206,11 @@ function withAsyncUniqueness<T extends z.ZodTypeAny>(
     }
 
     const excludeId = (data as any).id || undefined;
-    const exists = await checkUnique(e164, { excludeId });
-    if (exists) {
+    const result = await checkUnique(e164, { excludeId });
+    
+    // Only add validation error if phone exists AND is not an unknown record
+    // Unknown records will be updated instead of creating duplicates
+    if (result.exists && !result.isUnknown) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["phoneInput"],

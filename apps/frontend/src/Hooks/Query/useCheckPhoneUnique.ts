@@ -5,19 +5,35 @@ import { useAuth0 } from "@auth0/auth0-react";
 
 export type CheckPhoneUniqueOpts = { excludeId?: string };
 
+export type PhoneCheckResult = {
+  exists: boolean;
+  isUnknown?: boolean;
+  existingId?: string;
+  existingRecord?: {
+    _id: string;
+    nameInput?: string;
+    lastNameInput?: string;
+    phoneInput?: string;
+    phoneE164?: string;
+    emailInput?: string;
+  };
+};
+
 /**
- * Devuelve una función `checkPhoneUnique(e164, { excludeId }) => Promise<boolean>`
- * true => YA existe en la organización (duplicado)
- * false => NO existe o hubo error de red (no bloquea)
+ * Devuelve una función `checkPhoneUnique(e164, { excludeId }) => Promise<PhoneCheckResult>`
+ * exists: true => YA existe en la organización (duplicado)
+ * exists: false => NO existe o hubo error de red (no bloquea)
+ * isUnknown: true => El registro existente tiene unknown: true (se puede actualizar)
+ * existingId: ID del registro existente si isUnknown es true
  */
 export function useCheckPhoneUnique() {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
   // Cache simple en memoria para evitar pegarle al endpoint repetidamente por el mismo valor
-  const cacheRef = useRef<Map<string, boolean>>(new Map());
+  const cacheRef = useRef<Map<string, PhoneCheckResult>>(new Map());
 
   const checkPhoneUnique = useCallback(
-    async (e164: string, opts?: CheckPhoneUniqueOpts): Promise<boolean> => {
+    async (e164: string, opts?: CheckPhoneUniqueOpts): Promise<PhoneCheckResult> => {
       const key = `${e164}|${opts?.excludeId ?? ""}`;
       if (cacheRef.current.has(key)) {
         return cacheRef.current.get(key)!;
@@ -44,12 +60,21 @@ export function useCheckPhoneUnique() {
           headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         });
 
-        const exists = Boolean(data?.exists); // true => duplicado
-        cacheRef.current.set(key, exists);
-        return exists;
-      } catch {
+        console.log('📞 [useCheckPhoneUnique] Response:', data);
+
+        const result: PhoneCheckResult = {
+          exists: Boolean(data?.exists),
+          isUnknown: data?.isUnknown,
+          existingId: data?.existingId,
+          existingRecord: data?.existingRecord,
+        };
+        
+        cacheRef.current.set(key, result);
+        return result;
+      } catch (error) {
+        console.error('❌ [useCheckPhoneUnique] Error:', error);
         // en error de red/servidor, NO bloqueamos
-        return false;
+        return { exists: false };
       }
     },
     [getAccessTokenSilently, isAuthenticated]

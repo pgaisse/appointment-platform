@@ -3,6 +3,7 @@ const { getSignedUrl: getCloudFrontSignedUrl } = require('@aws-sdk/cloudfront-si
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const TwilioService = require('../services/TwilioService');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 // 🧾 Leer clave privada
@@ -109,14 +110,28 @@ async function getSignedUrl(key) {
     return signedUrl;
 }
 
-async function getDirectMediaUrl(chatServiceSid, mediaSid) {
+async function getDirectMediaUrl(chatServiceSid, mediaSid, org_id) {
   const url = `https://mcs.us1.twilio.com/v1/Services/${chatServiceSid}/Media/${mediaSid}`;
-console.log(url)
-  const response = await axios.get(url, {
-    auth: {
-      username: process.env.TWILIO_ACCOUNT_SID,
-      password: process.env.TWILIO_AUTH_TOKEN
+  console.log(url);
+  
+  // Obtener credenciales de Twilio desde la base de datos
+  let username, password;
+  try {
+    if (org_id) {
+      const { settings } = await TwilioService.getClient(org_id);
+      username = settings.accountSid;
+      password = settings.authToken;
     }
+  } catch (err) {
+    console.warn('⚠️ Error getting Twilio credentials, falling back to env:', err.message);
+  }
+  
+  // Fallback a variables de entorno si no se pudo obtener de la BD
+  username = username || process.env.TWILIO_ACCOUNT_SID;
+  password = password || process.env.TWILIO_AUTH_TOKEN;
+  
+  const response = await axios.get(url, {
+    auth: { username, password }
   });
 
   return response.data.links.content_direct_temporary;
