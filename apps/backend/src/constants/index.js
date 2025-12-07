@@ -10,6 +10,7 @@ const ContactStatus = {
   Contacted: 'Contacted',
   Failed: 'Failed',
   NoContacted: 'NoContacted',
+  'No Contacted': 'No Contacted', // ⚠️ LEGACY: soportar datos con espacio
   NotStarted: 'NoStarted',
   Declined: 'Declined',
   Complete: 'Complete'

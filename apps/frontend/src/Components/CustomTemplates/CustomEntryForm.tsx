@@ -99,12 +99,10 @@ import {
   Provider,
   Representative,
   SelectedDates,
-  TimeBlock,
   Treatment,
-  WeekDay,
 } from "@/types";
 import { useUpdateItems } from "@/Hooks/Query/useUpdateItems";
-import AvailabilityDates2 from "./AvailabilityDates2";
+import AvailabilityDates2, { SelectedDatesValue, SelectedDaysState } from "./AvailabilityDates2";
 import { useInsertToCollection } from "@/Hooks/Query/useInsertToCollection";
 import PhoneInput from "../Form/PhoneInput";
 import { ContactForm, contactsSchema } from "@/schemas/ContactSchema";
@@ -904,14 +902,12 @@ function CustomEntryForm({
   );
   const [resetKey, setResetKey] = useState(0);
   // REMOVED: providersAssignments state - now handled by AppointmentProvider collection
-  const [selectedDays, setSelectedDays] = useState<
-    Partial<Record<WeekDay, TimeBlock[]>>
-  >(() => {
+  const [selectedDays, setSelectedDays] = useState<SelectedDaysState>(() => {
     if (Array.isArray(dates?.days)) {
       return dates.days.reduce((acc, curr) => {
         acc[curr.weekDay] = curr.timeBlocks;
         return acc;
-      }, {} as Partial<Record<WeekDay, TimeBlock[]>>);
+      }, {} as SelectedDaysState);
     }
     return {};
   });
@@ -1700,6 +1696,32 @@ function CustomEntryForm({
     setHasSubmitted(true);
   };
 
+  // Memoized callback for AvailabilityDates2 to prevent re-renders
+  const handleAvailabilityChange = useCallback((value: SelectedDatesValue) => {
+    // Actualizar estado interno para referencia
+    const newSelectedDays: SelectedDaysState = {};
+    value.days.forEach(day => {
+      newSelectedDays[day.weekDay] = day.timeBlocks as any;
+    });
+    setSelectedDays(newSelectedDays);
+    
+    // Actualizar React Hook Form
+    setValue("selectedDates" as any, value, {
+      shouldValidate: hasSubmitted,
+      shouldDirty: true,
+    });
+    
+    if (hasSubmitted) {
+      trigger?.("selectedDates" as any);
+    }
+  }, [hasSubmitted, setValue, trigger]);
+
+  // Memoized error message for AvailabilityDates2
+  const availabilityError = useMemo(() => {
+    if (!hasSubmitted || !appointmentErrors?.selectedDates) return undefined;
+    return String(errMsg(appointmentErrors?.selectedDates) || "");
+  }, [hasSubmitted, appointmentErrors?.selectedDates]);
+
   // Removed legacy inline provider chips/tag rendering (moved to ProviderPerDate)
 
   /* =================== UI =================== */
@@ -2472,13 +2494,12 @@ function CustomEntryForm({
               <Box display="flex" justifyContent="center" width="100%">
                 <AvailabilityDates2
                   key={`availability-${resetKey}`}
-                  modeInput={true}
-                  selectedDaysResp={selectedDays}
-                  setSelectedDaysResp={setSelectedDays}
-                  hasSubmitted={hasSubmitted}
-                  trigger={trigger}
-                  setValue={setValue}
-                  isPending={formBusy}
+                  defaultValue={selectedDays}
+                  onChange={handleAvailabilityChange}
+                  readOnly={formBusy}
+                  showSummary={true}
+                  error={availabilityError}
+                  helpText="Select your preferred availability times"
                 />
               </Box>
               <FormErrorMessage>

@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
-import { PhoneIcon, TimeIcon, RepeatIcon, CheckIcon } from '@chakra-ui/icons';
+import { PhoneIcon, TimeIcon, RepeatIcon, InfoIcon } from '@chakra-ui/icons';
 import { capitalize } from '@/utils/textFormat';
 import {
   Badge,
@@ -12,14 +12,12 @@ import {
   CardBody,
   CardFooter,
   CardHeader,
-  Divider,
   Grid,
   GridItem,
   Heading,
   HStack,
   Icon,
   IconButton,
-  Button,
   Skeleton,
   SkeletonCircle,
   SkeletonText,
@@ -32,6 +30,15 @@ import {
   Fade,
   useToast,
   useDisclosure,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverBody,
+  Portal,
+  VStack,
+  Editable,
+  EditableInput,
+  EditablePreview,
 } from '@chakra-ui/react';
 import {
   closestCenter,
@@ -58,6 +65,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSocket } from '@/Hooks/Query/useSocket';
 import { getIconComponent } from '../CustomIcons';
 import Pagination from '../Pagination';
+import QuickAddPatientButton from '../DraggableCards/QuickAddPatientButton';
 import AddPatientButton from '../DraggableCards/AddPatientButton';
 import SearchBar, { SearchBarRef } from '../searchBar';
 import PendingDeclinedSearchBar, { PendingDeclinedSearchBarRef } from '../searchBar/PendingDeclinedSearchBar';
@@ -71,10 +79,11 @@ import { FaCommentSms } from 'react-icons/fa6';
 import { CiPhone } from 'react-icons/ci';
 import { RiParentFill } from 'react-icons/ri';
 import { getDisplaySlotRange, pickDisplaySlot } from "@/Functions/getLatestSelectedAppDate";
-import { getTreatment, getPriorityColor } from '@/Functions/extractSlotData';
-import { useCompleteAppointmentSlot } from '@/Hooks/Query/useCompleteAppointmentSlot';
+import { getTreatment, getPriorityColor, getPriority } from '@/Functions/extractSlotData';
 import { GoogleReviewButton } from '@/Components/GoogleReview/GoogleReviewButton';
 import { DateTime } from 'luxon';
+import { useMeta } from '@/Hooks/Query/useMeta';
+import { GrContactInfo } from "react-icons/gr";
 
 /* ───────────────────────────────────────────────────────────────
    Helpers de estilo premium
@@ -266,16 +275,14 @@ const AppointmentCard: React.FC<{
   statusOverride?: string;   // permite forzar el status mostrado (p.ej., columnas Pending/Declined)
   inlineUndo?: boolean;      // muestra botón de deshacer dentro de la card movida
   onUndo?: () => void;       // callback para deshacer
-}> = ({ item, priorityColor = 'gray', onCardClick, asOverlay, statusOverride, inlineUndo, onUndo }) => {
+  onArchiveSuccess?: (itemId: string) => void; // callback cuando se archiva exitosamente
+}> = ({ item, priorityColor = 'gray', onCardClick, asOverlay, statusOverride, inlineUndo, onUndo, onArchiveSuccess }) => {
   const hasRep = Boolean((item as any).representative?.appointment);
   const rep = hasRep && typeof (item as any).representative.appointment === 'object'
     ? (item as any).representative.appointment as RepAppointmentLite
     : null;
   const { isOpen: isRepOpen, onOpen: onRepOpen, onClose: onRepClose } = useDisclosure();
   const { isOpen: isSelfOpen, onOpen: onSelfOpen, onClose: onSelfClose } = useDisclosure();
-  
-  // ✅ Hook para completar slot
-  const { mutate: completeSlot, isPending: isCompleting } = useCompleteAppointmentSlot();
 
   // ✅ Extraer datos del slot relevante usando helpers
   const treatment = getTreatment(item);
@@ -283,33 +290,14 @@ const AppointmentCard: React.FC<{
   
   // ✅ Obtener slot actual (el primero en selectedAppDates)
   const currentSlot = item.selectedAppDates?.[0];
-  const slotStatus = statusOverride ?? currentSlot?.status;
-  const slotId = currentSlot?._id;
   
   // ✅ Verificar si la fecha del appointment ya pasó
   const appointmentDate = currentSlot?.startDate ? DateTime.fromISO(currentSlot.startDate as any) : null;
   const now = DateTime.now();
   const isPastAppointment = appointmentDate ? appointmentDate < now : false;
   
-  // ✅ Mostrar botón de completar solo si:
-  // - La fecha ya pasó
-  // - El status no es "Complete"
-  // - No estamos en overlay mode
-  const normalizedStatus = slotStatus?.toLowerCase();
-  const showCompleteButton = !asOverlay && isPastAppointment && normalizedStatus !== 'complete';
-  
-  // ✅ Mostrar botón de review SIEMPRE si el status es "Complete" (sin importar la fecha)
-  const showReviewButton = !asOverlay && normalizedStatus === 'complete';
-
-  const handleComplete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!slotId) return;
-    
-    completeSlot({
-      appointmentId: String(item._id),
-      slotId: String(slotId),
-    });
-  };
+  // ✅ Mostrar botón de review cuando la fecha ya pasó
+  const showReviewButton = !asOverlay && isPastAppointment;
 
   return (
     <Box
@@ -320,15 +308,16 @@ const AppointmentCard: React.FC<{
         msUserSelect: 'none',      // IE/Edge viejo
         WebkitTouchCallout: 'none' // evita menú de selección en iOS
       }}
-      p={4}
-      my={2}
-      borderRadius="2xl"
+      px={2}
+      py={2}
+      my={1}
+      borderRadius="lg"
       border="1px solid"
       borderColor="gray.100"
-      borderLeftWidth="4px"
+      borderLeftWidth="3px"
       borderLeftColor={`${effectivePriorityColor}.300`}
       bg="white"
-      boxShadow="xs"
+      boxShadow="sm"
       minW="260px"
       maxW="100%"
       w="100%"
@@ -344,23 +333,171 @@ const AppointmentCard: React.FC<{
       // para overlay: impedir interacción pero mantener el look
       pointerEvents={asOverlay ? 'none' : 'auto'}
     >
-      {!asOverlay && (
-        <Box
-          position="absolute"
-          bottom="0"
-          right="2"
-          zIndex={3}
-          onClick={(e: React.MouseEvent) => e.stopPropagation()}
-          onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
-        >
-          <HStack spacing={2} align="center">
+      {/* Nombre del paciente con icono de detalles y botones */}
+      <HStack justify="space-between" align="flex-start" mb={1} spacing={2}>
+        <HStack spacing={2} flex={1} minW={0}>
+          {/* Color dot indicator */}
+          {(item as any).color && (
+            <Box
+              w="8px"
+              h="8px"
+              borderRadius="full"
+              bg={(item as any).color}
+              flexShrink={0}
+              boxShadow="sm"
+            />
+          )}
+          <Text fontWeight="semibold" fontSize="sm" noOfLines={1} flex={1}>
+            {cap(item.nameInput)} {cap(item.lastNameInput)}
+          </Text>
+          
+          {/* Icono compacto con popover de detalles */}
+          {!asOverlay && (
+            <Popover trigger="hover" placement="bottom-start" openDelay={200}>
+              <PopoverTrigger>
+                <Box
+                  as="button"
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                  aria-label="View details"
+                  flexShrink={0}
+                >
+                  <IconButton
+                    icon={<GrContactInfo />}
+                    color="blue.400"
+                    variant="ghost"
+                    size="sm"
+                    cursor="pointer"
+                    _hover={{ color: 'blue.600' }} 
+                    aria-label={""}                  />
+                </Box>
+              </PopoverTrigger>
+              <Portal>
+                <PopoverContent 
+                  width="auto" 
+                  maxW="300px"
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                  onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
+                  zIndex={9999}
+                  boxShadow="xl"
+                  borderRadius="xl"
+                  border="1px solid"
+                  borderColor="gray.200"
+                  bg="white"
+                >
+                  <PopoverBody p={4}>
+                    <VStack align="stretch" spacing={3}>
+                      {/* Treatment */}
+                      <Box>
+                        <Text fontSize="xs" color="gray.500" fontWeight="semibold" mb={2} textTransform="uppercase" letterSpacing="wider">
+                          Treatment
+                        </Text>
+                        <HStack spacing={2} p={2} bg="gray.50" borderRadius="md">
+                          {treatment ? (
+                            <>
+                              {(() => {
+                                const key = treatment.minIcon;
+                                const Comp = getIconComponent(key) || getIconComponent('md:MdHealthAndSafety');
+                                return (
+                                  <Icon as={Comp} color={treatment.color} fontSize="18px" />
+                                );
+                              })()}
+                              <Text fontSize="sm" color="gray.700" fontWeight="medium">{treatment.name}</Text>
+                            </>
+                          ) : (
+                            <Text fontSize="sm" color="gray.400" fontStyle="italic">No treatment assigned</Text>
+                          )}
+                        </HStack>
+                      </Box>
+
+                      {/* Date */}
+                      <Box>
+                        <HStack spacing={2} mb={2}>
+                          <Icon as={TimeIcon} color="blue.500" fontSize="14px" />
+                          <Text fontSize="xs" color="gray.500" fontWeight="semibold" textTransform="uppercase" letterSpacing="wider">
+                            Appointment Date
+                          </Text>
+                        </HStack>
+                        <Text fontSize="sm" color="gray.700" fontWeight="medium" pl={6}>
+                          {(() => {
+                            const rPending = getPendingSlotRange(item.selectedAppDates);
+                            const r = rPending ?? getDisplaySlotRange(item.selectedAppDates);
+                            return r ? formatDateWS({ startDate: r.start, endDate: r.end }) : '—';
+                          })()}
+                        </Text>
+                      </Box>
+                      
+                      {/* Status */}
+                      <HStack spacing={3} justify="space-between" p={2} bg="gray.50" borderRadius="md">
+                        <Text fontSize="xs" color="gray.500" fontWeight="semibold" textTransform="uppercase" letterSpacing="wider">Status</Text>
+                        <StatusPill status={statusOverride ?? pickDisplaySlot(item.selectedAppDates)?.status} />
+                      </HStack>
+                      
+                      {/* Contact Preference */}
+                      {item.contactPreference && (
+                        <HStack spacing={3} justify="space-between" p={2} bg="gray.50" borderRadius="md">
+                          <Text fontSize="xs" color="gray.500" fontWeight="semibold" textTransform="uppercase" letterSpacing="wider">Preference</Text>
+                          <PrefBadge pref={item.contactPreference as any} />
+                        </HStack>
+                      )}
+
+                      {/* Action Buttons */}
+                      <Box pt={2} borderTop="2px solid" borderColor="gray.100">
+                        <Text fontSize="xs" color="gray.500" fontWeight="semibold" mb={3} textTransform="uppercase" letterSpacing="wider">
+                          Quick Actions
+                        </Text>
+                        <HStack spacing={2}>
+                          <ChatLauncher
+                            item={item}
+                            tooltip="Open chat"
+                            stopPropagation
+                            buildContact={buildContactFromAppointment}
+                            trigger={
+                              <IconButton
+                                aria-label="Open chat"
+                                icon={<FaCommentSms size={18} />}
+                                size="md"
+                                variant="solid"
+                                colorScheme="green"
+                                flex={1}
+                                _hover={{ transform: 'translateY(-2px)', boxShadow: 'md' }}
+                                transition="all 0.2s"
+                              />
+                            }
+                          />
+                          {showReviewButton && (
+                            <Box flex={1}>
+                              <GoogleReviewButton
+                                appointmentId={String(item._id)}
+                                variant="button"
+                                size="md"
+                              />
+                            </Box>
+                          )}
+                        </HStack>
+                      </Box>
+                    </VStack>
+                  </PopoverBody>
+                </PopoverContent>
+              </Portal>
+            </Popover>
+          )}
+        </HStack>
+
+        {/* Botones de acción en la esquina superior derecha */}
+        {!asOverlay && (
+          <HStack 
+            spacing={1} 
+            flexShrink={0}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
+          >
             {inlineUndo && (
               <Fade in>
                 <Tooltip label="Undo" placement="top" hasArrow>
                   <IconButton
                     aria-label="Undo move"
                     icon={<RepeatIcon />}
-                    size="sm"
+                    size="xs"
                     colorScheme="blue"
                     variant="ghost"
                     onClick={() => onUndo?.()}
@@ -368,132 +505,40 @@ const AppointmentCard: React.FC<{
                 </Tooltip>
               </Fade>
             )}
-            <ArchiveItemButton id={item._id} modelName="Appointment" />
-          </HStack>
-        </Box>
-      )}
-
-      {/* Cabecera: Fecha + Estado + Preferencia */}
-      <HStack justify="space-between" align="center" mb={2}>
-        <HStack color="gray.600">
-          {/* ✅ Usar treatment extraído del slot */}
-          {treatment ? (
-            <Tooltip label={treatment.name} placement="top" fontSize="sm" hasArrow>
-              {(() => {
-                const key = treatment.minIcon;
-                const Comp = getIconComponent(key) || getIconComponent('md:MdHealthAndSafety');
-                if (!Comp && process.env.NODE_ENV !== 'production') {
-                  // eslint-disable-next-line no-console
-                  console.warn('[icons] DraggableCards unresolved key:', key, 'for', treatment.name);
-                }
-                return (
-                  <Icon as={Comp} color={treatment.color} fontSize="22px" />
-                );
-              })()}
-            </Tooltip>
-          ) : (
-            <Tooltip label="No treatment assigned" placement="top" fontSize="sm" hasArrow>
-              <Icon as={getIconComponent('md:MdHealthAndSafety')} color="gray.400" fontSize="22px" />
-            </Tooltip>
-          )}
-        </HStack>
-
-        <HStack gap={2}>
-          <Tooltip label={`Appointment Date: ${(() => { 
-            // Prefer the PENDING slot's date if available; otherwise use the current display logic
-            const rPending = getPendingSlotRange(item.selectedAppDates);
-            const r = rPending ?? getDisplaySlotRange(item.selectedAppDates);
-            return (r ? formatDateWS({ startDate: r.start, endDate: r.end }) : '—');
-          })()}`} placement="top" hasArrow>
-            <Icon as={TimeIcon} />
-          </Tooltip>
-          <StatusPill status={statusOverride ?? pickDisplaySlot(item.selectedAppDates)?.status} />
-          <PrefBadge pref={item.contactPreference as any} />
-          {!asOverlay && showReviewButton && (
-            <GoogleReviewButton
-              appointmentId={String(item._id)}
-              variant="icon"
-              size="sm"
+            <ArchiveItemButton 
+              id={item._id} 
+              modelName="Appointment" 
+              onSuccess={onArchiveSuccess}
             />
-          )}
-          {!asOverlay && (
-            <ChatLauncher
-              item={item}
-              tooltip="Open chat"
-              stopPropagation
-              buildContact={buildContactFromAppointment}
-              trigger={
-                <IconButton
-                  aria-label="Open chat"
-                  icon={<FaCommentSms size={18} color="var(--chakra-colors-green-500)" />}
-                  size="sm"
-                  variant="ghost"
-                  _hover={{ bg: 'green.50' }}
-                />
-              }
-            />
-          )}
-        </HStack>
-      </HStack>
-
-      {/* Nombre + Tratamiento + Chat */}
-      <HStack align="center" justify="space-between" mb={2}>
-        <HStack gap={2} minW={0}>
-          <Text fontWeight="semibold" noOfLines={1}>
-            {cap(item.nameInput)} {cap(item.lastNameInput)}
-          </Text>
-        </HStack>
-      </HStack>
-      
-      <Divider my={2} />
-
-      {/* ✅ Botón de acción: Complete */}
-      {showCompleteButton && (
-        <Box mb={3}>
-          <Tooltip label="Mark as completed" placement="top" hasArrow>
-            <Button
-              size="sm"
-              colorScheme="green"
-              variant="outline"
-              leftIcon={<CheckIcon />}
-              onClick={handleComplete}
-              isLoading={isCompleting}
-              loadingText="Completing..."
-              width="full"
-            >
-              Complete
-            </Button>
-          </Tooltip>
-        </Box>
-      )}
-
-      {/* Teléfono (paciente o representante) */}
-      <HStack color="gray.600" spacing={3}>
-        <Icon as={PhoneIcon} color="green.500" />
-        {hasRep && rep ? (
-          <HStack spacing={2} wrap="wrap">
-            <Tooltip
-              label={`Represented by ${rep.nameInput ?? ''} ${rep.lastNameInput ?? ''} (${(item as any).representative.relationship})`}
-              fontSize="sm"
-              hasArrow
-              placement="top"
-            >
-              <Box
-                as="button"
-                onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRepOpen(); }}
-                aria-label="Open representative"
-              >
-                <Box as={RiParentFill} color="purple.500" />
-              </Box>
-            </Tooltip>
-            <Text fontWeight="medium">
-              {formatAusPhoneNumber(rep.phoneInput || '')}
-            </Text>
           </HStack>
-        ) : (
-          <Text fontWeight="medium">{formatAusPhoneNumber(item.phoneInput || '')}</Text>
         )}
       </HStack>
+
+      {/* Representative indicator (if exists) */}
+      {hasRep && rep && (
+        <HStack color="gray.600" spacing={1} mt={1}>
+          <Tooltip
+            label={`Represented by ${rep.nameInput ?? ''} ${rep.lastNameInput ?? ''} (${(item as any).representative.relationship})`}
+            fontSize="sm"
+            hasArrow
+            placement="top"
+          >
+            <Box
+              as="button"
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRepOpen(); }}
+              aria-label="Open representative"
+              display="flex"
+              alignItems="center"
+              gap={2}
+            >
+              <Icon as={RiParentFill} color="purple.500" fontSize="14px" />
+              <Text fontSize="xs" color="purple.600" fontWeight="medium">
+                Has representative
+              </Text>
+            </Box>
+          </Tooltip>
+        </HStack>
+      )}
 
       {/* Nested patient modal (fallback when no onCardClick is provided) */}
       {!onCardClick && (
@@ -687,19 +732,28 @@ function moveItem(
   const destCol = newData.find(col => col._id === toColumnId);
   if (!sourceCol || !destCol) return data;
 
-  // ✅ itemId ahora es "appointmentId|slotId"
-  const [appointmentId, slotId] = itemId.split('|');
-  const item = sourceCol.patients.find(p => 
-    p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId
-  );
+  // ✅ itemId puede ser "appointmentId|slotId" o solo "appointmentId"
+  const parts = itemId.split('|');
+  const appointmentId = parts[0];
+  const slotId = parts[1]; // puede ser undefined
+  
+  const item = sourceCol.patients.find(p => {
+    if (slotId) {
+      return p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId;
+    }
+    return p._id === appointmentId;
+  });
   if (!item) return data;
 
   if (fromColumnId === toColumnId) {
     // Movimiento dentro de la misma columna
     const newPatients = [...sourceCol.patients];
-    const oldIndex = newPatients.findIndex(p => 
-      p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId
-    );
+    const oldIndex = newPatients.findIndex(p => {
+      if (slotId) {
+        return p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId;
+      }
+      return p._id === appointmentId;
+    });
     if (oldIndex === -1) return data;
 
     // Remover el elemento
@@ -722,9 +776,12 @@ function moveItem(
     });
   } else {
     // Movimiento entre columnas: respetar siempre el índice destino tal cual
-    sourceCol.patients = sourceCol.patients.filter(p => 
-      !(p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId)
-    );
+    sourceCol.patients = sourceCol.patients.filter(p => {
+      if (slotId) {
+        return !(p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId);
+      }
+      return p._id !== appointmentId;
+    });
     const newPatients = [...destCol.patients];
     newPatients.splice(toIndex, 0, item);
     
@@ -781,6 +838,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const [columnPages, setColumnPages] = useState<Record<string, number>>({});
   const queryClient = useQueryClient();
   const [lastColPainted, setLastColPainted] = useState(false);
+  
+  // Get updatePriority from useMeta hook
+  const { updatePriority } = useMeta();
   // ───────── Undo stack (multi-level) ─────────
   const historyRef = useRef<GroupedAppointment[][]>([]);
   const MAX_HISTORY = 10;
@@ -813,12 +873,16 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       col.patients.forEach((p, i) => {
         // ✅ Extraer slotId del primer slot
         const slotId = p.selectedAppDates?.[0]?._id;
-        moves.push({ 
+        const move: PriorityMove = { 
           id: p._id, 
           position: i, 
-          priority: col._id ?? undefined,
-          slotId: slotId || undefined
-        });
+          priority: col._id ?? undefined
+        };
+        // ✅ Solo agregar slotId si existe y es válido
+        if (slotId) {
+          move.slotId = slotId;
+        }
+        moves.push(move);
       });
     });
     return moves;
@@ -860,6 +924,129 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       if (undoHideTimeoutRef.current) window.clearTimeout(undoHideTimeoutRef.current);
     };
   }, []);
+
+  // ✅ Callback para actualizar solo la columna específica al archivar
+  const handleArchiveSuccess = useCallback((itemId: string) => {
+    if (!optimisticData) return;
+
+    // Encontrar la columna que contenía el item archivado
+    let affectedColId: string | undefined;
+    const updatedData = optimisticData.map(col => {
+      const hasItem = col.patients.some(p => p._id === itemId);
+      
+      if (hasItem) {
+        affectedColId = col._id ?? undefined;
+        // Filtrar el item archivado y reindexar las posiciones
+        const remainingPatients = col.patients
+          .filter(p => p._id !== itemId)
+          .map((p, idx) => {
+            const updatedPatient = { ...p };
+            if (updatedPatient.selectedAppDates?.[0]) {
+              updatedPatient.selectedAppDates = [{
+                ...updatedPatient.selectedAppDates[0],
+                position: idx
+              }] as any;
+            }
+            return updatedPatient;
+          });
+        
+        return {
+          ...col,
+          patients: remainingPatients
+        };
+      }
+      
+      return col;
+    });
+
+    // Actualizar estado optimista
+    setOptimisticData(updatedData);
+    queryClient.setQueryData(['DraggableCards'], updatedData);
+
+    // ✅ Enviar actualización de posiciones al backend solo para la columna afectada
+    if (affectedColId) {
+      const affectedCol = updatedData.find(col => col._id === affectedColId);
+      if (affectedCol) {
+        const moves: PriorityMove[] = [];
+        
+        affectedCol.patients.forEach((p, i) => {
+          // ✅ Validar que el appointment tenga _id válido
+          if (!p._id) {
+            console.warn('⚠️ [handleArchiveSuccess] Skipping patient without _id:', p);
+            return;
+          }
+          
+          const slotId = p.selectedAppDates?.[0]?._id;
+          const move: PriorityMove = { 
+            id: p._id, 
+            position: i, 
+            priority: affectedCol._id ?? undefined
+          };
+          
+          // ✅ Solo agregar slotId si existe y es válido
+          if (slotId) {
+            move.slotId = slotId;
+          }
+          
+          moves.push(move);
+        });
+
+        // Enviar actualización al backend solo si hay moves válidos
+        if (moves.length > 0) {
+          moveMutate(moves, {
+            onError: (error: any) => {
+              console.error('❌ Archive reindex error:', error);
+              console.error('❌ Archive reindex error response:', error?.response?.data);
+              // Revertir cambios en caso de error
+              queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+            }
+          });
+        }
+      }
+    }
+
+    // Invalidar queries de columna archived para refrescar con el nuevo item
+    queryClient.invalidateQueries({ queryKey: ['archived-appointments'] });
+  }, [optimisticData, queryClient, moveMutate]);
+
+  // ✅ Callback para actualizar queries al restaurar un item archivado
+  const handleUnarchiveSuccess = useCallback((itemId: string) => {
+    // Encontrar el item en dataArchived para obtener su prioridad del slot
+    const archivedItem = dataArchived?.find(item => item._id === itemId);
+    
+    // Cancelar queries de archived appointments para remover el item inmediatamente
+    queryClient.cancelQueries({ queryKey: ['archived-appointments'] });
+    
+    // Cancelar queries del board (DraggableCards) para refrescar con el item restaurado
+    queryClient.cancelQueries({ 
+      predicate: (q) => {
+        const key = q.queryKey as any[];
+        return key[0] === 'DraggableCards';
+      }
+    });
+    
+    // Si encontramos el item y tiene prioridad en el slot, también cancelar/invalidar esa columna específica
+    if (archivedItem) {
+      // ✅ Usar getPriority para obtener la prioridad del SLOT, no del root
+      const priorityFromSlot = getPriority(archivedItem);
+      
+      if (priorityFromSlot?._id) {
+        // Cancelar queries específicas de la prioridad para refresh inmediato
+        queryClient.cancelQueries({
+          predicate: (q) => {
+            const key = q.queryKey as any[];
+            // Cancelar queries que puedan estar relacionadas con esta prioridad
+            return key[0] === 'DraggableCards' || 
+                   (Array.isArray(key) && key.includes(priorityFromSlot._id));
+          }
+        });
+      }
+    }
+    
+    // Invalidar ambas queries para refrescar
+    queryClient.invalidateQueries({ queryKey: ['archived-appointments'] });
+    queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+  }, [dataArchived, queryClient]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const { socket, connected } = useSocket();
@@ -920,15 +1107,27 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const id = event.active.id as string;
     if (!dataAP2) return;
-    // ✅ id es "appointmentId|slotId"
-    const [appointmentId, slotId] = id.split('|');
-    const item = dataAP2.flatMap(col => col.patients).find(p => 
-      p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId
-    ) ?? null;
+    
+    // ✅ id puede ser "appointmentId|slotId" o solo "appointmentId"
+    const parts = id.split('|');
+    const appointmentId = parts[0];
+    const slotId = parts[1]; // puede ser undefined
+    
+    const item = dataAP2.flatMap(col => col.patients).find(p => {
+      if (slotId) {
+        return p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId;
+      }
+      return p._id === appointmentId;
+    }) ?? null;
+    
     setActiveItem(item);
-    const originCol = dataAP2.find(col => col.patients.some(p => 
-      p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId
-    ));
+    
+    const originCol = dataAP2.find(col => col.patients.some(p => {
+      if (slotId) {
+        return p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId;
+      }
+      return p._id === appointmentId;
+    }));
     setSourceCol(originCol);
     
     // ✅ Si no hay originCol (arrastrando desde Pending/Declined), extraer color del slot
@@ -949,13 +1148,18 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     const activeId = active.id as string;
     const overId = over.id as string;
     
-    // ✅ Manejar overId que puede ser "appointmentId|slotId" o "placeholder-{colId}"
-    const [overAppointmentId, overSlotId] = overId.includes('|') ? overId.split('|') : [null, null];
+    // ✅ Manejar overId que puede ser "appointmentId|slotId", "appointmentId" o "placeholder-{colId}"
+    const overParts = overId.includes('|') ? overId.split('|') : [overId];
+    const overAppointmentId = overParts[0]?.startsWith('placeholder-') ? null : overParts[0];
+    const overSlotId = overParts[1]; // puede ser undefined
     
     const destinationCol = overAppointmentId
-      ? optimisticData.find(col => col.patients.some(p => 
-          p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId
-        ))
+      ? optimisticData.find(col => col.patients.some(p => {
+          if (overSlotId) {
+            return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
+          }
+          return p._id === overAppointmentId;
+        }))
       : optimisticData.find(col => `placeholder-${col._id}` === overId);
 
     if (!destinationCol) {
@@ -972,14 +1176,24 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     
     if (fromColumnId === toColumnId) {
       // Movimiento dentro de la misma columna
-      const [activeAppId, activeSlotId] = activeId.split('|');
-      const oldIndex = destinationCol.patients.findIndex(p => 
-        p._id === activeAppId && p.selectedAppDates?.[0]?._id === activeSlotId
-      );
+      const activeParts = activeId.split('|');
+      const activeAppId = activeParts[0];
+      const activeSlotId = activeParts[1]; // puede ser undefined
+      
+      const oldIndex = destinationCol.patients.findIndex(p => {
+        if (activeSlotId) {
+          return p._id === activeAppId && p.selectedAppDates?.[0]?._id === activeSlotId;
+        }
+        return p._id === activeAppId;
+      });
+      
       const overIndex = overAppointmentId
-        ? destinationCol.patients.findIndex(p => 
-            p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId
-          )
+        ? destinationCol.patients.findIndex(p => {
+            if (overSlotId) {
+              return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
+            }
+            return p._id === overAppointmentId;
+          })
         : -1;
       
       if (overIndex === -1) {
@@ -994,9 +1208,12 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     } else {
       // Movimiento entre columnas: insertar antes del elemento over
       const overIndex = overAppointmentId
-        ? destinationCol.patients.findIndex(p => 
-            p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId
-          )
+        ? destinationCol.patients.findIndex(p => {
+            if (overSlotId) {
+              return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
+            }
+            return p._id === overAppointmentId;
+          })
         : -1;
       index = overIndex === -1 ? destinationCol.patients.length : overIndex;
     }
@@ -1016,26 +1233,46 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     const moves: PriorityMove[] = [];
     if (updatedSource) {
       updatedSource.patients.forEach((p, i) => {
+        // ✅ Validar que el appointment tenga _id válido
+        if (!p._id) {
+          console.warn('⚠️ [DraggableCards] Skipping patient without _id:', p);
+          return;
+        }
+        
         // ✅ Extraer slotId del primer slot (cada card tiene 1 slot)
         const slotId = p.selectedAppDates?.[0]?._id;
-        moves.push({ 
+        const move: PriorityMove = { 
           id: p._id, 
           position: i, 
-          priority: updatedSource._id ?? undefined,
-          slotId: slotId || undefined
-        });
+          priority: updatedSource._id ?? undefined
+        };
+        // ✅ Solo agregar slotId si existe y es válido
+        if (slotId) {
+          move.slotId = slotId;
+        }
+        moves.push(move);
       });
     }
     if (updatedDest && updatedDest._id !== fromColumnId) {
       updatedDest.patients.forEach((p, i) => {
+        // ✅ Validar que el appointment tenga _id válido
+        if (!p._id) {
+          console.warn('⚠️ [DraggableCards] Skipping patient without _id:', p);
+          return;
+        }
+        
         // ✅ Extraer slotId del primer slot (cada card tiene 1 slot)
         const slotId = p.selectedAppDates?.[0]?._id;
-        moves.push({ 
+        const move: PriorityMove = { 
           id: p._id, 
           position: i, 
-          priority: updatedDest._id ?? undefined,
-          slotId: slotId || undefined
-        });
+          priority: updatedDest._id ?? undefined
+        };
+        // ✅ Solo agregar slotId si existe y es válido
+        if (slotId) {
+          move.slotId = slotId;
+        }
+        moves.push(move);
       });
     }
 
@@ -1066,10 +1303,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         setActiveItem(null);
       },
       onError: (error: any) => {
-        console.error('❌ Move error:', error);
         toast({
           title: 'Error al mover cita',
-          description: error?.message || 'No se pudo guardar el reordenamiento.',
+          description: error?.response?.data?.error || error?.message || 'No se pudo guardar el reordenamiento.',
           status: 'error',
           duration: 2500,
           isClosable: true,
@@ -1183,16 +1419,19 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
         
         console.log(`   → After filter: ${sorted.length} patients`);
 
-        const perPage = 5;
+        const perPage = 20;
         const colCurrentPage = columnPages[col._id || ''] || 1;
         const colTotalPages = Math.ceil(sorted.length / perPage);
         const startIndex = (colCurrentPage - 1) * perPage;
         const endIndex = startIndex + perPage;
         const paginatedPatients = sorted.slice(startIndex, endIndex);
 
-        // ✅ ID único: appointmentId|slotId
+        // ✅ ID único: appointmentId|slotId (solo si slotId existe)
         const items = paginatedPatients.length > 0 
-          ? paginatedPatients.map(d => `${d._id}|${d.selectedAppDates?.[0]?._id || ''}`)
+          ? paginatedPatients.map(d => {
+              const slotId = d.selectedAppDates?.[0]?._id;
+              return slotId ? `${d._id}|${slotId}` : d._id;
+            })
           : [`placeholder-${col._id}`];
 
         const isLast = idx === (optimisticData?.length ?? 1) - 1;
@@ -1240,21 +1479,62 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                 </Box>
               )}
 
-              <CardHeader pb={0}>
+              <CardHeader pb={0} pt={2}>
                 <HStack
-                  mb={2}
+                  mb={1}
                   bg={`${col.priorityColor}.50`}
                   border="1px solid"
                   borderColor={`${col.priorityColor}.100`}
-                  px={3}
-                  py={2}
+                  px={2}
+                  py={1}
                   borderRadius="full"
                   width="fit-content"
                   boxShadow="xs"
                   gap={2}
                 >
-                  <Box w="10px" h="10px" borderRadius="full" bg={`${col.priorityColor}.400`} />
-                  <Heading size="sm">{col.priorityName}</Heading>
+                  <Box w="8px" h="8px" borderRadius="full" bg={`${col.priorityColor}.400`} />
+                  <Editable
+                    defaultValue={col.priorityName}
+                    fontSize="sm"
+                    fontWeight="semibold"
+                    onSubmit={async (newName) => {
+                      if (newName.trim() && newName !== col.priorityName) {
+                        try {
+                          await updatePriority({
+                            id: col._id || '',
+                            payload: { name: newName.trim() }
+                          });
+                          queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+                          toast({
+                            title: 'Priority updated',
+                            status: 'success',
+                            duration: 2000,
+                          });
+                        } catch (error) {
+                          toast({
+                            title: 'Error updating priority',
+                            description: (error as Error).message,
+                            status: 'error',
+                            duration: 3000,
+                          });
+                        }
+                      }
+                    }}
+                  >
+                    <EditablePreview 
+                      cursor="pointer"
+                      _hover={{ bg: `${col.priorityColor}.100` }}
+                      px={1}
+                      py={0.5}
+                      borderRadius="md"
+                    />
+                    <EditableInput 
+                      px={1}
+                      py={0.5}
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                      onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
+                    />
+                  </Editable>
                 </HStack>
               </CardHeader>
 
@@ -1276,8 +1556,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   <SortableContext items={items} strategy={verticalListSortingStrategy}>
                     {paginatedPatients.length > 0 ? (
                       paginatedPatients.map((item) => {
-                        // ✅ ID único: appointmentId|slotId
-                        const uniqueId = `${item._id}|${item.selectedAppDates?.[0]?._id || ''}`;
+                        // ✅ ID único: appointmentId|slotId (solo si slotId existe)
+                        const slotId = item.selectedAppDates?.[0]?._id;
+                        const uniqueId = slotId ? `${item._id}|${slotId}` : item._id;
                         return (
                           <SortableItem key={uniqueId} id={uniqueId}>
                             <AppointmentCard
@@ -1286,6 +1567,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                               onCardClick={onCardClick}
                               inlineUndo={showUndo && historyRef.current.length > 0 && uniqueId === lastMovedId}
                               onUndo={handleUndo}
+                              onArchiveSuccess={handleArchiveSuccess}
                             />
                           </SortableItem>
                         );
@@ -1310,15 +1592,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                 )}
               </CardBody>
 
-              <Box pr={4} pt={1} bg="transparent" zIndex={1}>
-                {isPlaceholderData ? (
-                  <Skeleton height="36px" width="160px" borderRadius="md" />
-                ) : (
-                  <AddPatientButton key={col._id} priority={col.priority} formProps={{ typeButonVisible: false }} modalSize="6xl"/>
-                )}
-              </Box>
-
-              <CardFooter minH="50px" maxH="56px" p={3}>
+              <CardFooter minH="50px" p={3} display="flex" flexDirection="column" gap={2}>
                 {isPlaceholderData ? (
                   <HStack w="full" justify="center">
                     <Skeleton height="32px" width="80px" />
@@ -1326,12 +1600,27 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     <Skeleton height="32px" width="80px" />
                   </HStack>
                 ) : (
-                  <Pagination
-                    isPlaceholderData={isPlaceholderData}
-                    totalPages={colTotalPages}
-                    currentPage={colCurrentPage}
-                    onPageChange={(page) => handlePageChange(col._id || '', page)}
-                  />
+                  <>
+                    {colTotalPages > 1 && (
+                      <Pagination
+                        isPlaceholderData={isPlaceholderData}
+                        totalPages={colTotalPages}
+                        currentPage={colCurrentPage}
+                        onPageChange={(page) => handlePageChange(col._id || '', page)}
+                      />
+                    )}
+                    <Box w="full" pr={1}>
+                      <QuickAddPatientButton 
+                        key={col._id}
+                        priorityId={col._id || ''}
+                        priorityName={col.priorityName || ''}
+                        priorityColor={col.priorityColor}
+                        onSuccess={() => {
+                          queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+                        }}
+                      />
+                    </Box>
+                  </>
                 )}
               </CardFooter>
             </Card>
@@ -1387,21 +1676,21 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               </Box>
             )}
 
-            <CardHeader pb={0}>
+            <CardHeader pb={0} pt={2}>
               <HStack
-                mb={2}
+                mb={1}
                 bg="red.50"
                 border="1px solid"
                 borderColor="red.100"
-                px={3}
-                py={2}
+                px={2}
+                py={1}
                 borderRadius="full"
                 width="fit-content"
                 boxShadow="xs"
                 gap={2}
               >
-                <Box w="10px" h="10px" borderRadius="full" bg="red.400" />
-                <Heading size="sm">Contacts</Heading>
+                <Box w="8px" h="8px" borderRadius="full" bg="red.400" />
+                <Heading size="xs">Contacts</Heading>
               </HStack>
             </CardHeader>
 
@@ -1478,15 +1767,15 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               )}
             </CardBody>
 
-            <Box pr={4} pt={1} bg="transparent" zIndex={1}>
+            <CardFooter minH="50px" maxH="56px" p={3}>
               {isPlaceholderData ? (
                 <Skeleton height="36px" width="160px" borderRadius="md" />
               ) : (
-                <AddPatientButton onlyPatient={true} label="New Contact" formProps={{ typeButonVisible: false }} />
+                <Box w="full" pr={1}>
+                  <AddPatientButton onlyPatient={true} label="New Contact" formProps={{ typeButonVisible: false }} />
+                </Box>
               )}
-            </Box>
-
-            <CardFooter minH="50px" maxH="56px" />
+            </CardFooter>
           </Card>
         </Fade>
       )}
@@ -1538,21 +1827,21 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               </Box>
             )}
 
-            <CardHeader pb={0}>
+            <CardHeader pb={0} pt={2}>
               <HStack
-                mb={2}
+                mb={1}
                 bg="green.50"
                 border="1px solid"
                 borderColor="green.100"
-                px={3}
-                py={2}
+                px={2}
+                py={1}
                 borderRadius="full"
                 width="fit-content"
                 boxShadow="xs"
-                gap={3}
+                gap={2}
               >
-                <Box w="10px" h="10px" borderRadius="full" bg="green.400" />
-                <Heading size="sm">Pending Approvals</Heading>
+                <Box w="8px" h="8px" borderRadius="full" bg="green.400" />
+                <Heading size="xs">Pending Approvals</Heading>
                 <Tooltip
                   label={`Not filtered by date range. Showing all pending (${(sourcePending).length}/${dataPending.length})`}
                   hasArrow
@@ -1575,7 +1864,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               {(sourcePending)
                 .map((item) => (
                   <Box key={`${item._id}-pending-card`} onClick={() => onCardClick?.(item)}>
-                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Pending" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} />
+                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Pending" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} onArchiveSuccess={handleArchiveSuccess} />
                   </Box>
                 ))}
             </CardBody>
@@ -1631,21 +1920,21 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               </Box>
             )}
 
-            <CardHeader pb={0}>
+            <CardHeader pb={0} pt={2}>
               <HStack
-                mb={2}
+                mb={1}
                 bg="red.50"
                 border="1px solid"
                 borderColor="red.100"
-                px={3}
-                py={2}
+                px={2}
+                py={1}
                 borderRadius="full"
                 width="fit-content"
                 boxShadow="xs"
-                gap={3}
+                gap={2}
               >
-                <Box w="10px" h="10px" borderRadius="full" bg="red.400" />
-                <Heading size="sm">Declined</Heading>
+                <Box w="8px" h="8px" borderRadius="full" bg="red.400" />
+                <Heading size="xs">Declined</Heading>
                 <Tooltip
                   label={`Not filtered by date range. Showing all declined (${(sourceDeclined).length}/${dataDeclined.length})`}
                   hasArrow
@@ -1668,7 +1957,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               {(sourceDeclined)
                 .map((item) => (
                   <Box key={`${item._id}-declined-card`} onClick={() => onCardClick?.(item)}>
-                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Declined" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} />
+                    <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Declined" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} onArchiveSuccess={handleArchiveSuccess} />
                   </Box>
                 ))}
             </CardBody>
@@ -1724,21 +2013,21 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               </Box>
             )}
 
-            <CardHeader pb={0}>
+            <CardHeader pb={0} pt={2}>
               <HStack
-                mb={2}
+                mb={1}
                 bg="gray.50"
                 border="1px solid"
                 borderColor="gray.100"
-                px={3}
-                py={2}
+                px={2}
+                py={1}
                 borderRadius="full"
                 width="fit-content"
                 boxShadow="xs"
                 gap={2}
               >
-                <Box w="10px" h="10px" borderRadius="full" bg="gray.400" />
-                <Heading size="sm">Archived</Heading>
+                <Box w="8px" h="8px" borderRadius="full" bg="gray.400" />
+                <Heading size="xs">Archived</Heading>
               </HStack>
             </CardHeader>
 
@@ -1770,7 +2059,11 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     <GridItem>
                       <HStack justify="space-between" align="center">
                         <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
-                        <UnarchiveItemButton id={item._id ?? ""} modelName="Appointment" />
+                        <UnarchiveItemButton 
+                          id={item._id ?? ""} 
+                          modelName="Appointment" 
+                          onSuccess={handleUnarchiveSuccess}
+                        />
                       </HStack>
                     </GridItem>
                     <GridItem mt={2}>

@@ -61,49 +61,95 @@ export type NavLink = {
 
 /** ÚNICA fuente de verdad para Header/Sidebar (con zonas) */
 export const navLinks: NavLink[] = [
-  // Home (protegida)
-  { key: "home", path: paths.root, label: "Home", icon: FiHome, show: ["header", "sidebar"], order: 10, requireAuth: true, headerZone: "main", sidebarZone: "main" },
 
-  // Appointments (grupo visible) + hijos en sidebar zona "main"
-  { key: "appointments", path: paths.appointments, label: "Appointments", icon: TbCalendarPlus, show: ["header", "sidebar"], order: 20, requireAuth: true, headerZone: "main", sidebarZone: "main" },
-  { key: "appointments.priorityList", 
-    path: paths.appointmentList, 
-    label: "Priority List", 
-    icon: TbSortAscendingSmallBig, 
-    show: ["sidebar"], 
-    order: 21, 
-    requireAuth: true, 
+
+
+  // Links de appointments en el orden solicitado
+  {
+    key: "appointments.priorityList",
+    path: paths.appointmentList,
+    label: "Priority List",
+    icon: TbSortAscendingSmallBig,
+    show: ["sidebar"],
+    order: 10,
+    requireAuth: true,
     sidebarZone: "main",
-    requireAnyPerms: ['appointment_cards:read'] 
+    requireAnyPerms: ['appointment_cards:read']
   },
 
-  { key: "appointments.manager", path: paths.appointmentManager, label: "Appointment Manager", icon: LuCalendarCog, show: ["sidebar"], order: 22, requireAuth: true, sidebarZone: "main" },
-  { key: "appointments.patientFinder", path: paths.patientFinder, label: "Patient Finder", icon: LuUserRoundSearch, show: ["sidebar"], order: 23, requireAuth: true, sidebarZone: "main" },
-  { key: "appointments.assigned", path: paths.assignedAppointments, label: "Assigned Appointments", icon: HiOutlineClipboardDocumentCheck, show: ["sidebar"], order: 24, requireAuth: true, sidebarZone: "main" },
+  // Appointments
+  {
+    key: "appointments",
+    path: paths.appointments,
+    label: "Appointments",
+    icon: TbCalendarPlus,
+    show: ["header", "sidebar"],
+    order: 15,
+    requireAuth: true,
+    headerZone: "main",
+    sidebarZone: "main"
+  },
 
-  // Messages / Organizer (privadas) → header "main", sidebar "main"
+  // Messages / Chat
   {
     key: "messages",
     path: paths.messages,
     label: "Messages",
     icon: MdTextsms,
     show: ["header", "sidebar"],
-    order: 30,
+    order: 20,
     requireAuth: true,
     headerZone: "main",
     sidebarZone: "main",
     requireAnyPerms: ['chat:read']
 
   },
-  { key: "organizer", 
-    path: paths.organizer, 
-    label: "Organizer", 
-    icon: FaRegCalendarCheck, 
-    show: ["header", "sidebar"], 
-    order: 40, requireAuth: true, 
-    headerZone: "main", 
-    sidebarZone: "main" ,
-  
+
+
+   { key: "appointments.patientFinder", 
+    path: paths.patientFinder, 
+    label: "Patient Finder", 
+    icon: LuUserRoundSearch, 
+    show: ["sidebar"], 
+    order: 30, 
+    requireAuth: true, 
+    sidebarZone: "main" },
+
+  {
+    key: "appointments.manager",
+    path: paths.appointmentManager,
+    label: "Appointment Manager",
+    icon: LuCalendarCog,
+    show: ["sidebar"],
+    order: 40,
+    requireAuth: true,
+    sidebarZone: "main"
+  },
+
+  { key: "appointments.assigned", path: paths.assignedAppointments, label: "Assigned Appointments", icon: HiOutlineClipboardDocumentCheck, show: ["sidebar"], order: 50, requireAuth: true, sidebarZone: "main" },
+
+  // Home (protegida)
+  {
+    key: "home",
+    path: paths.root,
+    label: "Home", icon: FiHome,
+    show: ["header", "sidebar"],
+    order: 60,
+    requireAuth: true,
+    headerZone: "main",
+    sidebarZone: "main"
+  },
+
+  {
+    key: "organizer",
+    path: paths.organizer,
+    label: "Organizer",
+    icon: FaRegCalendarCheck,
+    show: ["header", "sidebar"],
+    order: 70, requireAuth: true,
+    headerZone: "main",
+    sidebarZone: "main",
+
   },
 
   // Chat Health (movido arriba de Reports)
@@ -133,7 +179,7 @@ export const navLinks: NavLink[] = [
   },
 
   // Admin y Settings → sidebar "bottom"
-   {
+  {
     key: "settings", path: paths.settings, label: "Settings", icon: IoSettingsOutline, show: ["sidebar"], order: 800, requireAuth: true,
     requireAnyPerms: ["support:read", "dev-admin", "admin:*"],
     sidebarZone: "bottom"

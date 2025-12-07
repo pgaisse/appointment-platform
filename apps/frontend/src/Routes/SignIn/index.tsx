@@ -64,7 +64,7 @@ export default function Login() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate("/");
+      navigate("/appointments/priority-list");
     }
   }, [isAuthenticated, navigate]);
 
@@ -108,7 +108,7 @@ export default function Login() {
       // Obtener token para confirmar autenticación
       await getAccessTokenSilently({ authorizationParams: { audience: AUTH0_AUDIENCE } });
 
-      navigate("/");
+      navigate("/appointments/priority-list");
     } catch (error: any) {
       console.error("Error en social login:", error);
       setLoginError(error.message || "Error signing in with social provider");
@@ -135,7 +135,7 @@ export default function Login() {
           login_hint: email, // Pre-llena el email
           prompt: "login", // Fuerza autenticación
         },
-        appState: { returnTo: "/" },
+        appState: { returnTo: "/appointments/priority-list" },
       });
     } catch (error: any) {
       console.error("Error en login:", error);

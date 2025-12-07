@@ -22,6 +22,7 @@ type ArchiveButtonProps = {
     searchRef?: React.RefObject<{ clearInput: () => void }>;
     trigger?: { mutate: () => void };
     setFilteredItems?: (items: any[] | null) => void;
+    onSuccess?: (itemId: string) => void; // ✅ Callback personalizado para optimizar actualizaciones
 };
 
 export default function ArchiveItemButton({
@@ -30,6 +31,7 @@ export default function ArchiveItemButton({
     searchRef,
     trigger,
     setFilteredItems,
+    onSuccess,
 }: ArchiveButtonProps) {
     const { isOpen, onOpen, onClose } = useDisclosure();
     const [targetId, setTargetId] = useState<string | null>(null);
@@ -56,14 +58,19 @@ export default function ArchiveItemButton({
 
         mutate(payload, {
             onSuccess: () => {
-                // Limpieza/refresh de caches relacionadas
-                searchRef?.current?.clearInput?.();
-                queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
-                queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-                queryClient.invalidateQueries({ queryKey: [modelName] });
-                queryClient.invalidateQueries({ queryKey: ["conversations"] });
-                setFilteredItems?.(null);
-                trigger?.mutate?.();
+                // ✅ Si hay callback personalizado, usarlo en lugar de invalidar todo
+                if (onSuccess) {
+                    onSuccess(targetId);
+                } else {
+                    // Comportamiento por defecto: invalidar todas las queries relacionadas
+                    searchRef?.current?.clearInput?.();
+                    queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
+                    queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+                    queryClient.invalidateQueries({ queryKey: [modelName] });
+                    queryClient.invalidateQueries({ queryKey: ["conversations"] });
+                    setFilteredItems?.(null);
+                    trigger?.mutate?.();
+                }
             },
             onSettled: () => onClose(),
         });

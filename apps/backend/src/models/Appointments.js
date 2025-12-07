@@ -73,6 +73,7 @@ const SelectedAppDateSchema = new Schema({
   duration: { type: Number, default: 60 }, // duración en minutos
   position: { type: Number, default: 0 }, // posición dentro de la columna de prioridad
   providerNotes: { type: String, default: '' },
+  needsScheduling: { type: Boolean, default: true }, // indica si el slot necesita que se le asigne una fecha
   
   // Sentinel para conservar la ventana ORIGINAL sobre la cual se generó la propuesta
   origin: {
@@ -99,6 +100,26 @@ const SelectedAppDateSchema = new Schema({
   confirmation: ConfirmationSchema,
   reminder: { type: ReminderSchema, default: {} },
 }, { _id: true, timestamps: true });
+
+// Validación: Si hay fecha, ambas deben estar presentes
+SelectedAppDateSchema.pre('validate', function(next) {
+  const hasStart = this.startDate != null;
+  const hasEnd = this.endDate != null;
+  
+  // Si una tiene fecha, ambas deben tenerla
+  if (hasStart !== hasEnd) {
+    return next(new Error('Both startDate and endDate must be set together'));
+  }
+  
+  // Si ambas tienen fecha, marcar como programado
+  if (hasStart && hasEnd) {
+    this.needsScheduling = false;
+  } else {
+    this.needsScheduling = true;
+  }
+  
+  next();
+});
 
 /* ======================= Appointment (principal) ======================= */
 

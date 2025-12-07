@@ -231,6 +231,65 @@ router.get('/search', async (req, res, next) => {
 });
 
 /**
+ * PATCH /appointments/:id
+ * Add a new slot to an existing appointment
+ */
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { slotData } = req.body;
+
+    if (!slotData) {
+      return res.status(400).json({ error: 'slotData is required' });
+    }
+
+    console.log(`✅ [PATCH /appointments/${id}] Adding new slot:`, slotData);
+
+    const org_id = req.user?.org_id || getOrgId(req);
+    if (!org_id) {
+      return res.status(400).json({ error: 'Missing org_id' });
+    }
+
+    const appointment = await Appointment.findOne({ _id: id, org_id });
+    if (!appointment) {
+      return res.status(404).json({ error: 'Appointment not found' });
+    }
+
+    // Add the new slot to selectedAppDates
+    appointment.selectedAppDates.push({
+      ...slotData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await appointment.save();
+
+    // Populate fields before returning
+    await appointment.populate(populateFields);
+
+    console.log(`✅ [PATCH /appointments/${id}] Slot added successfully. Total slots: ${appointment.selectedAppDates.length}`);
+
+    // Emit socket event for real-time UI updates
+    const io = req.app.get('io');
+    if (io && appointment.org_id) {
+      io.to(appointment.org_id).emit('appointmentUpdated', {
+        appointmentId: appointment._id,
+        selectedAppDates: appointment.selectedAppDates,
+      });
+    }
+
+    res.json({
+      success: true,
+      appointment,
+      addedSlot: appointment.selectedAppDates[appointment.selectedAppDates.length - 1],
+    });
+  } catch (error) {
+    console.error(`❌ [PATCH /appointments/:id] Error:`, error);
+    res.status(500).json({ error: 'Failed to add slot', details: error.message });
+  }
+});
+
+/**
  * PATCH /appointments/:id/complete-slot
  * Marca un slot específico como completado
  */

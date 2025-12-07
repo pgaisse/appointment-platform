@@ -10,15 +10,30 @@ router.use(jwtCheck, attachUserInfo, ensureUser);
 const OID_RE = /^[a-fA-F0-9]{24}$/;
 const models = require("../models/Appointments");
 
+/**
+ * PATCH /priority-list/move
+ * Move appointments between priorities
+ * ⚠️ IMPORTANTE: Esta ruta debe estar ANTES de /priority-list/:id para que Express no confunda "move" con un :id
+ */
 router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appointment_cards:move', 'dev-admin'), async (req, res) => {
   const { org_id } = await helpers.getTokenInfo(req.headers.authorization || '');
+
+  console.log('📦 [PATCH /priority-list/move] Request body:', JSON.stringify(req.body, null, 2));
 
   // Acepta: array directo o { moves: [] }
   const rawMoves = Array.isArray(req.body)
     ? req.body
     : (Array.isArray(req.body?.moves) ? req.body.moves : []);
+  
+  console.log('📦 [PATCH /priority-list/move] Parsed rawMoves:', rawMoves);
+  
   if (!rawMoves.length) {
-    return res.status(400).json({ error: 'Body debe ser un array de moves o { moves: [] }' });
+    console.log('❌ [PATCH /priority-list/move] No moves found in body');
+    return res.status(400).json({ 
+      error: 'Body debe ser un array de moves o { moves: [] }',
+      received: req.body,
+      parsedMoves: rawMoves
+    });
   }
 
   // ✅ NUEVO: Agrupar moves por appointmentId+slotId (cada slot es independiente)
@@ -49,7 +64,29 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
 
   const moves = [...appointmentMoves.values()];
   if (!moves.length) {
-    return res.status(400).json({ error: 'No hay movimientos válidos' });
+    console.error('❌ [PATCH /priority-list/move] All moves filtered out:', {
+      rawMovesCount: rawMoves.length,
+      invalidIds: rawMoves.filter(m => !OID_RE.test(String(m?.id || ''))).length,
+      missingPositionAndPriority: rawMoves.filter(m => {
+        const pos = Number.isFinite(m?.position) ? Number(m.position) : undefined;
+        const pri = m?.priority && OID_RE.test(String(m.priority)) ? String(m.priority) : undefined;
+        return pos === undefined && !pri;
+      }).length,
+      invalidSlotIds: rawMoves.filter(m => m?.slotId && !OID_RE.test(String(m.slotId))).length
+    });
+    
+    return res.status(400).json({ 
+      error: 'No hay movimientos válidos tras filtrar por validez de IDs, position y priority',
+      details: {
+        received: rawMoves.length,
+        invalidIds: rawMoves.filter(m => !OID_RE.test(String(m?.id || ''))).map(m => m?.id),
+        missingData: rawMoves.filter(m => {
+          const pos = Number.isFinite(m?.position) ? Number(m.position) : undefined;
+          const pri = m?.priority && OID_RE.test(String(m.priority)) ? String(m.priority) : undefined;
+          return pos === undefined && !pri;
+        }).map(m => ({ id: m?.id, position: m?.position, priority: m?.priority, slotId: m?.slotId }))
+      }
+    });
   }
 
   const session = await mongoose.startSession();
@@ -58,6 +95,13 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
   try {
     await session.withTransaction(async () => {
       for (const m of moves) {
+        console.log('🔍 [Processing Move]', {
+          id: m.id,
+          position: m.position,
+          priority: m.priority,
+          slotId: m.slotId
+        });
+
         const filter = org_id != null
           ? {
               _id: new mongoose.Types.ObjectId(m.id),
@@ -69,10 +113,34 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
         const appointment = await Appointment.findOne(filter).session(session);
 
         if (!appointment) {
+          console.log('❌ [Move Processing] Appointment not found:', m.id);
           results.push({
             status: 'failed',
             id: m.id,
             reason: 'Documento no encontrado o fuera de la organización',
+          });
+          continue;
+        }
+
+        console.log('✅ [Move Processing] Appointment found:', {
+          id: m.id,
+          hasSelectedAppDates: !!appointment.selectedAppDates,
+          slotsCount: appointment.selectedAppDates?.length,
+          slotIds: appointment.selectedAppDates?.map(s => s._id.toString())
+        });
+
+        // ⚠️ VALIDACIÓN CRÍTICA: Verificar que selectedAppDates es un array válido
+        if (!appointment.selectedAppDates || !Array.isArray(appointment.selectedAppDates)) {
+          console.error('❌ [Invalid Structure] Appointment has no selectedAppDates array:', {
+            appointmentId: m.id,
+            hasField: !!appointment.selectedAppDates,
+            isArray: Array.isArray(appointment.selectedAppDates),
+            type: typeof appointment.selectedAppDates
+          });
+          results.push({
+            status: 'failed',
+            id: m.id,
+            reason: 'Appointment has invalid selectedAppDates structure',
           });
           continue;
         }
@@ -86,7 +154,22 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
             slot => slot._id.toString() === m.slotId
           );
 
+          console.log('🔍 [Slot Search]', {
+            lookingFor: m.slotId,
+            foundIndex: slotIndex,
+            availableSlots: appointment.selectedAppDates?.map(s => s._id.toString())
+          });
+
           if (slotIndex === -1) {
+            console.error('❌ [Slot Not Found]', {
+              appointmentId: m.id,
+              requestedSlotId: m.slotId,
+              availableSlots: appointment.selectedAppDates?.map(s => ({
+                id: s._id.toString(),
+                priority: s.priority?.toString(),
+                position: s.position
+              }))
+            });
             results.push({
               status: 'failed',
               id: m.id,
@@ -108,14 +191,44 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
           appointment.unknown = false;
           if (org_id != null) appointment.org_id = org_id;
 
-          await appointment.save({ session });
-
-          results.push({ 
-            status: 'success', 
-            id: m.id,
-            slotId: m.slotId,
-            updatedSlot: true 
-          });
+          // ⚠️ PROTECCIÓN: Try-catch para capturar errores de validación del schema
+          try {
+            // ✅ CRÍTICO: Solo validar campos modificados (priority, position)
+            // No validar campos requeridos no modificados como 'user'
+            await appointment.save({ 
+              session, 
+              validateModifiedOnly: true,
+              validateBeforeSave: true
+            });
+            
+            results.push({ 
+              status: 'success', 
+              id: m.id,
+              slotId: m.slotId,
+              updatedSlot: true 
+            });
+          } catch (saveError) {
+            console.error('❌ [Save Error] Failed to save appointment:', {
+              appointmentId: m.id,
+              slotId: m.slotId,
+              slotIndex,
+              priority: m.priority,
+              position: m.position,
+              errorMessage: saveError.message,
+              errorName: saveError.name,
+              errorStack: saveError.stack
+            });
+            
+            results.push({
+              status: 'failed',
+              id: m.id,
+              slotId: m.slotId,
+              reason: `Save failed: ${saveError.message}`,
+              errorDetails: saveError.name
+            });
+            // Continuar con el siguiente move en lugar de abortar toda la transacción
+            continue;
+          }
 
         } else {
           // LEGACY SYSTEM: Actualizar root.priority y root.position (deprecado)
@@ -124,24 +237,42 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
           if (m.priority) set.priority = new mongoose.Types.ObjectId(m.priority);
           if (org_id != null) set.org_id = org_id;
 
-          const updated = await Appointment.findOneAndUpdate(
-            filter,
-            { $set: set },
-            { new: true, session }
-          );
+          try {
+            const updated = await Appointment.findOneAndUpdate(
+              filter,
+              { $set: set },
+              { new: true, session, runValidators: true }
+            );
 
-          if (!updated) {
+            if (!updated) {
+              results.push({
+                status: 'failed',
+                id: m.id,
+                reason: 'Error al actualizar documento',
+              });
+            } else {
+              results.push({ 
+                status: 'success', 
+                id: m.id,
+                updatedRoot: true 
+              });
+            }
+          } catch (updateError) {
+            console.error('❌ [Update Error] Failed to update appointment (legacy):', {
+              appointmentId: m.id,
+              priority: m.priority,
+              position: m.position,
+              errorMessage: updateError.message,
+              errorName: updateError.name
+            });
+            
             results.push({
               status: 'failed',
               id: m.id,
-              reason: 'Error al actualizar documento',
+              reason: `Update failed: ${updateError.message}`,
+              errorDetails: updateError.name
             });
-          } else {
-            results.push({ 
-              status: 'success', 
-              id: m.id,
-              updatedRoot: true 
-            });
+            continue;
           }
         }
       }
@@ -153,13 +284,68 @@ router.patch('/priority-list/move', jwtCheck, requireAnyPermissionExplain('appoi
       results,
     });
   } catch (err) {
-    console.error('❌ Critical error in /priority-list/move:', err.stack || err);
+    console.error('❌ Critical error in /priority-list/move:', {
+      errorMessage: err.message,
+      errorName: err.name,
+      errorStack: err.stack,
+      movesAttempted: moves.length,
+      resultsProcessed: results.length,
+      lastResult: results[results.length - 1]
+    });
+    
     return res.status(500).json({
       error: 'Critical failure while processing priority-list moves',
       details: err.message,
+      errorType: err.name,
+      processedCount: results.length,
+      totalCount: moves.length,
+      partialResults: results
     });
   } finally {
     session.endSession();
+  }
+});
+
+/**
+ * PATCH /priority-list/:id
+ * Update a priority's name
+ * ⚠️ Esta ruta usa un parámetro :id, por eso debe estar DESPUÉS de rutas específicas como /move
+ */
+router.patch('/priority-list/:id', jwtCheck, requireAnyPermissionExplain('appointment_cards:move', 'dev-admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Name is required and must be a non-empty string' });
+    }
+
+    if (!OID_RE.test(id)) {
+      return res.status(400).json({ error: 'Invalid priority ID' });
+    }
+
+    const { org_id } = await helpers.getTokenInfo(req.headers.authorization || '');
+    if (!org_id) {
+      return res.status(400).json({ error: 'Missing org_id' });
+    }
+
+    const PriorityListModel = mongoose.model('PriorityList');
+    
+    const priority = await PriorityListModel.findOneAndUpdate(
+      { _id: new mongoose.Types.ObjectId(id), org_id },
+      { $set: { name: name.trim() } },
+      { new: true }
+    );
+
+    if (!priority) {
+      return res.status(404).json({ error: 'Priority not found or does not belong to your organization' });
+    }
+
+    console.log(`✅ [PATCH /priority-list/${id}] Priority name updated to: ${name.trim()}`);
+    res.json({ success: true, priority });
+  } catch (error) {
+    console.error('❌ [PATCH /priority-list/:id] Error:', error);
+    res.status(500).json({ error: 'Failed to update priority name', details: error.message });
   }
 });
 
@@ -181,12 +367,7 @@ router.get(
         return res.status(403).json({ error: 'Unauthorized: org_id not found' });
       }
 
-      const { start, end } = helpers.getDateRange();
-      if (!start || !end) {
-        return res.status(400).json({ error: 'Invalid date range' });
-      }
-      
-      // ✅ NUEVA ESTRATEGIA: Crear un card por cada priority única en slots
+      // ✅ SIN FILTRO DE FECHAS: Mostrar todos los appointments
       const appointments = await models.Appointment.aggregate([
         {
           $match: {
@@ -198,45 +379,16 @@ router.get(
                 -1
               ]
             },
-            // ✅ MODIFICADO: Debe tener al menos un slot en el rango de fechas O con status Complete/Confirmed
+            // ✅ MODIFICADO: Mostrar todos los slots con cualquier status
             selectedAppDates: {
-              $elemMatch: {
-                $or: [
-                  // Slots en el rango de fechas
-                  {
-                    startDate: { $lte: end },
-                    endDate: { $gte: start },
-                  },
-                  // O slots con status Complete/Confirmed (mostrar siempre)
-                  {
-                    status: { $in: ['Complete', 'Confirmed'] }
-                  }
-                ]
-              },
+              $exists: true,
+              $ne: [],
             },
           },
         },
 
         // UNWIND slots para procesar cada uno individualmente
         { $unwind: { path: "$selectedAppDates", preserveNullAndEmptyArrays: false } },
-
-        // Filtrar slots: incluir TODOS los que están en el rango, sin importar su status
-        // ADEMÁS incluir Complete/Confirmed SIEMPRE (aunque estén fuera del rango)
-        {
-          $match: {
-            $or: [
-              // Slots en el rango de fechas (CUALQUIER status)
-              {
-                "selectedAppDates.startDate": { $lte: end },
-                "selectedAppDates.endDate": { $gte: start },
-              },
-              // O slots con status Complete/Confirmed (mostrar siempre, fuera de rango)
-              {
-                "selectedAppDates.status": { $in: ['Complete', 'Confirmed'] }
-              }
-            ]
-          },
-        },
 
         // POPULATE slot treatment
         {

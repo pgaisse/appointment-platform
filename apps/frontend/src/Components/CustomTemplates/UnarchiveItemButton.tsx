@@ -20,12 +20,14 @@ type UnarchiveButtonProps = {
     id: string;
     modelName: string;
     defaultPosition?: number;
+    onSuccess?: (itemId: string) => void;
 };
 
 export default function UnarchiveItemButton({
     id,
     modelName,
     defaultPosition = 0,
+    onSuccess,
 }: UnarchiveButtonProps) {
     const { isOpen, onOpen, onClose } = useDisclosure();
     const [targetId, setTargetId] = useState<string | null>(null);
@@ -52,10 +54,14 @@ export default function UnarchiveItemButton({
 
         mutate(payload, {
             onSuccess: () => {
-                queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
-                queryClient.invalidateQueries({ queryKey: ["Appointment"] });
-                queryClient.invalidateQueries({ queryKey: [modelName] });
-                queryClient.invalidateQueries({ queryKey: ["conversations"] });
+                if (onSuccess) {
+                    onSuccess(targetId);
+                } else {
+                    queryClient.invalidateQueries({ queryKey: ["DraggableCards"] });
+                    queryClient.invalidateQueries({ queryKey: ["Appointment"] });
+                    queryClient.invalidateQueries({ queryKey: [modelName] });
+                    queryClient.invalidateQueries({ queryKey: ["conversations"] });
+                }
             },
             onSettled: () => onClose(),
         });
