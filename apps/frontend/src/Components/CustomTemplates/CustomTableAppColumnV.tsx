@@ -8,7 +8,7 @@ import {
   SkeletonText,
   useToast,
 } from "@chakra-ui/react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Appointment, GroupedAppointment } from "@/types";
 import DraggableCards from "./DraggableCards";
 import { useDraggableCards } from "@/Hooks/Query/useDraggableCards";
@@ -26,8 +26,13 @@ const CustomTableAppColumnV = () => {
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [selectedItem, setSelectedItem] = useState<Appointment>();
+  const [selectedSlotId, setSelectedSlotId] = useState<string | undefined>();
   const queryClient = useQueryClient();
   const toast = useToast();
+  
+  // Refs para los contenedores con scroll horizontal
+  const prioritiesScrollRef = useRef<HTMLDivElement>(null);
+  const additionalScrollRef = useRef<HTMLDivElement>(null);
 
   const { data: dataAP2, isPlaceholderData, isLoading } = useDraggableCards();
   // Pending/Declined panels show all items irrespective of date range; we derive them from the raw queries.
@@ -102,10 +107,43 @@ const CustomTableAppColumnV = () => {
     "5xl": "repeat(4, minmax(150px, 1fr))",
   };
 
-  const handleCardClick = (item: Appointment) => {
+  const handleCardClick = (item: Appointment, slotId?: string) => {
     setSelectedItem(item);
+    setSelectedSlotId(slotId);
     onOpen();
   };
+
+  // Efecto para convertir scroll vertical en horizontal
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      const container = e.currentTarget as HTMLDivElement;
+      // Solo si hay scroll horizontal disponible
+      if (container.scrollWidth > container.clientWidth) {
+        e.preventDefault();
+        container.scrollLeft += e.deltaY;
+      }
+    };
+
+    const prioritiesContainer = prioritiesScrollRef.current;
+    const additionalContainer = additionalScrollRef.current;
+
+    if (prioritiesContainer) {
+      prioritiesContainer.addEventListener('wheel', handleWheel, { passive: false });
+    }
+
+    if (additionalContainer) {
+      additionalContainer.addEventListener('wheel', handleWheel, { passive: false });
+    }
+
+    return () => {
+      if (prioritiesContainer) {
+        prioritiesContainer.removeEventListener('wheel', handleWheel);
+      }
+      if (additionalContainer) {
+        additionalContainer.removeEventListener('wheel', handleWheel);
+      }
+    };
+  }, []);
 
   // Skeleton component for loading state
   const CardsSkeleton = () => (
@@ -150,24 +188,97 @@ const CustomTableAppColumnV = () => {
       <>
         <Box px={4}>
           {isOpen && selectedItem && (
-            <AppointmentModal id={selectedItem._id ?? ""} isOpen={isOpen} onClose={onClose} />
+            <AppointmentModal 
+              id={selectedItem._id ?? ""} 
+              isOpen={isOpen} 
+              onClose={() => {
+                onClose();
+                setSelectedSlotId(undefined);
+              }}
+              initialSlotId={selectedSlotId}
+            />
           )}
         </Box>
 
         {isLoading || !dataAP2 ? (
           <CardsSkeleton />
         ) : (
-          <SimpleGrid spacing={6} templateColumns={templateCoumns}>
-            <DraggableCards
-              isPlaceholderData={isPlaceholderData}
-              dataAP2={dataAP2 ?? []}
-              dataContacts={dataContacts ? dataContacts : []}
-              dataPending={dataPending ?? []}
-              dataDeclined={dataDeclined ?? []}
-              dataArchived={dataArchived ? dataArchived : []}
-              onCardClick={handleCardClick}
-            />
-          </SimpleGrid>
+          <VStack spacing={4} align="stretch" width="100%">
+            {/* Primera fila: Columnas de prioridades */}
+            <HStack
+              ref={prioritiesScrollRef}
+              spacing={0}
+              align="stretch"
+              overflowX="auto"
+              overflowY="hidden"
+              width="100%"
+              pb={4}
+              css={{
+                '&::-webkit-scrollbar': {
+                  height: '8px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  background: '#f1f1f1',
+                  borderRadius: '10px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  background: '#888',
+                  borderRadius: '10px',
+                },
+                '&::-webkit-scrollbar-thumb:hover': {
+                  background: '#555',
+                },
+              }}
+            >
+              <DraggableCards
+                isPlaceholderData={isPlaceholderData}
+                dataAP2={dataAP2 ?? []}
+                dataContacts={dataContacts ? dataContacts : []}
+                dataPending={dataPending ?? []}
+                dataDeclined={dataDeclined ?? []}
+                dataArchived={dataArchived ? dataArchived : []}
+                onCardClick={handleCardClick}
+              />
+            </HStack>
+
+            {/* Segunda fila: Columnas adicionales (Contacts, Pending, Declined, Archived) */}
+            <HStack
+              ref={additionalScrollRef}
+              spacing={0}
+              align="stretch"
+              overflowX="auto"
+              overflowY="hidden"
+              width="100%"
+              pb={4}
+              css={{
+                '&::-webkit-scrollbar': {
+                  height: '8px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  background: '#f1f1f1',
+                  borderRadius: '10px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  background: '#888',
+                  borderRadius: '10px',
+                },
+                '&::-webkit-scrollbar-thumb:hover': {
+                  background: '#555',
+                },
+              }}
+            >
+              <DraggableCards
+                isPlaceholderData={isPlaceholderData}
+                dataAP2={dataAP2 ?? []}
+                dataContacts={dataContacts ? dataContacts : []}
+                dataPending={dataPending ?? []}
+                dataDeclined={dataDeclined ?? []}
+                dataArchived={dataArchived ? dataArchived : []}
+                onCardClick={handleCardClick}
+                renderAdditionalColumns
+              />
+            </HStack>
+          </VStack>
         )}
       </>
     </ModalStackProvider>

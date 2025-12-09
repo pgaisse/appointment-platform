@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 
 import { formatDateWS } from '@/Functions/FormatDateWS';
 import { formatAusPhoneNumber } from '@/Functions/formatAusPhoneNumber';
-import { PhoneIcon, TimeIcon, RepeatIcon, InfoIcon } from '@chakra-ui/icons';
+import { PhoneIcon, TimeIcon, RepeatIcon } from '@chakra-ui/icons';
 import { capitalize } from '@/utils/textFormat';
 import {
   Badge,
@@ -84,6 +84,9 @@ import { GoogleReviewButton } from '@/Components/GoogleReview/GoogleReviewButton
 import { DateTime } from 'luxon';
 import { useMeta } from '@/Hooks/Query/useMeta';
 import { GrContactInfo } from "react-icons/gr";
+import { useAppointmentLabels } from '@/Hooks/useAppointmentLabels';
+import LabelChip from '@/Components/Kanban/LabelChip';
+import { Wrap, WrapItem } from '@chakra-ui/react';
 
 /* ───────────────────────────────────────────────────────────────
    Helpers de estilo premium
@@ -185,8 +188,8 @@ type AppointmentForChat = Appointment & {
 function buildContactFromAppointment(i: AppointmentForChat) {
   const rep =
     i.representative &&
-    i.representative.appointment &&
-    typeof i.representative.appointment === 'object'
+      i.representative.appointment &&
+      typeof i.representative.appointment === 'object'
       ? (i.representative.appointment as RepAppointmentLite)
       : null;
 
@@ -267,10 +270,32 @@ const getPendingSlotRange = (slots?: any[]) => {
   const s = pickPendingSlot(slots);
   return s ? { start: (s as any).startDate, end: (s as any).endDate } : null;
 };
+
+// Helper component to fetch and display a single label (shared with Organizer)
+const LabelChipWrapper: React.FC<{ labelId: string }> = ({ labelId }) => {
+  const { labels, isLoading } = useAppointmentLabels();
+
+  // Show skeleton while loading
+  if (isLoading || labels.length === 0) {
+    return (
+      <Skeleton height="20px" width="60px" borderRadius="md" />
+    );
+  }
+
+  const label = labels.find(l => l.id === labelId);
+
+  if (!label) {
+    console.warn('🏷️ Label not found for ID:', labelId, 'Available:', labels.map(l => l.id));
+    return null;
+  }
+
+  return <LabelChip label={label} size="sm" />;
+};
+
 const AppointmentCard: React.FC<{
   item: Appointment;
   priorityColor?: string;
-  onCardClick?: (item: Appointment) => void;
+  onCardClick?: (item: Appointment, slotId?: string) => void;
   asOverlay?: boolean;       // cuando es overlay: sin eventos, pero misma apariencia
   statusOverride?: string;   // permite forzar el status mostrado (p.ej., columnas Pending/Declined)
   inlineUndo?: boolean;      // muestra botón de deshacer dentro de la card movida
@@ -284,18 +309,28 @@ const AppointmentCard: React.FC<{
   const { isOpen: isRepOpen, onOpen: onRepOpen, onClose: onRepClose } = useDisclosure();
   const { isOpen: isSelfOpen, onOpen: onSelfOpen, onClose: onSelfClose } = useDisclosure();
 
+  // ✅ Llamar hook UNA VEZ al inicio del componente (fuera de loops/conditions)
+  const { labels: availableLabels } = useAppointmentLabels();
+
   // ✅ Extraer datos del slot relevante usando helpers
   const treatment = getTreatment(item);
   const effectivePriorityColor = priorityColor || getPriorityColor(item, 'gray');
-  
-  // ✅ Obtener slot actual (el primero en selectedAppDates)
-  const currentSlot = item.selectedAppDates?.[0];
-  
+
+  // ✅ Obtener slot principal (el que se muestra en la card) usando pickDisplaySlot
+  const displaySlot = pickDisplaySlot(item.selectedAppDates);
+  const currentSlot = displaySlot || item.selectedAppDates?.[0];
+
+  // ✅ Buscar slot con labels (puede estar en cualquier posición del array) para mostrar labels en la card
+  const slotWithLabels = item.selectedAppDates?.find((slot: any) => {
+    const labels = slot?.labels;
+    return labels && Array.isArray(labels) && labels.length > 0;
+  }) || currentSlot;
+
   // ✅ Verificar si la fecha del appointment ya pasó
   const appointmentDate = currentSlot?.startDate ? DateTime.fromISO(currentSlot.startDate as any) : null;
   const now = DateTime.now();
   const isPastAppointment = appointmentDate ? appointmentDate < now : false;
-  
+
   // ✅ Mostrar botón de review cuando la fecha ya pasó
   const showReviewButton = !asOverlay && isPastAppointment;
 
@@ -325,7 +360,8 @@ const AppointmentCard: React.FC<{
         if (asOverlay) return;
         e.stopPropagation();
         if (onCardClick) {
-          onCardClick(item);
+          const slotId = displaySlot?._id ? String(displaySlot._id) : undefined;
+          onCardClick(item, slotId);
         } else {
           onSelfOpen();
         }
@@ -333,6 +369,50 @@ const AppointmentCard: React.FC<{
       // para overlay: impedir interacción pero mantener el look
       pointerEvents={asOverlay ? 'none' : 'auto'}
     >
+      {/* Labels display (if slot has labels) - MOVED TO TOP */}
+      {!asOverlay && (() => {
+        const slotLabels = (slotWithLabels as any)?.labels;
+
+
+
+        if (!slotLabels || !Array.isArray(slotLabels) || slotLabels.length === 0) {
+          return null;
+        }
+
+        // Extract label IDs (support both string[] and object[])
+        const labelIds = slotLabels.map((l: any) => {
+          if (typeof l === 'string') return l;
+          if (typeof l === 'object' && l?.id) return l.id;
+          if (typeof l === 'object' && l?._id) return String(l._id);
+          return null;
+        }).filter((id: any): id is string => typeof id === 'string' && id.length > 0);
+
+
+
+        if (labelIds.length === 0) {
+          console.log('🏷️ Early exit: no valid label IDs after extraction');
+          return null;
+        }
+
+        return (
+          <Box mb={2} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <HStack spacing={1}>
+              {labelIds.map((labelId: string, idx: number) => {
+                const label = availableLabels.find(l => l.id === labelId);
+
+                if (!label) return null;
+
+                return (
+                  <Tooltip key={`${labelId}-${idx}`} label={label.name} placement="top" hasArrow>
+                    <Box h="6px" w="38px" rounded="full" bg={label.color} />
+                  </Tooltip>
+                );
+              })}
+            </HStack>
+          </Box>
+        );
+      })()}
+
       {/* Nombre del paciente con icono de detalles y botones */}
       <HStack justify="space-between" align="flex-start" mb={1} spacing={2}>
         <HStack spacing={2} flex={1} minW={0}>
@@ -350,30 +430,26 @@ const AppointmentCard: React.FC<{
           <Text fontWeight="semibold" fontSize="sm" noOfLines={1} flex={1}>
             {cap(item.nameInput)} {cap(item.lastNameInput)}
           </Text>
-          
+
           {/* Icono compacto con popover de detalles */}
           {!asOverlay && (
             <Popover trigger="hover" placement="bottom-start" openDelay={200}>
               <PopoverTrigger>
-                <Box
-                  as="button"
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                <IconButton
+                  icon={<GrContactInfo />}
+                  color="blue.400"
+                  variant="ghost"
+                  size="sm"
+                  cursor="pointer"
+                  _hover={{ color: 'blue.600' }}
                   aria-label="View details"
                   flexShrink={0}
-                >
-                  <IconButton
-                    icon={<GrContactInfo />}
-                    color="blue.400"
-                    variant="ghost"
-                    size="sm"
-                    cursor="pointer"
-                    _hover={{ color: 'blue.600' }} 
-                    aria-label={""}                  />
-                </Box>
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                />
               </PopoverTrigger>
               <Portal>
-                <PopoverContent 
-                  width="auto" 
+                <PopoverContent
+                  width="auto"
                   maxW="300px"
                   onClick={(e: React.MouseEvent) => e.stopPropagation()}
                   onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
@@ -425,13 +501,13 @@ const AppointmentCard: React.FC<{
                           })()}
                         </Text>
                       </Box>
-                      
+
                       {/* Status */}
                       <HStack spacing={3} justify="space-between" p={2} bg="gray.50" borderRadius="md">
                         <Text fontSize="xs" color="gray.500" fontWeight="semibold" textTransform="uppercase" letterSpacing="wider">Status</Text>
                         <StatusPill status={statusOverride ?? pickDisplaySlot(item.selectedAppDates)?.status} />
                       </HStack>
-                      
+
                       {/* Contact Preference */}
                       {item.contactPreference && (
                         <HStack spacing={3} justify="space-between" p={2} bg="gray.50" borderRadius="md">
@@ -485,8 +561,8 @@ const AppointmentCard: React.FC<{
 
         {/* Botones de acción en la esquina superior derecha */}
         {!asOverlay && (
-          <HStack 
-            spacing={1} 
+          <HStack
+            spacing={1}
             flexShrink={0}
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
@@ -505,9 +581,9 @@ const AppointmentCard: React.FC<{
                 </Tooltip>
               </Fade>
             )}
-            <ArchiveItemButton 
-              id={item._id} 
-              modelName="Appointment" 
+            <ArchiveItemButton
+              id={item._id}
+              modelName="Appointment"
               onSuccess={onArchiveSuccess}
             />
           </HStack>
@@ -541,16 +617,24 @@ const AppointmentCard: React.FC<{
       )}
 
       {/* Nested patient modal (fallback when no onCardClick is provided) */}
-      {!onCardClick && (
+      {!onCardClick && isSelfOpen && (
         <React.Suspense fallback={null}>
           {(() => {
             const AppointmentModalLazy = React.lazy(() => import('@/Components/Modal/AppointmentModal'));
+            const slotId = displaySlot?._id ? String(displaySlot._id) : undefined;
+            console.log('🎯 DraggableCard opening modal:', {
+              appointmentId: item._id,
+              displaySlotId: slotId,
+              totalSlots: item.selectedAppDates?.length,
+              allSlotIds: item.selectedAppDates?.map(s => s._id)
+            });
             return (
               <ModalStackProvider>
                 <AppointmentModalLazy
                   id={String(item._id || '')}
                   isOpen={isSelfOpen}
                   onClose={onSelfClose}
+                  initialSlotId={slotId}
                 />
               </ModalStackProvider>
             );
@@ -736,7 +820,7 @@ function moveItem(
   const parts = itemId.split('|');
   const appointmentId = parts[0];
   const slotId = parts[1]; // puede ser undefined
-  
+
   const item = sourceCol.patients.find(p => {
     if (slotId) {
       return p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId;
@@ -758,11 +842,11 @@ function moveItem(
 
     // Remover el elemento
     const [movedItem] = newPatients.splice(oldIndex, 1);
-    
+
     // Insertar directamente en toIndex
     // Ya no necesitamos ajustar porque toIndex viene corregido desde handleDragEnd
     newPatients.splice(toIndex, 0, movedItem);
-    
+
     // ✅ Actualizar position del SLOT, no del root
     sourceCol.patients = newPatients.map((p, idx) => {
       const updatedPatient = { ...p };
@@ -784,7 +868,7 @@ function moveItem(
     });
     const newPatients = [...destCol.patients];
     newPatients.splice(toIndex, 0, item);
-    
+
     // ✅ Actualizar position del SLOT, no del root
     destCol.patients = newPatients.map((p, idx) => {
       const updatedPatient = { ...p };
@@ -812,6 +896,7 @@ type Props = {
   dataPending: Appointment[];
   dataDeclined: Appointment[];
   dataArchived: Appointment[];
+  renderAdditionalColumns?: boolean;
 };
 
 const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
@@ -822,10 +907,10 @@ const AfterPaint: React.FC<{ on: () => void }> = ({ on }) => {
   return null;
 };
 
-export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending, dataDeclined, dataArchived }: Props) {
-    const location = useLocation();
-    const [highlightPending, setHighlightPending] = useState(false);
-    const pendingCardRef = useRef<HTMLDivElement | null>(null);
+export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, isPlaceholderData, dataPending, dataDeclined, dataArchived, renderAdditionalColumns = false }: Props) {
+  const location = useLocation();
+  const [highlightPending, setHighlightPending] = useState(false);
+  const pendingCardRef = useRef<HTMLDivElement | null>(null);
   const toast = useToast();
   const searchRef = useRef<SearchBarRef>(null);
   const pendingSearchRef = useRef<PendingDeclinedSearchBarRef>(null);
@@ -838,7 +923,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const [columnPages, setColumnPages] = useState<Record<string, number>>({});
   const queryClient = useQueryClient();
   const [lastColPainted, setLastColPainted] = useState(false);
-  
+
   // Get updatePriority from useMeta hook
   const { updatePriority } = useMeta();
   // ───────── Undo stack (multi-level) ─────────
@@ -873,9 +958,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       col.patients.forEach((p, i) => {
         // ✅ Extraer slotId del primer slot
         const slotId = p.selectedAppDates?.[0]?._id;
-        const move: PriorityMove = { 
-          id: p._id, 
-          position: i, 
+        const move: PriorityMove = {
+          id: p._id,
+          position: i,
           priority: col._id ?? undefined
         };
         // ✅ Solo agregar slotId si existe y es válido
@@ -933,7 +1018,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     let affectedColId: string | undefined;
     const updatedData = optimisticData.map(col => {
       const hasItem = col.patients.some(p => p._id === itemId);
-      
+
       if (hasItem) {
         affectedColId = col._id ?? undefined;
         // Filtrar el item archivado y reindexar las posiciones
@@ -949,13 +1034,13 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             }
             return updatedPatient;
           });
-        
+
         return {
           ...col,
           patients: remainingPatients
         };
       }
-      
+
       return col;
     });
 
@@ -968,26 +1053,26 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       const affectedCol = updatedData.find(col => col._id === affectedColId);
       if (affectedCol) {
         const moves: PriorityMove[] = [];
-        
+
         affectedCol.patients.forEach((p, i) => {
           // ✅ Validar que el appointment tenga _id válido
           if (!p._id) {
             console.warn('⚠️ [handleArchiveSuccess] Skipping patient without _id:', p);
             return;
           }
-          
+
           const slotId = p.selectedAppDates?.[0]?._id;
-          const move: PriorityMove = { 
-            id: p._id, 
-            position: i, 
+          const move: PriorityMove = {
+            id: p._id,
+            position: i,
             priority: affectedCol._id ?? undefined
           };
-          
+
           // ✅ Solo agregar slotId si existe y es válido
           if (slotId) {
             move.slotId = slotId;
           }
-          
+
           moves.push(move);
         });
 
@@ -1013,36 +1098,36 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const handleUnarchiveSuccess = useCallback((itemId: string) => {
     // Encontrar el item en dataArchived para obtener su prioridad del slot
     const archivedItem = dataArchived?.find(item => item._id === itemId);
-    
+
     // Cancelar queries de archived appointments para remover el item inmediatamente
     queryClient.cancelQueries({ queryKey: ['archived-appointments'] });
-    
+
     // Cancelar queries del board (DraggableCards) para refrescar con el item restaurado
-    queryClient.cancelQueries({ 
+    queryClient.cancelQueries({
       predicate: (q) => {
         const key = q.queryKey as any[];
         return key[0] === 'DraggableCards';
       }
     });
-    
+
     // Si encontramos el item y tiene prioridad en el slot, también cancelar/invalidar esa columna específica
     if (archivedItem) {
       // ✅ Usar getPriority para obtener la prioridad del SLOT, no del root
       const priorityFromSlot = getPriority(archivedItem);
-      
+
       if (priorityFromSlot?._id) {
         // Cancelar queries específicas de la prioridad para refresh inmediato
         queryClient.cancelQueries({
           predicate: (q) => {
             const key = q.queryKey as any[];
             // Cancelar queries que puedan estar relacionadas con esta prioridad
-            return key[0] === 'DraggableCards' || 
-                   (Array.isArray(key) && key.includes(priorityFromSlot._id));
+            return key[0] === 'DraggableCards' ||
+              (Array.isArray(key) && key.includes(priorityFromSlot._id));
           }
         });
       }
     }
-    
+
     // Invalidar ambas queries para refrescar
     queryClient.invalidateQueries({ queryKey: ['archived-appointments'] });
     queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
@@ -1073,7 +1158,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   // 🔄 Ensure board reflects backend updates immediately upon confirmation events and appointment updates
   useEffect(() => {
     if (!socket || !connected) return;
-    
+
     const refreshDraggableCards = () => {
       // Cancel in-flight queries before updating to avoid showing stale data in Pending/Declined
       queryClient.cancelQueries({
@@ -1086,13 +1171,13 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
       queryClient.refetchQueries({ queryKey: ['DraggableCards'] });
     };
-    
+
     // Listen to both confirmationResolved and appointmentUpdated events
     socket.on('confirmationResolved', refreshDraggableCards);
     socket.on('appointmentUpdated', refreshDraggableCards);
-    
-    return () => { 
-      socket.off('confirmationResolved', refreshDraggableCards); 
+
+    return () => {
+      socket.off('confirmationResolved', refreshDraggableCards);
       socket.off('appointmentUpdated', refreshDraggableCards);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1107,21 +1192,21 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const id = event.active.id as string;
     if (!dataAP2) return;
-    
+
     // ✅ id puede ser "appointmentId|slotId" o solo "appointmentId"
     const parts = id.split('|');
     const appointmentId = parts[0];
     const slotId = parts[1]; // puede ser undefined
-    
+
     const item = dataAP2.flatMap(col => col.patients).find(p => {
       if (slotId) {
         return p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId;
       }
       return p._id === appointmentId;
     }) ?? null;
-    
+
     setActiveItem(item);
-    
+
     const originCol = dataAP2.find(col => col.patients.some(p => {
       if (slotId) {
         return p._id === appointmentId && p.selectedAppDates?.[0]?._id === slotId;
@@ -1129,11 +1214,11 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       return p._id === appointmentId;
     }));
     setSourceCol(originCol);
-    
+
     // ✅ Si no hay originCol (arrastrando desde Pending/Declined), extraer color del slot
     const color = originCol?.priorityColor || (item ? getPriorityColor(item, 'gray') : 'gray');
     setOverlayColor(color);
-    
+
     if (!optimisticData) setOptimisticData(dataAP2);
   }, [dataAP2, optimisticData]);
 
@@ -1147,19 +1232,19 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
     const activeId = active.id as string;
     const overId = over.id as string;
-    
+
     // ✅ Manejar overId que puede ser "appointmentId|slotId", "appointmentId" o "placeholder-{colId}"
     const overParts = overId.includes('|') ? overId.split('|') : [overId];
     const overAppointmentId = overParts[0]?.startsWith('placeholder-') ? null : overParts[0];
     const overSlotId = overParts[1]; // puede ser undefined
-    
+
     const destinationCol = overAppointmentId
       ? optimisticData.find(col => col.patients.some(p => {
-          if (overSlotId) {
-            return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
-          }
-          return p._id === overAppointmentId;
-        }))
+        if (overSlotId) {
+          return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
+        }
+        return p._id === overAppointmentId;
+      }))
       : optimisticData.find(col => `placeholder-${col._id}` === overId);
 
     if (!destinationCol) {
@@ -1173,29 +1258,29 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
     // Calcular correctamente el índice de inserción
     let index: number;
-    
+
     if (fromColumnId === toColumnId) {
       // Movimiento dentro de la misma columna
       const activeParts = activeId.split('|');
       const activeAppId = activeParts[0];
       const activeSlotId = activeParts[1]; // puede ser undefined
-      
+
       const oldIndex = destinationCol.patients.findIndex(p => {
         if (activeSlotId) {
           return p._id === activeAppId && p.selectedAppDates?.[0]?._id === activeSlotId;
         }
         return p._id === activeAppId;
       });
-      
+
       const overIndex = overAppointmentId
         ? destinationCol.patients.findIndex(p => {
-            if (overSlotId) {
-              return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
-            }
-            return p._id === overAppointmentId;
-          })
+          if (overSlotId) {
+            return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
+          }
+          return p._id === overAppointmentId;
+        })
         : -1;
-      
+
       if (overIndex === -1) {
         index = destinationCol.patients.length;
       } else if (oldIndex < overIndex) {
@@ -1209,11 +1294,11 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
       // Movimiento entre columnas: insertar antes del elemento over
       const overIndex = overAppointmentId
         ? destinationCol.patients.findIndex(p => {
-            if (overSlotId) {
-              return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
-            }
-            return p._id === overAppointmentId;
-          })
+          if (overSlotId) {
+            return p._id === overAppointmentId && p.selectedAppDates?.[0]?._id === overSlotId;
+          }
+          return p._id === overAppointmentId;
+        })
         : -1;
       index = overIndex === -1 ? destinationCol.patients.length : overIndex;
     }
@@ -1238,12 +1323,12 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           console.warn('⚠️ [DraggableCards] Skipping patient without _id:', p);
           return;
         }
-        
+
         // ✅ Extraer slotId del primer slot (cada card tiene 1 slot)
         const slotId = p.selectedAppDates?.[0]?._id;
-        const move: PriorityMove = { 
-          id: p._id, 
-          position: i, 
+        const move: PriorityMove = {
+          id: p._id,
+          position: i,
           priority: updatedSource._id ?? undefined
         };
         // ✅ Solo agregar slotId si existe y es válido
@@ -1260,12 +1345,12 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           console.warn('⚠️ [DraggableCards] Skipping patient without _id:', p);
           return;
         }
-        
+
         // ✅ Extraer slotId del primer slot (cada card tiene 1 slot)
         const slotId = p.selectedAppDates?.[0]?._id;
-        const move: PriorityMove = { 
-          id: p._id, 
-          position: i, 
+        const move: PriorityMove = {
+          id: p._id,
+          position: i,
           priority: updatedDest._id ?? undefined
         };
         // ✅ Solo agregar slotId si existe y es válido
@@ -1365,6 +1450,48 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
     }),
   };
 
+  // Si se solicitan solo las columnas adicionales, renderizar esas
+  if (renderAdditionalColumns) {
+    return (
+      <AdditionalColumns
+        dataContacts={dataContacts}
+        dataPending={dataPending}
+        dataDeclined={dataDeclined}
+        dataArchived={dataArchived}
+        isPlaceholderData={isPlaceholderData}
+        onCardClick={onCardClick}
+        lastColPainted={true}
+        isLoadingContacts={isLoadingContacts}
+        isLoadingPending={isLoadingPending}
+        isLoadingDeclined={isLoadingDeclined}
+        isLoadingArchived={isLoadingArchived}
+        sourceContacts={sourceContacts}
+        sourcePending={sourcePending}
+        sourceDeclined={sourceDeclined}
+        sourceArchived={sourceArchived}
+        filteredItems={filteredItems}
+        setFilteredItems={setFilteredItems}
+        filteredPending={filteredPending}
+        setFilteredPending={setFilteredPending}
+        filteredDeclined={filteredDeclined}
+        setFilteredDeclined={setFilteredDeclined}
+        filteredArchived={filteredArchived}
+        setFilteredArchived={setFilteredArchived}
+        searchRef={searchRef}
+        pendingSearchRef={pendingSearchRef}
+        declinedSearchRef={declinedSearchRef}
+        highlightPending={highlightPending}
+        pendingCardRef={pendingCardRef}
+        showUndo={showUndo}
+        historyRef={historyRef}
+        lastMovedId={lastMovedId}
+        handleUndo={handleUndo}
+        handleArchiveSuccess={handleArchiveSuccess}
+        handleUnarchiveSuccess={handleUnarchiveSuccess}
+      />
+    );
+  }
+
   if (!optimisticData) {
     return (
       <DndContext
@@ -1384,252 +1511,294 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
 
   return (
     <>
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      {(optimisticData ?? []).map((col, idx) => {
-        const patients = Array.isArray(col.patients) ? col.patients : [];
-        
-        console.log(`🏥 Column "${col.priorityName}" (${col._id}):`, {
-          totalPatients: patients.length,
-          priorityColor: col.priorityColor,
-          samplePatient: patients[0] ? {
-            _id: patients[0]._id,
-            name: `${patients[0].nameInput} ${patients[0].lastNameInput}`,
-            slotsCount: patients[0].selectedAppDates?.length || 0,
-            position: (patients[0].selectedAppDates?.[0] as any)?.position ?? 0
-          } : null
-        });
-        
-        const sorted = [...patients]
-          .filter(p => Array.isArray(p.selectedAppDates) && p.selectedAppDates.some(s => {
-            const st = String((s as any)?.status || "").toLowerCase();
-            // ✅ Incluir TODOS los status relevantes: Complete, Confirmed, NoContacted, Contacted, Pending
-            return st === "confirmed" || st === "nocontacted" || st === "pending" || st === "complete" || st === "contacted";
-          }))
-          .sort((a, b) => {
-            const posA = (a.selectedAppDates?.[0] as any)?.position ?? 0;
-            const posB = (b.selectedAppDates?.[0] as any)?.position ?? 0;
-            return Number(posA) - Number(posB);
-          });
-        
-        console.log(`   → After filter: ${sorted.length} patients`);
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        {(optimisticData ?? []).map((col, idx) => {
+          const patients = Array.isArray(col.patients) ? col.patients : [];
 
-        const perPage = 20;
-        const colCurrentPage = columnPages[col._id || ''] || 1;
-        const colTotalPages = Math.ceil(sorted.length / perPage);
-        const startIndex = (colCurrentPage - 1) * perPage;
-        const endIndex = startIndex + perPage;
-        const paginatedPatients = sorted.slice(startIndex, endIndex);
 
-        // ✅ ID único: appointmentId|slotId (solo si slotId existe)
-        const items = paginatedPatients.length > 0 
-          ? paginatedPatients.map(d => {
+
+          const sorted = [...patients]
+            .filter(p => Array.isArray(p.selectedAppDates) && p.selectedAppDates.some(s => {
+              const st = String((s as any)?.status || "").toLowerCase();
+              // ✅ Incluir TODOS los status relevantes: Complete, Confirmed, NoContacted, Contacted, Pending
+              return st === "confirmed" || st === "nocontacted" || st === "pending" || st === "complete" || st === "contacted";
+            }))
+            .sort((a, b) => {
+              const posA = (a.selectedAppDates?.[0] as any)?.position ?? 0;
+              const posB = (b.selectedAppDates?.[0] as any)?.position ?? 0;
+              return Number(posA) - Number(posB);
+            });
+
+
+
+          const perPage = 20;
+          const colCurrentPage = columnPages[col._id || ''] || 1;
+          const colTotalPages = Math.ceil(sorted.length / perPage);
+          const startIndex = (colCurrentPage - 1) * perPage;
+          const endIndex = startIndex + perPage;
+          const paginatedPatients = sorted.slice(startIndex, endIndex);
+
+          // ✅ ID único: appointmentId|slotId (solo si slotId existe)
+          const items = paginatedPatients.length > 0
+            ? paginatedPatients.map(d => {
               const slotId = d.selectedAppDates?.[0]?._id;
               return slotId ? `${d._id}|${slotId}` : d._id;
             })
-          : [`placeholder-${col._id}`];
+            : [`placeholder-${col._id}`];
 
-        const isLast = idx === (optimisticData?.length ?? 1) - 1;
-        return (
-          <Fade in key={col._id}>
-            <Card
-              minW="280px"
-              flex="0 0 auto"
-              minHeight="300px"
-              height="520px"
-              maxHeight="620px"
-              borderRadius="2xl"
-              position="relative"
-              mr={4}
-              bg="white"
-              boxShadow="md"
-              border="1px solid"
-              borderColor="gray.200"
-              _before={{
-                content: '""',
-                position: 'absolute',
-                inset: 0,
-                borderRadius: '2xl',
-                p: '1px',
-                bgGradient: `linear(to-br, ${col.priorityColor}.300, transparent)`,
-                WebkitMask:
-                  'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                WebkitMaskComposite: 'xor',
-                pointerEvents: 'none',
-              }}
-            >
-              {isPlaceholderData && (
-                <Box
-                  position="absolute"
-                  inset={0}
-                  bg="whiteAlpha.60"
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="center"
-                  zIndex={2}
-                  pointerEvents="none"
-                  borderRadius="2xl"
-                >
-                  <Spinner thickness="3px" size="md" />
-                </Box>
-              )}
-
-              <CardHeader pb={0} pt={2}>
-                <HStack
-                  mb={1}
-                  bg={`${col.priorityColor}.50`}
-                  border="1px solid"
-                  borderColor={`${col.priorityColor}.100`}
-                  px={2}
-                  py={1}
-                  borderRadius="full"
-                  width="fit-content"
-                  boxShadow="xs"
-                  gap={2}
-                >
-                  <Box w="8px" h="8px" borderRadius="full" bg={`${col.priorityColor}.400`} />
-                  <Editable
-                    defaultValue={col.priorityName}
-                    fontSize="sm"
-                    fontWeight="semibold"
-                    onSubmit={async (newName) => {
-                      if (newName.trim() && newName !== col.priorityName) {
-                        try {
-                          await updatePriority({
-                            id: col._id || '',
-                            payload: { name: newName.trim() }
-                          });
-                          queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
-                          toast({
-                            title: 'Priority updated',
-                            status: 'success',
-                            duration: 2000,
-                          });
-                        } catch (error) {
-                          toast({
-                            title: 'Error updating priority',
-                            description: (error as Error).message,
-                            status: 'error',
-                            duration: 3000,
-                          });
-                        }
-                      }
-                    }}
+          const isLast = idx === (optimisticData?.length ?? 1) - 1;
+          return (
+            <Fade in key={col._id}>
+              <Card
+                minW="280px"
+                height="800px"  // 👈 AGREGAR ESTA LÍNEA
+                flex="0 0 auto"
+                borderRadius="2xl"
+                position="relative"
+                mr={4}
+                bg="white"
+                boxShadow="md"
+                border="1px solid"
+                borderColor="gray.200"
+                _before={{
+                  content: '""',
+                  position: 'absolute',
+                  inset: 0,
+                  borderRadius: '2xl',
+                  p: '1px',
+                  bgGradient: `linear(to-br, ${col.priorityColor}.300, transparent)`,
+                  WebkitMask:
+                    'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                  WebkitMaskComposite: 'xor',
+                  pointerEvents: 'none',
+                }}
+              >
+                {isPlaceholderData && (
+                  <Box
+                    position="absolute"
+                    inset={0}
+                    bg="whiteAlpha.60"
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
+                    zIndex={2}
+                    pointerEvents="none"
+                    borderRadius="2xl"
                   >
-                    <EditablePreview 
-                      cursor="pointer"
-                      _hover={{ bg: `${col.priorityColor}.100` }}
-                      px={1}
-                      py={0.5}
-                      borderRadius="md"
-                    />
-                    <EditableInput 
-                      px={1}
-                      py={0.5}
-                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                      onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
-                    />
-                  </Editable>
-                </HStack>
-              </CardHeader>
-
-              <CardBody p={3} overflowY="auto">
-                {isLoadingColumns ? (
-                  <Stack spacing={3}>
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <Box key={i} p={4} borderRadius="xl" border="1px" borderColor="gray.100" boxShadow="xs" bg="white">
-                        <HStack mb={2}>
-                          <SkeletonCircle size="4" />
-                          <Skeleton height="14px" width="40%" />
-                        </HStack>
-                        <Skeleton height="18px" mb={2} />
-                        <Skeleton height="14px" />
-                      </Box>
-                    ))}
-                  </Stack>
-                ) : (
-                  <SortableContext items={items} strategy={verticalListSortingStrategy}>
-                    {paginatedPatients.length > 0 ? (
-                      paginatedPatients.map((item) => {
-                        // ✅ ID único: appointmentId|slotId (solo si slotId existe)
-                        const slotId = item.selectedAppDates?.[0]?._id;
-                        const uniqueId = slotId ? `${item._id}|${slotId}` : item._id;
-                        return (
-                          <SortableItem key={uniqueId} id={uniqueId}>
-                            <AppointmentCard
-                              item={item}
-                              priorityColor={col.priorityColor}
-                              onCardClick={onCardClick}
-                              inlineUndo={showUndo && historyRef.current.length > 0 && uniqueId === lastMovedId}
-                              onUndo={handleUndo}
-                              onArchiveSuccess={handleArchiveSuccess}
-                            />
-                          </SortableItem>
-                        );
-                      })
-                    ) : (
-                      <SortableItem id={`placeholder-${col._id}`}>
-                        <Box
-                          textAlign="center"
-                          color="gray.400"
-                          fontStyle="italic"
-                          border="2px dashed"
-                          borderColor="gray.200"
-                          borderRadius="xl"
-                          py={6}
-                          bg="gray.50"
-                        >
-                          Drop items here
-                        </Box>
-                      </SortableItem>
-                    )}
-                  </SortableContext>
+                    <Spinner thickness="3px" size="md" />
+                  </Box>
                 )}
-              </CardBody>
 
-              <CardFooter minH="50px" p={3} display="flex" flexDirection="column" gap={2}>
-                {isPlaceholderData ? (
-                  <HStack w="full" justify="center">
-                    <Skeleton height="32px" width="80px" />
-                    <Skeleton height="32px" width="80px" />
-                    <Skeleton height="32px" width="80px" />
+                <CardHeader pb={0} pt={2}>
+                  <HStack
+                    mb={1}
+                    bg={`${col.priorityColor}.50`}
+                    border="1px solid"
+                    borderColor={`${col.priorityColor}.100`}
+                    px={2}
+                    py={1}
+                    borderRadius="full"
+                    width="fit-content"
+                    boxShadow="xs"
+                    gap={2}
+                  >
+                    <Box w="8px" h="8px" borderRadius="full" bg={`${col.priorityColor}.400`} />
+                    <Editable
+                      defaultValue={col.priorityName}
+                      fontSize="sm"
+                      fontWeight="semibold"
+                      onSubmit={async (newName) => {
+                        if (newName.trim() && newName !== col.priorityName) {
+                          try {
+                            await updatePriority({
+                              id: col._id || '',
+                              payload: { name: newName.trim() }
+                            });
+                            queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+                            toast({
+                              title: 'Priority updated',
+                              status: 'success',
+                              duration: 2000,
+                            });
+                          } catch (error) {
+                            toast({
+                              title: 'Error updating priority',
+                              description: (error as Error).message,
+                              status: 'error',
+                              duration: 3000,
+                            });
+                          }
+                        }
+                      }}
+                    >
+                      <EditablePreview
+                        cursor="pointer"
+                        _hover={{ bg: `${col.priorityColor}.100` }}
+                        px={1}
+                        py={0.5}
+                        borderRadius="md"
+                      />
+                      <EditableInput
+                        px={1}
+                        py={0.5}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                        onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
+                      />
+                    </Editable>
                   </HStack>
-                ) : (
-                  <>
-                    {colTotalPages > 1 && (
-                      <Pagination
-                        isPlaceholderData={isPlaceholderData}
-                        totalPages={colTotalPages}
-                        currentPage={colCurrentPage}
-                        onPageChange={(page) => handlePageChange(col._id || '', page)}
-                      />
-                    )}
-                    <Box w="full" pr={1}>
-                      <QuickAddPatientButton 
-                        key={col._id}
-                        priorityId={col._id || ''}
-                        priorityName={col.priorityName || ''}
-                        priorityColor={col.priorityColor}
-                        onSuccess={() => {
-                          queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
-                        }}
-                      />
-                    </Box>
-                  </>
-                )}
-              </CardFooter>
-            </Card>
+                </CardHeader>
 
-            {!isLoadingColumns && isLast && <AfterPaint on={() => setLastColPainted(true)} />}
-          </Fade>
-        );
-      })}
+                <CardBody p={3} overflowY="auto">
+                  {isLoadingColumns ? (
+                    <Stack spacing={3}>
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Box key={i} p={4} borderRadius="xl" border="1px" borderColor="gray.100" boxShadow="xs" bg="white">
+                          <HStack mb={2}>
+                            <SkeletonCircle size="4" />
+                            <Skeleton height="14px" width="40%" />
+                          </HStack>
+                          <Skeleton height="18px" mb={2} />
+                          <Skeleton height="14px" />
+                        </Box>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <SortableContext items={items} strategy={verticalListSortingStrategy}>
+                      {paginatedPatients.length > 0 ? (
+                        paginatedPatients.map((item) => {
+                          // ✅ ID único: appointmentId|slotId (solo si slotId existe)
+                          const slotId = item.selectedAppDates?.[0]?._id;
+                          const uniqueId = slotId ? `${item._id}|${slotId}` : item._id;
+                          return (
+                            <SortableItem key={uniqueId} id={uniqueId}>
+                              <AppointmentCard
+                                item={item}
+                                priorityColor={col.priorityColor}
+                                onCardClick={onCardClick}
+                                inlineUndo={showUndo && historyRef.current.length > 0 && uniqueId === lastMovedId}
+                                onUndo={handleUndo}
+                                onArchiveSuccess={handleArchiveSuccess}
+                              />
+                            </SortableItem>
+                          );
+                        })
+                      ) : (
+                        <SortableItem id={`placeholder-${col._id}`}>
+                          <Box
+                            textAlign="center"
+                            color="gray.400"
+                            fontStyle="italic"
+                            border="2px dashed"
+                            borderColor="gray.200"
+                            borderRadius="xl"
+                            py={6}
+                            bg="gray.50"
+                          >
+                            Drop items here
+                          </Box>
+                        </SortableItem>
+                      )}
+                    </SortableContext>
+                  )}
+                </CardBody>
 
+                <CardFooter minH="50px" p={3} display="flex" flexDirection="column" gap={2}>
+                  {isPlaceholderData ? (
+                    <HStack w="full" justify="center">
+                      <Skeleton height="32px" width="80px" />
+                      <Skeleton height="32px" width="80px" />
+                      <Skeleton height="32px" width="80px" />
+                    </HStack>
+                  ) : (
+                    <>
+                      {colTotalPages > 1 && (
+                        <Pagination
+                          isPlaceholderData={isPlaceholderData}
+                          totalPages={colTotalPages}
+                          currentPage={colCurrentPage}
+                          onPageChange={(page) => handlePageChange(col._id || '', page)}
+                        />
+                      )}
+                      <Box w="full" pr={1}>
+                        <QuickAddPatientButton
+                          key={col._id}
+                          priorityId={col._id || ''}
+                          priorityName={col.priorityName || ''}
+                          priorityColor={col.priorityColor}
+                          onSuccess={() => {
+                            queryClient.invalidateQueries({ queryKey: ['DraggableCards'] });
+                          }}
+                        />
+                      </Box>
+                    </>
+                  )}
+                </CardFooter>
+              </Card>
+
+              {!isLoadingColumns && isLast && <AfterPaint on={() => setLastColPainted(true)} />}
+            </Fade>
+          );
+        })}
+
+
+
+        {/* Overlay: AHORA ES LA MISMA CARD */}
+        <DragOverlay dropAnimation={dropAnimation} adjustScale={false}>
+          {activeItem ? (
+            <AppointmentCard item={activeItem} priorityColor={overlayColor} asOverlay />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+      {/* Inline undo ahora se muestra dentro de la card movida; se elimina el botón flotante global */}
+    </>
+  );
+}
+
+// Componente auxiliar para las columnas adicionales (Contacts, Pending, Declined, Archived)
+export function AdditionalColumns({
+  dataContacts,
+  dataPending,
+  dataDeclined,
+  dataArchived,
+  isPlaceholderData,
+  onCardClick,
+  lastColPainted,
+  isLoadingContacts,
+  isLoadingPending,
+  isLoadingDeclined,
+  isLoadingArchived,
+  sourceContacts,
+  sourcePending,
+  sourceDeclined,
+  sourceArchived,
+  filteredItems,
+  setFilteredItems,
+  filteredPending,
+  setFilteredPending,
+  filteredDeclined,
+  setFilteredDeclined,
+  filteredArchived,
+  setFilteredArchived,
+  searchRef,
+  pendingSearchRef,
+  declinedSearchRef,
+  highlightPending,
+  pendingCardRef,
+  showUndo,
+  historyRef,
+  lastMovedId,
+  handleUndo,
+  handleArchiveSuccess,
+  handleUnarchiveSuccess,
+}: any) {
+  return (
+    <>
       {/* Contacts */}
       {lastColPainted && (
         <Fade in>
@@ -1637,9 +1806,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             pb={2}
             minW="280px"
             flex="0 0 auto"
-            minHeight="300px"
-            height="520px"
-            maxHeight="620px"
+            height="100%"
             borderRadius="2xl"
             position="relative"
             mr={4}
@@ -1714,7 +1881,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                   ))}
                 </Stack>
               ) : (
-                (sourceContacts).map((item) => (
+                (sourceContacts).map((item: Appointment) => (
                   <Box
                     key={`${item._id}-box`}
                     userSelect="none"
@@ -1788,9 +1955,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             pb={2}
             minW="280px"
             flex="0 0 auto"
-            minHeight="300px"
-            height="520px"
-            maxHeight="620px"
+            height="100%"
             borderRadius="2xl"
             position="relative"
             mr={4}
@@ -1862,7 +2027,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               )}
 
               {(sourcePending)
-                .map((item) => (
+                .map((item: Appointment) => (
                   <Box key={`${item._id}-pending-card`} onClick={() => onCardClick?.(item)}>
                     <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Pending" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} onArchiveSuccess={handleArchiveSuccess} />
                   </Box>
@@ -1881,9 +2046,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             pb={2}
             minW="280px"
             flex="0 0 auto"
-            minHeight="300px"
-            height="520px"
-            maxHeight="620px"
+            height="100%"
             borderRadius="2xl"
             position="relative"
             mr={4}
@@ -1955,7 +2118,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
               )}
 
               {(sourceDeclined)
-                .map((item) => (
+                .map((item: Appointment) => (
                   <Box key={`${item._id}-declined-card`} onClick={() => onCardClick?.(item)}>
                     <AppointmentCard item={item} onCardClick={onCardClick} statusOverride="Declined" inlineUndo={showUndo && historyRef.current.length > 0 && item._id === lastMovedId} onUndo={handleUndo} onArchiveSuccess={handleArchiveSuccess} />
                   </Box>
@@ -1974,9 +2137,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
             pb={2}
             minW="280px"
             flex="0 0 auto"
-            minHeight="300px"
-            height="520px"
-            maxHeight="620px"
+            height="100%"
             borderRadius="2xl"
             position="relative"
             mr={4}
@@ -2038,7 +2199,7 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                 <SearchBar ref={searchRef} data={dataArchived || []} onFilter={setFilteredArchived} who="contact" />
               )}
 
-              {(sourceArchived).map((item) => (
+              {(sourceArchived).map((item: Appointment) => (
                 <Box
                   onClick={() => onCardClick?.(item)}
                   key={`${item._id}-box`}
@@ -2059,9 +2220,9 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
                     <GridItem>
                       <HStack justify="space-between" align="center">
                         <Text fontWeight="semibold" textTransform="capitalize">{item.nameInput} {item.lastNameInput}</Text>
-                        <UnarchiveItemButton 
-                          id={item._id ?? ""} 
-                          modelName="Appointment" 
+                        <UnarchiveItemButton
+                          id={item._id ?? ""}
+                          modelName="Appointment"
                           onSuccess={handleUnarchiveSuccess}
                         />
                       </HStack>
@@ -2082,15 +2243,6 @@ export default function DraggableColumns({ onCardClick, dataAP2, dataContacts, i
           </Card>
         </Fade>
       )}
-
-      {/* Overlay: AHORA ES LA MISMA CARD */}
-      <DragOverlay dropAnimation={dropAnimation} adjustScale={false}>
-        {activeItem ? (
-                  <AppointmentCard item={activeItem} priorityColor={overlayColor} asOverlay />
-        ) : null}
-      </DragOverlay>
-    </DndContext>
-    {/* Inline undo ahora se muestra dentro de la card movida; se elimina el botón flotante global */}
     </>
   );
 }

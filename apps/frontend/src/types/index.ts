@@ -593,3 +593,5 @@ export type HashtagMentionInputProps = {
   debounceMs?: number;
   rows?: number;
 };
+
+export type { DateRange };

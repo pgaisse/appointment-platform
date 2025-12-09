@@ -75,6 +75,12 @@ const SelectedAppDateSchema = new Schema({
   providerNotes: { type: String, default: '' },
   needsScheduling: { type: Boolean, default: true }, // indica si el slot necesita que se le asigne una fecha
   
+  // ⬇️ Labels: array de IDs de etiquetas del sistema Topic (compartido con Organizer)
+  // Los labels están embebidos en Topic.labels[] como subdocumentos, no son una colección separada
+  // Por lo tanto, almacenamos solo los `id` (strings) que referencian Topic.labels[].id
+  // Frontend hace lookup manual usando useTopicLabels() para obtener los datos completos
+  labels: [{ type: String, trim: true }], // array de label.id strings (e.g., ['mfnjyoh1kegr44', 'abc123xyz'])
+  
   // Sentinel para conservar la ventana ORIGINAL sobre la cual se generó la propuesta
   origin: {
     startDate: { type: Date }, // copia inmutable de startDate previo a la primera propuesta

@@ -16,9 +16,15 @@ import {
   Divider,
   Alert,
   AlertIcon,
+  useColorModeValue,
   useToast,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
 } from '@chakra-ui/react';
-import { MdExpandMore, MdExpandLess } from 'react-icons/md';
+import { MdEdit, MdSettings } from 'react-icons/md';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -34,6 +40,7 @@ import { useProviderSchedule } from '@/Hooks/Query/useProviderSchedule';
 import { useProviderAppointments } from '@/Hooks/Query/useProviderAppointments';
 import { useGetCollection } from '@/Hooks/Query/useGetCollection';
 import type { Provider, Treatment, Priority } from '@/types';
+import LabelChip from '../Kanban/LabelChip';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -64,6 +71,7 @@ export type DateRange = {
   providers?: string[]; // ObjectId refs
   duration?: number; // Duration in MINUTES (not hours)
   providerNotes?: string;
+  labels?: string[]; // Label IDs assigned to this slot
 };
 
 export type PendingAssignment = {
@@ -194,7 +202,8 @@ function ProviderRow({
 }
 
 // Provider row with schedule and appointment conflict check
-function ProviderRowWithAvailabilityCheck({
+// Memoized to prevent hook order issues when list changes
+const ProviderRowWithAvailabilityCheck = React.memo(function ProviderRowWithAvailabilityCheck({
   p,
   slot,
   onAdd,
@@ -269,7 +278,7 @@ function ProviderRowWithAvailabilityCheck({
       }
     />
   );
-}
+});
 
 // Main component
 export default function AppointmentSlotEditor({
@@ -283,6 +292,10 @@ export default function AppointmentSlotEditor({
   globalDuration,
   globalTreatmentId,
   globalPriorityId,
+  globalLabels,
+  initialSlotId,
+  onSubmitSlots,
+  onOpenLabelManager,
 }: {
   mode: 'CREATION' | 'EDITION';
   tz?: string;
@@ -294,6 +307,10 @@ export default function AppointmentSlotEditor({
   globalDuration?: number;
   globalTreatmentId?: string;
   globalPriorityId?: string;
+  globalLabels?: Array<{ id: string; name: string; color?: string }>;
+  initialSlotId?: string;
+  onSubmitSlots?: () => void;
+  onOpenLabelManager?: () => void;
 }) {
   const toast = useToast();
   const { data: allProviders = [] } = useProvidersList({ active: true });
@@ -326,6 +343,27 @@ export default function AppointmentSlotEditor({
 
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [expandedSlots, setExpandedSlots] = useState<Record<number, boolean>>({});
+  const [tabIndex, setTabIndex] = useState(0);
+
+  // Ajustar tab inicial según initialSlotId cuando lleguen slots nuevos
+  React.useEffect(() => {
+    if (!selectedAppDates?.length) {
+      setTabIndex(0);
+      return;
+    }
+
+    if (!initialSlotId) {
+      setTabIndex(0);
+      return;
+    }
+
+    const idx = selectedAppDates.findIndex((slot) => {
+      const id = (slot as any)?._id || (slot as any)?.slotId;
+      return id && String(id) === String(initialSlotId);
+    });
+
+    setTabIndex(idx >= 0 ? idx : 0);
+  }, [initialSlotId, selectedAppDates?.length]);
 
   // Toggle slot expansion
   const toggleSlot = useCallback((idx: number) => {
@@ -373,7 +411,8 @@ export default function AppointmentSlotEditor({
   const lastGlobalValuesRef = React.useRef({ 
     treatmentId: globalTreatmentId, 
     priorityId: globalPriorityId, 
-    duration: globalDuration 
+    duration: globalDuration,
+    labels: globalLabels,
   });
 
   // Initialize slots with global values - runs when global values change or slots are added
@@ -391,7 +430,8 @@ export default function AppointmentSlotEditor({
       lastGlobalValuesRef.current = { 
         treatmentId: globalTreatmentId, 
         priorityId: globalPriorityId, 
-        duration: globalDuration 
+        duration: globalDuration,
+        labels: globalLabels,
       };
     }
 
@@ -408,6 +448,12 @@ export default function AppointmentSlotEditor({
       }
       if (slot.duration === undefined && globalDuration !== undefined) {
         updates.duration = globalDuration;
+      }
+      if ((!slot.labels || slot.labels.length === 0) && globalLabels && globalLabels.length > 0) {
+        // Extract label IDs from label objects
+        updates.labels = globalLabels
+          .map(l => typeof l === 'string' ? l : l.id)
+          .filter(id => id !== undefined && id !== null && id !== '');
       }
       
       // Apply updates if any
@@ -547,11 +593,28 @@ export default function AppointmentSlotEditor({
   }
 
   return (
-    <Box mt={4} p={3} borderWidth="1px" borderRadius="md" bg="blackAlpha.50">
+    <Box mt={4} p={3} borderWidth="1px"  borderRadius="md" bg={useColorModeValue("gray.50", "gray.800")}>
       <FormControl>
-        <FormLabel mb={3}>Appointment Slots Configuration</FormLabel>
-        <VStack align="stretch" spacing={3}>
-          {selectedAppDates.map((slot, idx) => {
+        <FormLabel color="blue.600" mb={3}>Appointment Slots Configuration</FormLabel>
+        <Tabs
+          variant="enclosed"
+          size="sm"
+          isLazy
+          index={tabIndex}
+          onChange={setTabIndex}
+        >
+          <TabList>
+            {selectedAppDates.map((slot, idx) => {
+              const s = dayjs.utc(slot.startDate).tz(tz);
+              return (
+                <Tab key={`tab-${idx}-${s.valueOf()}`} fontSize="xs">
+                  {s.format('DD MMM · HH:mm')}
+                </Tab>
+              );
+            })}
+          </TabList>
+          <TabPanels>
+            {selectedAppDates.map((slot, idx) => {
             const s = dayjs.utc(slot.startDate).tz(tz);
             const e = dayjs.utc(slot.endDate).tz(tz);
             const sameDay = s.format('YYYY-MM-DD') === e.format('YYYY-MM-DD');
@@ -588,14 +651,32 @@ export default function AppointmentSlotEditor({
             // Calculate duration for display (duration is stored in minutes)
             const slotDuration = slot.duration ? Math.round(slot.duration) : null;
 
+            // Filter available providers (no useMemo here to avoid hook issues)
+            const availableProvidersForSlot = allProviders.filter((p: any) => {
+              // Filter out already assigned
+              const alreadyAssigned = assignmentsForSlot.some((ap: any) => {
+                const assignedProviderId = typeof ap.provider === 'object' ? ap.provider._id : ap.provider;
+                return String(p._id) === String(assignedProviderId);
+              });
+              if (alreadyAssigned) return false;
+
+              // Filter out already pending
+              if (pendingAssignmentsForSlot.length) {
+                const alreadyPending = pendingAssignmentsForSlot.some(
+                  (pa) => String(pa.providerId) === String(p._id)
+                );
+                if (alreadyPending) return false;
+              }
+              return true;
+            });
+
             return (
-              <Box key={`slot-${idx}-${s.valueOf()}`} borderWidth="1px" borderRadius="md" p={3} bg="white">
+              <TabPanel key={`slot-${idx}-${s.valueOf()}`} px={0}>
+              <Box borderWidth="1px" borderRadius="md" p={3} bg={useColorModeValue("gray.50", "gray.800")}>
                 {/* Header */}
                 <HStack justify="space-between" mb={2}>
                   <HStack spacing={3} flex={1} flexWrap="wrap">
-                    <Badge colorScheme={colorScheme} fontSize="xs">
-                      Slot {idx + 1}
-                    </Badge>
+                    
                     <Text fontSize="sm" fontWeight="semibold">
                       {displayDate} {slotDuration && `(${slotDuration} min)`}
                     </Text>
@@ -625,10 +706,11 @@ export default function AppointmentSlotEditor({
                     })()}
                   </HStack>
                   <IconButton
-                    aria-label="Toggle slot details"
-                    icon={isExpanded ? <MdExpandLess /> : <MdExpandMore />}
+                    aria-label="Edit slot details"
+                    icon={<MdEdit />}
                     size="sm"
                     variant="ghost"
+                    colorScheme={isExpanded ? "blue" : "gray"}
                     onClick={() => toggleSlot(idx)}
                     isDisabled={formBusy}
                   />
@@ -636,6 +718,88 @@ export default function AppointmentSlotEditor({
 
                 <Collapse in={isExpanded} animateOpacity>
                   <VStack align="stretch" spacing={4} mt={3}>
+                    {/* Start date/time editor */}
+                    <FormControl>
+                      <FormLabel fontSize="sm">Start date & time</FormLabel>
+                      <HStack spacing={2} align="flex-start">
+                        <input
+                          type="date"
+                          value={dayjs(slot.startDate).tz(tz).format('YYYY-MM-DD')}
+                          onChange={(e) => {
+                            const current = dayjs(slot.startDate).tz(tz);
+                            const [year, month, day] = e.target.value.split('-').map(Number);
+                            if (!year || !month || !day) return;
+
+                            const nextStart = current
+                              .year(year)
+                              .month(month - 1)
+                              .date(day)
+                              .toDate();
+
+                            const durationMinutes = slot.duration || globalDuration || 60;
+                            const nextEnd = dayjs(nextStart)
+                              .tz(tz)
+                              .add(durationMinutes, 'minute')
+                              .toDate();
+
+                            onSlotChange(idx, {
+                              startDate: nextStart,
+                              endDate: nextEnd,
+                              duration: durationMinutes,
+                            });
+                          }}
+                          disabled={formBusy}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            fontSize: '0.875rem',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '6px',
+                            backgroundColor: formBusy ? '#F7FAFC' : 'white',
+                          }}
+                        />
+                        <input
+                          type="time"
+                          value={dayjs(slot.startDate).tz(tz).format('HH:mm')}
+                          onChange={(e) => {
+                            const current = dayjs(slot.startDate).tz(tz);
+                            const [hour, minute] = e.target.value.split(':').map(Number);
+                            if (hour == null || minute == null) return;
+
+                            const nextStart = current
+                              .hour(hour)
+                              .minute(minute)
+                              .second(0)
+                              .millisecond(0)
+                              .toDate();
+
+                            const durationMinutes = slot.duration || globalDuration || 60;
+                            const nextEnd = dayjs(nextStart)
+                              .tz(tz)
+                              .add(durationMinutes, 'minute')
+                              .toDate();
+
+                            onSlotChange(idx, {
+                              startDate: nextStart,
+                              endDate: nextEnd,
+                              duration: durationMinutes,
+                            });
+                          }}
+                          disabled={formBusy}
+                          style={{
+                            width: '110px',
+                            padding: '8px 12px',
+                            fontSize: '0.875rem',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '6px',
+                            backgroundColor: formBusy ? '#F7FAFC' : 'white',
+                          }}
+                        />
+                      </HStack>
+                    </FormControl>
+
+                    <Divider />
+
                     {/* Treatment */}
                     <FormControl>
                       <FormLabel fontSize="sm">Treatment</FormLabel>
@@ -795,6 +959,119 @@ export default function AppointmentSlotEditor({
 
                     <Divider />
 
+                    {/* Labels */}
+                    <FormControl>
+                      <HStack justify="space-between" align="center" mb={2}>
+                        <FormLabel fontSize="sm" mb={0}>Labels</FormLabel>
+                        {onOpenLabelManager && (
+                          <IconButton
+                            aria-label="Configure labels"
+                            icon={<MdSettings />}
+                            size="xs"
+                            variant="ghost"
+                            onClick={onOpenLabelManager}
+                            isDisabled={formBusy}
+                          />
+                        )}
+                      </HStack>
+                      
+                      {(!globalLabels || globalLabels.length === 0) ? (
+                        <Box p={3} borderWidth="1px" borderRadius="md" bg="gray.50">
+                          <Text fontSize="xs" color="gray.500" textAlign="center">
+                            No labels configured.
+                            {onOpenLabelManager && (
+                              <Button
+                                size="xs"
+                                variant="link"
+                                colorScheme="blue"
+                                ml={1}
+                                onClick={onOpenLabelManager}
+                              >
+                                Create labels
+                              </Button>
+                            )}
+                          </Text>
+                        </Box>
+                      ) : (
+                        <Box
+                          p={2}
+                          borderWidth="1px"
+                          borderRadius="md"
+                          bg="gray.50"
+                          maxH="200px"
+                          overflowY="auto"
+                        >
+                          <VStack align="stretch" spacing={1}>
+                            {globalLabels
+                              .filter((label) => {
+                                // Filter out invalid labels
+                                const id = typeof label === 'string' ? label : label.id;
+                                return id !== undefined && id !== null && id !== '';
+                              })
+                              .map((label) => {
+                              const labelId = typeof label === 'string' ? label : label.id;
+                              const labelName = typeof label === 'string' ? label : label.name;
+                              const labelColor = (typeof label === 'string' ? 'gray' : label.color) as any;
+                              
+                              const isSelected = (slot.labels || []).some(
+                                (l) => String(l) === String(labelId)
+                              );
+                              
+                              return (
+                                <HStack
+                                  key={String(labelId)}
+                                  px={2}
+                                  py={1.5}
+                                  borderRadius="md"
+                                  bg={isSelected ? 'blue.50' : 'white'}
+                                  borderWidth="1px"
+                                  borderColor={isSelected ? 'blue.300' : 'gray.200'}
+                                  cursor="pointer"
+                                  _hover={{ bg: isSelected ? 'blue.100' : 'gray.50' }}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (formBusy) return;
+                                    const current = slot.labels || [];
+                                    const next = isSelected
+                                      ? current.filter((l) => String(l) !== String(labelId))
+                                      : [...current, labelId];
+                                    onSlotChange(idx, { labels: next });
+                                  }}
+                                >
+                                  <Box
+                                    w={4}
+                                    h={4}
+                                    borderRadius="sm"
+                                    borderWidth="2px"
+                                    borderColor={isSelected ? 'blue.500' : 'gray.300'}
+                                    bg={isSelected ? 'blue.500' : 'white'}
+                                    display="flex"
+                                    alignItems="center"
+                                    justifyContent="center"
+                                    flexShrink={0}
+                                    pointerEvents="none"
+                                  >
+                                    {isSelected && (
+                                      <Box w={2} h={2} bg="white" borderRadius="sm" />
+                                    )}
+                                  </Box>
+                                  <Box pointerEvents="none">
+                                    <LabelChip
+                                      label={{ id: String(labelId), name: labelName, color: labelColor }}
+                                      withText
+                                    />
+                                  </Box>
+                                </HStack>
+                              );
+                            })}
+                          </VStack>
+                        </Box>
+                      )}
+                    </FormControl>
+
+                    <Divider />
+
                     {/* Providers */}
                     <Box>
                       <FormLabel fontSize="sm">Providers</FormLabel>
@@ -892,43 +1169,41 @@ export default function AppointmentSlotEditor({
                           {assignmentsForSlot.length > 0 || pendingAssignmentsForSlot.length > 0 ? 'Add provider' : 'Select provider'}
                         </Text>
                         <Box borderWidth="1px" borderRadius="md" maxH="180px" overflowY="auto" px={1} py={1}>
-                          {allProviders
-                            .filter((p: any) => {
-                              // Filter out already assigned
-                              const alreadyAssigned = assignmentsForSlot.some((ap: any) => {
-                                const assignedProviderId = typeof ap.provider === 'object' ? ap.provider._id : ap.provider;
-                                return String(p._id) === String(assignedProviderId);
-                              });
-                              if (alreadyAssigned) return false;
-
-                              // Filter out already pending
-                              if (pendingAssignmentsForSlot.length) {
-                                const alreadyPending = pendingAssignmentsForSlot.some(
-                                  (pa) => String(pa.providerId) === String(p._id)
-                                );
-                                if (alreadyPending) return false;
-                              }
-                              return true;
-                            })
-                            .map((p: any) => (
-                              <ProviderRowWithAvailabilityCheck
-                                key={`assign-${p._id}-${slotId}`}
-                                p={p}
-                                slot={{ startDate: slot.startDate, endDate: slot.endDate }}
-                                onAdd={(prov) => upsertAssignmentProvider(idx, String(prov._id), slot)}
-                                currentAppointmentId={appointmentId}
-                                tz={tz}
-                              />
-                            ))}
+                          {availableProvidersForSlot.map((p: any) => (
+                            <ProviderRowWithAvailabilityCheck
+                              key={`assign-${p._id}-${slotId}`}
+                              p={p}
+                              slot={{ startDate: slot.startDate, endDate: slot.endDate }}
+                              onAdd={(prov) => upsertAssignmentProvider(idx, String(prov._id), slot)}
+                              currentAppointmentId={appointmentId}
+                              tz={tz}
+                            />
+                          ))}
                         </Box>
                       </Box>
                     </Box>
+
+                    {/* Save changes button */}
+                    {onSubmitSlots && (
+                      <HStack justify="flex-end" pt={2}>
+                        <Button
+                          size="sm"
+                          colorScheme="blue"
+                          onClick={onSubmitSlots}
+                          isDisabled={formBusy}
+                        >
+                          Save changes
+                        </Button>
+                      </HStack>
+                    )}
                   </VStack>
                 </Collapse>
               </Box>
+              </TabPanel>
             );
           })}
-        </VStack>
+          </TabPanels>
+        </Tabs>
       </FormControl>
     </Box>
   );

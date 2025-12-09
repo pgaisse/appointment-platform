@@ -74,6 +74,7 @@ import AppointmentLabelManager from "@/Components/Appointments/AppointmentLabelM
 import AppointmentLabelAssigner from "@/Components/Appointments/AppointmentLabelAssigner";
 import LabelChip from "@/Components/Kanban/LabelChip";
 import { Wrap, WrapItem } from "@chakra-ui/react";
+import { SelectedAppointmentDates } from "../Appointment/SelectedAppointmentDates";
 
 // — Lazy load del ProviderSummaryModal —
 const ProviderSummaryModalLazy = React.lazy(
@@ -740,7 +741,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
 
   // Get appointment and org_id FIRST
   const appointment = data?.[0] ?? null;
-  const [localSlots, setLocalSlots] = React.useState<AppointmentSlot[]>([]);
   const orgId = appointment?.org_id;
   
   // Get shared labels (from Organizer topics)
@@ -765,15 +765,6 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
     },
     [orgId]
   );
-
-  // Sync localSlots whenever the appointment's slots change from backend
-  React.useEffect(() => {
-    if (appointment?.selectedAppDates && Array.isArray(appointment.selectedAppDates)) {
-      setLocalSlots(appointment.selectedAppDates as AppointmentSlot[]);
-    } else {
-      setLocalSlots([]);
-    }
-  }, [appointment?.selectedAppDates]);
 
 
   // Enrich contact logs (memoized with centralized logic)
@@ -801,8 +792,8 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
   
   // Deduplicated and sorted slots (memoized)
   const dedupedSlots = useMemo(
-    () => deduplicateAndSortSlots(localSlots ?? []),
-    [localSlots]
+    () => deduplicateAndSortSlots(appointment?.selectedAppDates ?? []),
+    [appointment?.selectedAppDates]
   );
   
   const displaySlot = useMemo(
@@ -813,9 +804,25 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
   // Calcular el índice del tab inicial basado en initialSlotId
   const initialTabIndex = useMemo(() => {
     if (!initialSlotId || dedupedSlots.length === 0) {
+      console.log('🔍 AppointmentModal: No initialSlotId or empty slots');
       return 0;
     }
     const index = dedupedSlots.findIndex(slot => String(slot?._id ?? '') === initialSlotId);
+    console.log('🔍 AppointmentModal calculating tab index:', {
+      initialSlotId,
+      initialSlotIdType: typeof initialSlotId,
+      dedupedSlotsCount: dedupedSlots.length,
+      dedupedSlotIds: dedupedSlots.map(s => s._id),
+      dedupedSlotIdsStrings: dedupedSlots.map(s => String(s?._id ?? '')),
+      comparisonResults: dedupedSlots.map((s, i) => ({
+        index: i,
+        slotId: String(s?._id ?? ''),
+        matches: String(s?._id ?? '') === initialSlotId,
+        exactMatch: s?._id === initialSlotId,
+      })),
+      foundIndex: index,
+      finalIndex: index >= 0 ? index : 0
+    });
     return index >= 0 ? index : 0;
   }, [initialSlotId, dedupedSlots]);
   
@@ -906,83 +913,78 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
 
   // Handler for slot changes using AppointmentSlotEditorModal
   const handleSlotChange = useCallback((slotGlobalIndex: number, updates: Partial<DateRange>) => {
-    setLocalSlots((prev) => {
-      const currentSlots = prev ?? [];
-      if (slotGlobalIndex < 0 || slotGlobalIndex >= currentSlots.length) {
-        toast({
-          title: "Invalid slot index",
-          status: "error",
-          duration: 2000,
-        });
-        return prev;
-      }
-
-      const updatedSlots = currentSlots.map((slot, idx) => {
-        if (idx !== slotGlobalIndex) return slot;
-
-        const updated: AppointmentSlot = {
-          ...slot,
-          proposed: slot.proposed ? { ...slot.proposed } : undefined,
-          confirmation: slot.confirmation ? { ...slot.confirmation } : undefined,
-        };
-
-        if (updates.startDate !== undefined) {
-          const converted = safeConvertDate(updates.startDate);
-          if (converted) updated.startDate = converted;
-        }
-
-        if (updates.endDate !== undefined) {
-          const converted = safeConvertDate(updates.endDate);
-          if (converted) updated.endDate = converted;
-        }
-
-        if (updates.treatment !== undefined) {
-          (updated as any).treatment = updates.treatment ? String(updates.treatment) : undefined;
-        }
-
-        if (updates.priority !== undefined) {
-          (updated as any).priority = updates.priority ? String(updates.priority) : undefined;
-        }
-
-        if (updates.providers !== undefined) {
-          (updated as any).providers = Array.isArray(updates.providers)
-            ? updates.providers.filter(Boolean).map(String)
-            : [];
-        }
-
-        if (updates.duration !== undefined) {
-          const dur = Number(updates.duration);
-          if (!isNaN(dur) && dur > 0) {
-            (updated as any).duration = dur;
-          }
-        }
-
-        if (updates.labels !== undefined) {
-          (updated as any).labels = Array.isArray(updates.labels)
-            ? updates.labels.filter(Boolean).map(String)
-            : [];
-        }
-
-        updated.updatedAt = new Date().toISOString();
-        return updated;
-      });
-
-      return updatedSlots;
-    });
-  }, [safeConvertDate, toast]);
-
-  const handleSaveSlots = useCallback(() => {
     if (!appointment?._id || isUpdating) return;
-
-    const original = appointment.selectedAppDates ?? [];
-    const current = localSlots ?? [];
-
-    if (JSON.stringify(original) === JSON.stringify(current)) {
+    
+    const currentSlots = appointment.selectedAppDates ?? [];
+    if (slotGlobalIndex < 0 || slotGlobalIndex >= currentSlots.length) {
       toast({
-        title: "No changes to save",
-        status: "info",
+        title: "Invalid slot index",
+        status: "error",
         duration: 2000,
       });
+      return;
+    }
+
+    const updatedSlots = currentSlots.map((slot, idx) => {
+      if (idx !== slotGlobalIndex) return slot;
+
+      // Deep clone to prevent mutations
+      const updated: AppointmentSlot = {
+        ...slot,
+        // Preserve nested objects with deep clone
+        proposed: slot.proposed ? { ...slot.proposed } : undefined,
+        confirmation: slot.confirmation ? { ...slot.confirmation } : undefined,
+      };
+
+      // Update dates with validation
+      if (updates.startDate !== undefined) {
+        const converted = safeConvertDate(updates.startDate);
+        if (converted) updated.startDate = converted;
+      }
+      
+      if (updates.endDate !== undefined) {
+        const converted = safeConvertDate(updates.endDate);
+        if (converted) updated.endDate = converted;
+      }
+      
+      // Update treatment (only store IDs, never populated objects)
+      if (updates.treatment !== undefined) {
+        (updated as any).treatment = updates.treatment ? String(updates.treatment) : undefined;
+      }
+      
+      // Update priority (only store IDs)
+      if (updates.priority !== undefined) {
+        (updated as any).priority = updates.priority ? String(updates.priority) : undefined;
+      }
+      
+      // Update providers (array of IDs with validation)
+      if (updates.providers !== undefined) {
+        (updated as any).providers = Array.isArray(updates.providers)
+          ? updates.providers.filter(Boolean).map(String)
+          : [];
+      }
+      
+      // Update duration with validation
+      if (updates.duration !== undefined) {
+        const dur = Number(updates.duration);
+        if (!isNaN(dur) && dur > 0) {
+          (updated as any).duration = dur;
+        }
+      }
+      
+      // Update labels (array of IDs with validation)
+      if (updates.labels !== undefined) {
+        (updated as any).labels = Array.isArray(updates.labels)
+          ? updates.labels.filter(Boolean).map(String)
+          : [];
+      }
+
+      updated.updatedAt = new Date().toISOString();
+      return updated;
+    });
+
+    // Validate changes were made
+    if (JSON.stringify(updatedSlots) === JSON.stringify(currentSlots)) {
       return;
     }
 
@@ -993,14 +995,14 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
           id_field: "_id",
           id_value: appointment._id,
           data: {
-            selectedAppDates: current,
+            selectedAppDates: updatedSlots,
           },
         },
       ],
       {
         onSuccess: () => {
           toast({
-            title: "Appointment slots saved",
+            title: "Slot updated successfully",
             status: "success",
             duration: 2000,
           });
@@ -1008,7 +1010,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
         },
         onError: (error) => {
           toast({
-            title: "Failed to save slots",
+            title: "Failed to update slot",
             description: error instanceof Error ? error.message : String(error),
             status: "error",
             duration: 3000,
@@ -1016,7 +1018,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
         },
       }
     );
-  }, [appointment, isUpdating, localSlots, updateAppointment, toast, refetch]);
+  }, [appointment, isUpdating, updateAppointment, toast, refetch, safeConvertDate]);
 
   const handleDeleteSlot = useCallback((slot: AppointmentSlot) => {
     setSelectedSlotForDelete(slot);
@@ -1339,7 +1341,7 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
               </VStack>
             ) : (
               <VStack align="stretch" spacing={5} w="full">
-                {/* Selected Appointment Dates - ahora usando AppointmentSlotEditorModal (tabs por startDate) */}
+                {/* Selected Appointment Dates - Componente independiente */}
                 <SectionCard
                   title={
                     <HStack>
@@ -1349,21 +1351,360 @@ const PremiumAppointmentModal: React.FC<PremiumAppointmentModalProps> = ({
                   }
                   
                 >
-                  <AppointmentSlotEditorModal
-                    mode="EDITION"
-                    tz="Australia/Sydney"
-                    selectedAppDates={localSlots as any as DateRange[]}
-                    onSlotChange={handleSlotChange}
-                    appointmentId={appointment?._id}
-                    formBusy={isUpdating}
+                  <SelectedAppointmentDates
+                    appointmentId={id}
                     initialSlotId={initialSlotId}
-                    onSubmitSlots={handleSaveSlots}
-                    globalLabels={orgLabels}
-                    onOpenLabelManager={onLabelManagerOpen}
+                    onSlotChange={handleSlotChange}
+                    onSlotDelete={handleDeleteSlot}
+                    isUpdating={isUpdating}
                   />
                 </SectionCard>
 
                 {/* Sección de Notes */}
+                          const startVal = slot?.startDate || slot?.proposed?.startDate;
+                          const displayId = displaySlot ? String(displaySlot._id ?? "") : "";
+                          const isLatest = String(slot?._id ?? '') === displayId;
+                          
+                          let dateLabel = "—";
+                          if (startVal) {
+                            try {
+                              const start = new Date(startVal);
+                              dateLabel = start.toLocaleDateString("en-AU", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric"
+                              });
+                            } catch {
+                              dateLabel = `Slot ${idx + 1}`;
+                            }
+                          } else {
+                            dateLabel = `Slot ${idx + 1}`;
+                          }
+                          
+                          return (
+                            <Tab key={slot?._id ?? idx} whiteSpace="nowrap">
+                              <HStack spacing={2}>
+                                <Text>{dateLabel}</Text>
+                                {isLatest && (
+                                  <Badge colorScheme="blue" variant="subtle" rounded="full" fontSize="xx-small">
+                                    Latest
+                                  </Badge>
+                                )}
+                              </HStack>
+                            </Tab>
+                          );
+                        })}
+                      </TabList>
+                      
+                      <TabPanels>
+                        {dedupedSlots.map((slot, idx) => {
+                          // Convertir slot a formato DateRange para AppointmentSlotEditorModal con validación robusta
+                          const dateRange: DateRange = {
+                            startDate: (() => {
+                              try {
+                                const d = slot?.startDate ? new Date(slot.startDate) : new Date();
+                                return isNaN(d.getTime()) ? new Date() : d;
+                              } catch {
+                                return new Date();
+                              }
+                            })(),
+                            endDate: (() => {
+                              try {
+                                const d = slot?.endDate ? new Date(slot.endDate) : new Date();
+                                return isNaN(d.getTime()) ? new Date() : d;
+                              } catch {
+                                return new Date();
+                              }
+                            })(),
+                            status: slot?.status,
+                            slotId: slot?._id,
+                            _id: slot?._id,
+                            // Robust ID extraction from treatment (handles both populated objects and ID strings)
+                            treatment: (() => {
+                              const t = slot?.treatment;
+                              if (!t) return undefined;
+                              if (typeof t === 'string') return t;
+                              if (typeof t === 'object' && t._id) return String(t._id);
+                              return undefined;
+                            })(),
+                            // Robust ID extraction from priority
+                            priority: (() => {
+                              const p = slot?.priority;
+                              if (!p) return undefined;
+                              if (typeof p === 'string') return p;
+                              if (typeof p === 'object' && p._id) return String(p._id);
+                              return undefined;
+                            })(),
+                            // Safe provider ID extraction
+                            providers: (slot?.providers ?? []).map(p => {
+                              if (typeof p === 'string') return p;
+                              if (typeof p === 'object' && p?._id) return String(p._id);
+                              return null;
+                            }).filter((p): p is string => p !== null),
+                            // Robust duration calculation with multiple fallbacks
+                            duration: (() => {
+                              // 1. Priority: explicit duration on slot
+                              const slotAny = slot as any;
+                              if (slotAny?.duration && !isNaN(Number(slotAny.duration))) {
+                                return Math.round(Number(slotAny.duration));
+                              }
+                              
+                              // 2. Calculate from dates
+                              if (slot?.startDate && slot?.endDate) {
+                                try {
+                                  const start = new Date(slot.startDate).getTime();
+                                  const end = new Date(slot.endDate).getTime();
+                                  if (!isNaN(start) && !isNaN(end) && end > start) {
+                                    return Math.round((end - start) / (1000 * 60));
+                                  }
+                                } catch {}
+                              }
+                              
+                              // 3. From treatment (only if populated)
+                              const treatment = slot?.treatment;
+                              if (treatment && typeof treatment === 'object' && treatment.duration) {
+                                const dur = Number(treatment.duration);
+                                if (!isNaN(dur)) return Math.round(dur);
+                              }
+                              
+                              // 4. Safe default
+                              return 60;
+                            })(),
+                            // Extract label IDs from slot (support both string[] and populated objects)
+                            labels: (() => {
+                              const slotAny = slot as any;
+                              if (!slotAny?.labels || !Array.isArray(slotAny.labels)) return [];
+                              return slotAny.labels.map((l: any) => {
+                                if (typeof l === 'string') return l;
+                                if (typeof l === 'object' && l?.id) return l.id;
+                                if (typeof l === 'object' && l?._id) return String(l._id);
+                                return null;
+                              }).filter((id: any): id is string => typeof id === 'string' && id.length > 0);
+                            })(),
+                          };
+
+                          return (
+                            <TabPanel key={slot?._id ?? idx} px={0} pt={4}>
+                              <VStack align="stretch" spacing={4}>
+                                {/* Status badges */}
+                                <HStack spacing={2} flexWrap="wrap">
+                                  <Badge 
+                                    rounded="full" 
+                                    colorScheme={slot?.status ? (SLOT_STATUS_COLOR[slot.status.toLowerCase()] || 'gray') : 'gray'}
+                                    fontSize="sm" 
+                                    px={3} 
+                                    py={1}
+                                  >
+                                    {slot?.status || 'Unknown'}
+                                  </Badge>
+                                  {slot?.rescheduleRequested && (
+                                    <Badge colorScheme="orange" rounded="full" fontSize="sm" px={3} py={1}>
+                                      Reschedule requested
+                                    </Badge>
+                                  )}
+                                  {String(slot?._id ?? '') === String(displaySlot?._id ?? "") && (
+                                    <Badge colorScheme="blue" variant="subtle" rounded="full" fontSize="sm" px={3} py={1}>
+                                      Latest
+                                    </Badge>
+                                  )}
+                                  <Tooltip label="Delete slot">
+                                    <IconButton
+                                      icon={<FiTrash2 />}
+                                      size="sm"
+                                      variant="ghost"
+                                      colorScheme="red"
+                                      aria-label="Delete slot"
+                                      onClick={() => handleDeleteSlot(slot)}
+                                      ml="auto"
+                                    />
+                                  </Tooltip>
+                                </HStack>
+
+                                {/* Date/Time Controls - Editable */}
+                                <Box
+                                  bg={slotDateBg}
+                                  p={4}
+                                  rounded="lg"
+                                  mb={4}
+                                  borderWidth="1px"
+                                  borderColor={slotDateBorder}
+                                >
+                                  <VStack align="stretch" spacing={3}>
+                                    <HStack>
+                                      <Icon as={FiCalendar} color="blue.500" />
+                                      <Text fontSize="sm" fontWeight="bold" color="blue.600">
+                                        Appointment Date & Time
+                                      </Text>
+                                    </HStack>
+
+                                    {/* Start Date & Time */}
+                                    <VStack align="stretch" spacing={2}>
+                                      <Text fontSize="xs" fontWeight="semibold" textTransform="uppercase" color={slotDateTextColor}>
+                                        📅 Start Date & Time
+                                      </Text>
+                                      <HStack spacing={2}>
+                                        <Input
+                                          type="date"
+                                          value={formatDateInput(dateRange.startDate)}
+                                          onChange={(e) => {
+                                            if (!e.target.value) return;
+                                            
+                                            const [year, month, day] = e.target.value.split('-').map(Number);
+                                            if (isNaN(year) || isNaN(month) || isNaN(day)) return;
+                                            
+                                            try {
+                                              const currentStart = new Date(dateRange.startDate);
+                                              const newStart = new Date(
+                                                year, 
+                                                month - 1, 
+                                                day, 
+                                                currentStart.getHours(), 
+                                                currentStart.getMinutes()
+                                              );
+                                              
+                                              if (isNaN(newStart.getTime())) return;
+                                              
+                                              const duration = dateRange.duration || 60;
+                                              const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
+                                              
+                                              handleSlotChange(idx, {
+                                                startDate: newStart,
+                                                endDate: newEnd,
+                                              });
+                                            } catch (error) {
+                                              // Error updating date
+                                            }
+                                          }}
+                                          size="md"
+                                          flex={2}
+                                          disabled={isUpdating}
+                                        />
+                                        <Input
+                                          type="time"
+                                          value={formatTimeInput(dateRange.startDate)}
+                                          onChange={(e) => {
+                                            if (!e.target.value) return;
+                                            
+                                            const [hours, minutes] = e.target.value.split(':').map(Number);
+                                            if (isNaN(hours) || isNaN(minutes)) return;
+                                            
+                                            try {
+                                              const currentStart = new Date(dateRange.startDate);
+                                              const newStart = new Date(
+                                                currentStart.getFullYear(), 
+                                                currentStart.getMonth(), 
+                                                currentStart.getDate(), 
+                                                hours, 
+                                                minutes
+                                              );
+                                              
+                                              if (isNaN(newStart.getTime())) return;
+                                              
+                                              const duration = dateRange.duration || 60;
+                                              const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
+                                              
+                                              handleSlotChange(idx, {
+                                                startDate: newStart,
+                                                endDate: newEnd,
+                                              });
+                                            } catch (error) {
+                                              // Error updating time
+                                            }
+                                          }}
+                                          size="md"
+                                          flex={1}
+                                          disabled={isUpdating}
+                                        />
+                                      </HStack>
+                                    </VStack>
+                                  </VStack>
+                                </Box>
+
+                                {/* Labels Section */}
+                                <Box
+                                  bg={labelBoxBg}
+                                  p={4}
+                                  rounded="lg"
+                                >
+                                  <HStack justify="space-between" mb={3}>
+                                    <Text fontSize="sm" fontWeight="bold" color={labelBoxTextColor}>
+                                      🏷️ Labels
+                                    </Text>
+                                    <Button 
+                                      size="xs" 
+                                      onClick={onLabelManagerOpen}
+                                      colorScheme="purple"
+                                      variant="outline"
+                                    >
+                                      Manage Labels
+                                    </Button>
+                                  </HStack>
+                                  
+                                  <VStack align="stretch" spacing={3}>
+                                    <AppointmentLabelAssigner
+                                      orgLabels={orgLabels}
+                                      value={dateRange.labels || []}
+                                      onChange={(labelIds) => {
+                                        console.log('🏷️ Labels changed:', { slotIndex: idx, labelIds, orgLabels });
+                                        handleSlotChange(idx, { labels: labelIds });
+                                      }}
+                                      onCreateRequested={onLabelManagerOpen}
+                                    />
+                                    
+                                    {/* Preview of assigned labels */}
+                                    {(dateRange.labels || []).length > 0 && (
+                                      <Box
+                                        p={3}
+                                        bg={labelPreviewBg}
+                                        rounded="md"
+                                        borderWidth="1px"
+                                        borderColor={labelPreviewBorder}
+                                      >
+                                        <Text fontSize="xs" color="gray.500" mb={2} fontWeight="semibold">
+                                          Assigned labels:
+                                        </Text>
+                                        <Wrap spacing={2}>
+                                          {(dateRange.labels || []).map(labelId => {
+                                            const label = orgLabels.find(l => l.id === labelId);
+                                            return label ? (
+                                              <WrapItem key={labelId}>
+                                                <LabelChip label={label} withText size="sm" />
+                                              </WrapItem>
+                                            ) : null;
+                                          })}
+                                        </Wrap>
+                                      </Box>
+                                    )}
+                                  </VStack>
+                                </Box>
+
+                                {/* AppointmentSlotEditorModal integration */}
+                                <Box
+                                  bg={editorBoxBg}
+                                  p={4}
+                                  rounded="lg"
+                                >
+                                  <AppointmentSlotEditorModal
+                                    mode="EDITION"
+                                    tz="Australia/Sydney"
+                                    selectedAppDates={[dateRange]}
+                                    onSlotChange={(_slotIndex, updates) => {
+                                      // _slotIndex será siempre 0 porque solo pasamos un slot
+                                      handleSlotChange(idx, updates);
+                                    }}
+                                    appointmentId={appointment?._id}
+                                    formBusy={isUpdating}
+                                    onPendingAssignmentsChange={() => {}}
+                                  />
+                                </Box>
+                              </VStack>
+                            </TabPanel>
+                          );
+                        })}
+                      </TabPanels>
+                    </Tabs>
+                  )}
+                </SectionCard>
 
                 {/* Sección de Notes */}
                 <SimpleGrid columns={{ base: 1, md: 2 }} spacing={5}>

@@ -70,21 +70,39 @@ interface Props {
   value?: string; // Treatment ID
   onChange?: (treatmentId: string, treatment?: Treatment) => void;
   isDisabled?: boolean;
+  treatments?: Treatment[]; // Optional external treatments
 }
 
 export const TreatmentPopoverSelector: React.FC<Props> = ({
   value,
   onChange,
   isDisabled = false,
+  treatments: externalTreatments,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   
-  const { data: treatments = [], isSuccess, isFetching } = useGetCollection<Treatment>(
+  const { data: fetchedTreatments = [], isSuccess: isFetchSuccess, isFetching } = useGetCollection<Treatment>(
     'Treatment',
-    { query: {}, limit: 50 }
+    { query: {}, limit: 50 },
+    { enabled: !externalTreatments } // Only fetch if no external treatments provided
   );
+  
+  // Use external treatments if provided, otherwise use fetched treatments
+  const treatments = externalTreatments || fetchedTreatments;
+  const isSuccess = externalTreatments ? true : isFetchSuccess;
 
-  const selectedTreatment = treatments.find((t) => t._id === value);
+  const selectedTreatment = treatments.find((t) => String(t._id) === String(value));
+  
+  console.log('🏥 TreatmentPopoverSelector Debug:', {
+    value,
+    valueType: typeof value,
+    treatmentsCount: treatments.length,
+    treatmentIds: treatments.map(t => ({ id: t._id, type: typeof t._id, stringId: String(t._id), org_id: t.org_id })),
+    selectedTreatment: selectedTreatment?.name || 'NOT FOUND',
+    selectedTreatmentOrgId: selectedTreatment?.org_id,
+    matchFound: !!selectedTreatment,
+    usingExternalTreatments: !!externalTreatments,
+  });
 
   const handleSelect = (treatment: Treatment) => {
     onChange?.(treatment._id ?? '', treatment);
@@ -162,7 +180,7 @@ export const TreatmentPopoverSelector: React.FC<Props> = ({
               <VStack spacing={1} align="stretch">
                 {treatments.map((treatment) => {
                   const IconComponent = getIconComponent(treatment.icon);
-                  const isSelected = value === treatment._id;
+                  const isSelected = String(value) === String(treatment._id);
 
                   return (
                     <Box
