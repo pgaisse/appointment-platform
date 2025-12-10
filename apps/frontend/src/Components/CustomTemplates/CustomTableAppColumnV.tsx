@@ -113,14 +113,16 @@ const CustomTableAppColumnV = () => {
     onOpen();
   };
 
-  // Efecto para convertir scroll vertical en horizontal
+  // Efecto para manejar scroll horizontal con mouse (vertical y horizontal)
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       const container = e.currentTarget as HTMLDivElement;
       // Solo si hay scroll horizontal disponible
       if (container.scrollWidth > container.clientWidth) {
         e.preventDefault();
-        container.scrollLeft += e.deltaY;
+        // Soporte para scroll vertical (deltaY) y horizontal (deltaX) del mouse
+        const scrollAmount = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+        container.scrollLeft += scrollAmount;
       }
     };
 

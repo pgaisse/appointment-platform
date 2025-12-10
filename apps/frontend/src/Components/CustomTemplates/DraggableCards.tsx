@@ -404,7 +404,15 @@ const AppointmentCard: React.FC<{
 
                 return (
                   <Tooltip key={`${labelId}-${idx}`} label={label.name} placement="top" hasArrow>
-                    <Box h="6px" w="38px" rounded="full" bg={label.color} />
+                    <Box 
+                      h="6px" 
+                      w="38px" 
+                      rounded="full" 
+                      bg={label.color}
+                      transition="transform 0.2s ease"
+                      _hover={{ transform: 'scale(1.15)' }}
+                      cursor="pointer"
+                    />
                   </Tooltip>
                 );
               })}
